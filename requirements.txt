@@ -17,8 +17,13 @@ hydra-optuna-sweeper==1.2.0
 # aim>=3.16.2  # no lower than 3.16.2, see https://github.com/aimhubio/aim/issues/2550
 
 # --------- others --------- #
-rootutils       # standardizing the project root setup
+rootutils~=1.0.7
 pre-commit      # hooks for applying linters on commit
-rich            # beautiful text formatting in terminal
-pytest          # tests
+rich~=13.3.5
+pytest~=7.4.2
 # sh            # for running bash commands in some tests (linux/macos only)
+
+proteinflow~=2.4.0
+omegaconf~=2.3.0
+packaging~=21.3
+setuptools~=41.2.0
