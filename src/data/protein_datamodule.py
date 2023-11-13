@@ -27,6 +27,45 @@ class TransformDataset(torch.utils.data.Dataset):
         return self.dataset.__len__()
 
 
+class Reorder(torch.nn.Module):
+    """A transformation that reorders the 3D coordinates of backbone atoms
+    from N, C, Ca, O -> N, Ca, C, O."""
+
+    def forward(self, protein_dict):
+        raise NotImplementedError
+
+
+class Cropper(torch.nn.Module):
+    """A transformation that crops the protein elements."""
+
+    def __init__(self, crop_size: int = 384):
+        super().__init__()
+        self.crop_size = crop_size
+
+    def forward(self, protein_dict: dict):
+        """Crop the protein
+        :param protein_dict: the protein dictionary with the elements
+         - `'X'`: 3D coordinates of N, C, Ca, O, `(total_L, 4, 3)`,
+         - `'S'`: sequence indices (shape `(total_L)`),
+         - `'mask'`: residue mask (0 where coordinates are missing, 1 otherwise; with interpolation 0s are
+                     replaced with 1s), `(total_L)`,
+         - `'mask_original'`: residue mask (0 where coordinates are missing, 1 otherwise; not changed with
+                              interpolation), `(total_L)`,
+         - `'residue_idx'`: residue indices (from 0 to length of sequence, +100 where chains change),
+                            `(total_L)`,
+         - `'chain_encoding_all'`: chain indices, `(total_L)`,
+         - `'chain_id`': a sampled chain index,
+         - `'chain_dict'`: a dictionary of chain ids (keys are chain ids, e.g. `'A'`, values are the indices
+                           used in `'chain_id'` and `'chain_encoding_all'` objects)
+        """
+        n_res = protein_dict['residue_idx'].shape[0]
+        n = n_res - self.crop_size
+        crop_start = torch.randint(low=0, high=n, size=())
+        for key, value in protein_dict.items():
+            protein_dict[key] = value[crop_start:crop_start + self.crop_size]
+        return protein_dict
+
+
 class ProteinDataModule(LightningDataModule):
     """`LightningDataModule` for the Protein Data Bank.
 
