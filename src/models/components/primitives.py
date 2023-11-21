@@ -22,7 +22,6 @@ import torch.nn as nn
 from scipy.stats import truncnorm
 from src.utils.checkpointing import get_checkpoint_fn
 # from src.utils.chunk_utils import _chunk_slice
-from src.utils.kernel.attention_core import attention_core
 from src.utils.precision_utils import is_fp16_enabled
 from src.utils.tensor_utils import (
     permute_final_dims,
@@ -488,8 +487,12 @@ class Attention(nn.Module):
                     "If use_memory_efficient_kernel is True, you may only "
                     "provide up to two bias terms"
                 )
-            o = attention_core(q, k, v, *((biases + [None] * 2)[:2]))
-            o = o.transpose(-2, -3)
+            raise NotImplementedError(
+                "Memory-efficient kernel is not implemented. This had to be removed "
+                "because it was creating problems with attn_core_inplace_cuda."
+            )
+            # o = attention_core(q, k, v, *((biases + [None] * 2)[:2]))
+            # o = o.transpose(-2, -3)
         elif use_lma:
             biases = [
                 b.expand(b.shape[:-2] + (q_x.shape[-2],) + (kv_x.shape[-2],))
