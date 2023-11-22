@@ -84,7 +84,7 @@ class TriangleMultiplicativeUpdate(nn.Module):
     def forward(self, z, mask=None):
         """
             Args:
-                x:
+                z:
                     [*, N_res, N_res, C_z] input tensor
                 mask:
                     [*, N_res, N_res] input mask
