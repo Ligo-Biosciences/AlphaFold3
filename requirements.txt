@@ -30,7 +30,7 @@ pytest~=7.4.2
 
 proteinflow~=2.4.0
 omegaconf~=2.3.0
-packaging~=21.3
+packaging~=23.2
 setuptools~=41.2.0
 numpy~=1.23.0
 scipy~=1.8.1
