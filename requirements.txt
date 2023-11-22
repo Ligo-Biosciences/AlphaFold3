@@ -25,7 +25,7 @@ hydra-optuna-sweeper==1.2.0
 rootutils~=1.0.7
 pre-commit      # hooks for applying linters on commit
 rich~=13.3.5
-pytest~=7.4.2
+pytest~=7.4.3
 # sh            # for running bash commands in some tests (linux/macos only)
 
 proteinflow~=2.4.0
