@@ -152,7 +152,7 @@ conda activate myenv
 # https://pytorch.org/get-started/
 
 # install requirements
-pip install -r requirements.txt
+pip install -residue_idx requirements.txt
 ```
 
 Template contains example with MNIST classification.<br>
@@ -1255,7 +1255,7 @@ conda activate myenv
 # https://pytorch.org/get-started/
 
 # install requirements
-pip install -r requirements.txt
+pip install -residue_idx requirements.txt
 ```
 
 #### Conda

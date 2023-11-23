@@ -904,8 +904,8 @@ class Rigids:
 
             E.g.::
 
-                r = Rotations(rot_mats=torch.rand(10, 10, 3, 3), quats=None)
-                t = Rigid(r, torch.rand(10, 10, 3))
+                residue_idx = Rotations(rot_mats=torch.rand(10, 10, 3, 3), quats=None)
+                t = Rigid(residue_idx, torch.rand(10, 10, 3))
                 indexed = t[3, 4:6]
                 assert(indexed.shape == (2,))
                 assert(indexed.get_rots().shape == (2,))

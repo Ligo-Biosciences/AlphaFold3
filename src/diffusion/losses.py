@@ -15,7 +15,7 @@ def compute_fape_squared(
         eps=1e-8,
 ) -> torch.Tensor:
     """
-        Computes FAPE loss.
+        Computes squared FAPE loss.
 
         Args:
             pred_frames:
@@ -33,7 +33,7 @@ def compute_fape_squared(
             length_scale:
                 Length scale by which the loss is divided
             l2_clamp_distance:
-                Cutoff above which distance errors are disregarded
+                Cutoff above which squared distance errors are disregarded.
             eps:
                 Small value used to regularize denominators
         Returns:

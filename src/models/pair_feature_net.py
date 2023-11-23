@@ -26,7 +26,7 @@ class PairFeatureNet(nn.Module):
 
 		# Relative positional and distance embeddings
 		self.linear_relpos = nn.Linear(self.n_bin, c_z // 2)
-		self.linear_reldist = nn.Linear(10, c_z // 2)
+		self.linear_reldist = nn.Linear(10, c_z // 2)  # 10 bins, AlphaFold-style
 
 	def one_hot(self, x, v_bins):
 		"""One-hot encoding with the nearest bin.

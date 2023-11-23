@@ -63,11 +63,12 @@ class Cropper(torch.nn.Module):
         n_res = protein_dict['residue_idx'].shape[0]
         n = max(n_res - self.crop_size, 1)
         crop_start = torch.randint(low=0, high=n, size=())
+        new_protein_dict = {}
         for key, value in protein_dict.items():
             if key == "chain_id" or key == "chain_dict":  # these are not Tensors, so skip
-                continue
-            protein_dict[key] = value[crop_start:crop_start + self.crop_size]
-        return protein_dict
+                continue  # omit these from the new dict
+            new_protein_dict[key] = value[crop_start:crop_start + self.crop_size]
+        return new_protein_dict
 
 
 class ProteinDataModule(LightningDataModule):

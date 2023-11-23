@@ -144,6 +144,7 @@ class StructureNet(nn.Module):
             mask: torch.Tensor = None
     ) -> Rigids:
         """Applies the structure module on the current transforms given single and pair representations.
+
         :param single_rep:
             [*, N_res, C_s] single representation
         :param pair_rep:
