@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import unittest
 from src.models.components.invariant_point_attention import InvariantPointAttention
-from src.utils.rigid_utils import Rotation, Rigid
+from src.utils.rigid_utils import Rotations, Rigids
 
 
 class TestInvariantPointAttention(unittest.TestCase):
@@ -22,10 +22,10 @@ class TestInvariantPointAttention(unittest.TestCase):
         mask = torch.ones((batch_size, n_res))
 
         rot_mats = torch.rand((batch_size, n_res, 3, 3))
-        rots = Rotation(rot_mats=rot_mats, quats=None)
+        rots = Rotations(rot_mats=rot_mats, quats=None)
         trans = torch.rand((batch_size, n_res, 3))
 
-        r = Rigid(rots, trans)
+        r = Rigids(rots, trans)
 
         ipa = InvariantPointAttention(
             c_m, c_z, c_hidden, no_heads, no_qp, no_vp

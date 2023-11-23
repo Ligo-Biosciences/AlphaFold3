@@ -24,7 +24,7 @@ import torch.nn as nn
 from typing import Optional, Tuple, Sequence
 
 from src.utils.precision_utils import is_fp16_enabled
-from src.utils.rigid_utils import Rotation, Rigid
+from src.utils.rigid_utils import Rotations, Rigids
 
 from src.models.components.primitives import Linear, ipa_point_weights_init_
 from src.utils.tensor_utils import (
@@ -108,7 +108,7 @@ class InvariantPointAttention(nn.Module):
             self,
             s: torch.Tensor,
             z: Optional[torch.Tensor],
-            r: Rigid,
+            r: Rigids,
             mask: torch.Tensor,
             inplace_safe: bool = False,
             _offload_inference: bool = False,

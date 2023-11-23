@@ -70,15 +70,6 @@ class EvoformerPairStack(torch.nn.Module):
             dropout_rate: float = 0.25
     ):
         super().__init__()
-        """
-        self.blocks = nn.Sequential(
-            OrderedDict(
-                [(f'evoformer_pair_stack_block_{i}', EvoformerPairStackBlock(c_s=c_s, n_heads=n_heads,
-                                                                             c_hidden=c_hidden,
-                                                                             dropout_rate=dropout_rate))
-                 for i in range(n_blocks)]
-            )
-        )"""
         self.blocks = nn.ModuleList([EvoformerPairStackBlock(c_s=c_s,
                                                              n_heads=n_heads,
                                                              c_hidden=c_hidden,

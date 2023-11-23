@@ -3,44 +3,27 @@ import torch
 from prettytable import PrettyTable
 
 from tests.config import consts
-from src.models.evoformer_pair_stack import (
-    EvoformerPairStackBlock,
-    EvoformerPairStack
-)
+from src.models.structure_net import StructureNet
+from src.utils.rigid_utils import Rigids
 
 
-class TestEvoformerPairStackBlock(unittest.TestCase):
+class TestStructureNet(unittest.TestCase):
     def test_shape(self):
-        c_s = consts.c_z
-        n_heads = 4
-        c_hidden = 128
-        dropout_rate = 0.25
-        block = EvoformerPairStackBlock(c_s, n_heads, c_hidden, dropout_rate)
-        batch_size = consts.batch_size
-        n_res = consts.n_res
-
-        z = torch.rand((batch_size, n_res, n_res, c_s))
-        shape_before = z.shape
-        output = block(z)
-        shape_after = output.shape
-
-        self.assertTrue(shape_before == shape_after)
-
-
-class TestEvoformerPairStack(unittest.TestCase):
-    def test_shape(self):
-        c_s = consts.c_z
+        c_s = 128
         n_heads = 4
         c_hidden = 128
         dropout_rate = 0.25
         n_blocks = 4
-        stack = EvoformerPairStack(n_blocks, c_s, n_heads, c_hidden, dropout_rate)
+        net = StructureNet(c_s=128, c_z=128)
         batch_size = consts.batch_size
         n_res = consts.n_res
-
+        s = torch.rand((batch_size, n_res, c_s))
         z = torch.rand((batch_size, n_res, n_res, c_s))
-        shape_before = z.shape
-        output = stack(z)
+        transforms = Rigids.identity((2, 11))
+
+        shape_before = transforms.shape
+        mask = torch.ones((batch_size, n_res))
+        output = net(s, z, transforms, mask)
         shape_after = output.shape
 
         self.assertTrue(shape_before == shape_after)
@@ -60,13 +43,8 @@ class TestEvoformerPairStack(unittest.TestCase):
             print(f"Total Trainable Params: {total_params}")
             return total_params
 
-        c_s = consts.c_z
-        n_heads = 4
-        c_hidden = 128
-        dropout_rate = 0.25
-        n_blocks = 1
-        stack = EvoformerPairStack(n_blocks, c_s, n_heads, c_hidden, dropout_rate)
-        count_parameters(stack)
+        net = StructureNet(c_s=128, c_z=128)
+        count_parameters(net)
         self.assertTrue(True)
 
 

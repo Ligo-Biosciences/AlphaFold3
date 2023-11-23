@@ -13,7 +13,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# TODO: I suspect that this module can easily be deleted. It is a simple feedforward nonlinear transition.
 
 import torch.nn as nn
 from src.models.components.primitives import Linear
@@ -45,7 +44,10 @@ class StructureTransitionLayer(nn.Module):
 
 
 class StructureTransition(nn.Module):
-    def __init__(self, c, num_layers, dropout_rate):
+    def __init__(self,
+                 c,
+                 num_layers: int = 1,
+                 dropout_rate: float = 0.1):
         super(StructureTransition, self).__init__()
 
         self.c = c

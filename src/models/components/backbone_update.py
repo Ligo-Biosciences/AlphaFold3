@@ -18,7 +18,7 @@ import torch
 from torch import nn
 
 from src.models.components.primitives import Linear
-from src.utils.rigid_utils import quat_to_rot, Rigid
+from src.utils.rigid_utils import Rigids, Rotations
 
 
 class BackboneUpdate(nn.Module):
@@ -62,6 +62,6 @@ class BackboneUpdate(nn.Module):
         quats = quats / norm_denominator.unsqueeze(-1)
 
         # [*, 3, 3]
-        rots = quat_to_rot(quats)
+        rots = Rotations(quats=quats)
 
-        return Rigid(rots, trans)
+        return Rigids(rots, trans)

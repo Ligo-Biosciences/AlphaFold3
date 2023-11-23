@@ -31,10 +31,9 @@ class Reorder(torch.nn.Module):
     """A transformation that reorders the 3D coordinates of backbone atoms
     from N, C, Ca, O -> N, Ca, C, O."""
     def forward(self, protein_dict):
-        if 'reordered' not in protein_dict.keys():
-            # If not already reordered, switch to N, Ca, C, ordering.
-            reordered_X = protein_dict['X'].index_select(1, torch.tensor([0, 2, 1, 3]))
-            protein_dict['X'] = reordered_X
+        # Switch to N, Ca, C, ordering.
+        reordered_X = protein_dict['X'].index_select(1, torch.tensor([0, 2, 1, 3]))
+        protein_dict['X'] = reordered_X
         return protein_dict
 
 

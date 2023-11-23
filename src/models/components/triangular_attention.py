@@ -148,8 +148,11 @@ class TriangleAttention(nn.Module):
         return x
 
 
-# Implements Algorithm 13
-TriangleAttentionStartingNode = TriangleAttention
+class TriangleAttentionStartingNode(TriangleAttention):
+    """
+        Implements Algorithm 13.
+    """
+    __init__ = partialmethod(TriangleAttention.__init__, starting=True)
 
 
 class TriangleAttentionEndingNode(TriangleAttention):
