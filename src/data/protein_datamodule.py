@@ -271,21 +271,30 @@ class ProteinDataModule(LightningDataModule):
         """Create and return the train dataloader.
         :return: The train dataloader.
         """
-        return proteinflow.ProteinLoader(self.data_train, batch_size=self.batch_size_per_device)
+        return proteinflow.ProteinLoader(self.data_train,
+                                         batch_size=self.batch_size_per_device,
+                                         num_workers=self.hparams.num_workers,
+                                         pin_memory=self.hparams.pin_memory)
 
     def val_dataloader(self) -> DataLoader[Any]:
         """Create and return the validation dataloader.
 
         :return: The validation dataloader.
         """
-        return proteinflow.ProteinLoader(self.data_val, batch_size=self.batch_size_per_device)
+        return proteinflow.ProteinLoader(self.data_val,
+                                         batch_size=self.batch_size_per_device,
+                                         num_workers=self.hparams.num_workers,
+                                         pin_memory=self.hparams.pin_memory)
 
     def test_dataloader(self) -> DataLoader[Any]:
         """Create and return the test dataloader.
 
         :return: The test dataloader.
         """
-        return proteinflow.ProteinLoader(self.data_test, batch_size=self.batch_size_per_device)
+        return proteinflow.ProteinLoader(self.data_test,
+                                         batch_size=self.batch_size_per_device,
+                                         num_workers=self.hparams.num_workers,
+                                         pin_memory=self.hparams.pin_memory)
 
     def teardown(self, stage: Optional[str] = None) -> None:
         """Lightning hook for cleaning up after `trainer.fit()`, `trainer.validate()`,

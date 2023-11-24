@@ -31,8 +31,10 @@ class PairFeatureNet(nn.Module):
 	def one_hot(self, x, v_bins):
 		"""One-hot encoding with the nearest bin.
 		Implements Alg. 5 in Jumper et al. 2021.
-		x: [...] a tensor of floats
-		v_bins: [n_bins] a tensor of floats containing bin values
+		:param x:
+			[...] a tensor of floats
+		:param v_bins:
+			[n_bins] a tensor of floats containing bin values
 		"""
 		b = torch.argmin(torch.abs(x[..., None] - v_bins[None, ...]), dim=-1)
 		one_hot = nn.functional.one_hot(b, num_classes=len(v_bins))
@@ -104,10 +106,10 @@ class PairFeatureNet(nn.Module):
 		# Compute reldist features
 		reldist_features = self.reldist(ca_coordinates)
 
+		# Mask missing residue distances with pair mask
+		pair_mask = self.residue_mask2pair_mask(residue_mask)
+		reldist_features *= pair_mask.unsqueeze(-1)
+
 		# Concatenate
 		pair_features = torch.concat([relpos_features, reldist_features], dim=-1)
-
-		# Mask with pair_mask
-		pair_mask = self.residue_mask2pair_mask(residue_mask)
-		pair_features *= pair_mask.unsqueeze(-1)
 		return pair_features

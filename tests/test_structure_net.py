@@ -28,6 +28,16 @@ class TestStructureNet(unittest.TestCase):
 
         self.assertTrue(shape_before == shape_after)
 
+    # def test_rigids(self):
+    #    batch_size = 2
+    #    n_res = 35
+    #    coordinates = torch.rand((batch_size, n_res, 4, 3))
+    #    frames = Rigids.from_3_points(coordinates[:, :, 0, :],
+    #                                  coordinates[:, :, 1, :],
+    #                                  coordinates[:, :, 2, :])
+    #    print(f"translation: {frames.get_trans().shape}")
+    #    print(f"rotations: {frames.get_rots().get_cur_rot().shape}")
+
     def test_params(self):
         """A method to check the number of parameters in the stack."""
         def count_parameters(model):

@@ -10,7 +10,7 @@ def compute_fape_squared(
         pred_positions: torch.Tensor,
         target_positions: torch.Tensor,
         positions_mask: torch.Tensor,
-        length_scale: float,
+        length_scale: float = 10.0,
         l2_clamp_distance: Optional[float] = None,
         eps=1e-8,
 ) -> torch.Tensor:
@@ -73,3 +73,67 @@ def compute_fape_squared(
     normed_error = normed_error / (eps + torch.sum(positions_mask, dim=-1))
 
     return normed_error
+
+
+def fape_squared_with_clamp(
+        pred_frames: Rigids,
+        target_frames: Rigids,
+        frames_mask: torch.Tensor,
+        pred_positions: torch.Tensor,
+        target_positions: torch.Tensor,
+        positions_mask: torch.Tensor,
+        use_clamped_fape: float = 0.9,
+        l2_clamp_distance: float = 100.0,  # 10A ^ 2
+        eps: float = 1e-4,
+        **kwargs,
+) -> torch.Tensor:
+    """Compute squared FAPE loss with clamping.
+        Args:
+                pred_frames:
+                    [*, N_frames] Rigid object of predicted frames
+                target_frames:
+                    [*, N_frames] Rigid object of ground truth frames
+                frames_mask:
+                    [*, N_frames] binary mask for the frames
+                pred_positions:
+                    [*, N_pts, 3] predicted atom positions
+                target_positions:
+                    [*, N_pts, 3] ground truth positions
+                positions_mask:
+                    [*, N_pts] positions mask
+                use_clamped_fape:
+                    ratio of clamped to unclamped FAPE in final loss
+                l2_clamp_distance:
+                    Cutoff above which squared distance errors are disregarded.
+                eps:
+                    Small value used to regularize denominators
+            Returns:
+                [*] loss tensor
+    """
+    fape_loss = compute_fape_squared(pred_frames=pred_frames,
+                                     target_frames=target_frames,
+                                     frames_mask=frames_mask,
+                                     pred_positions=pred_positions,
+                                     target_positions=target_positions,
+                                     positions_mask=positions_mask,
+                                     l2_clamp_distance=l2_clamp_distance,
+                                     eps=eps)
+    if use_clamped_fape is not None:
+        unclamped_fape_loss = compute_fape_squared(pred_frames=pred_frames,
+                                                   target_frames=target_frames,
+                                                   frames_mask=frames_mask,
+                                                   pred_positions=pred_positions,
+                                                   target_positions=target_positions,
+                                                   positions_mask=positions_mask,
+                                                   l2_clamp_distance=l2_clamp_distance,
+                                                   eps=eps)
+        use_clamped_fape = torch.Tensor([use_clamped_fape])  # for proper multiplication
+        # Average the two to provide a useful training signal even early on in training.
+        fape_loss = fape_loss * use_clamped_fape + unclamped_fape_loss * (
+                1 - use_clamped_fape
+        )
+
+    # Average over the batch dimension
+    fape_loss = torch.mean(fape_loss)
+
+    return fape_loss

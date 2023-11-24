@@ -3,6 +3,8 @@ from typing import Any, Dict, Tuple
 import torch
 from lightning import LightningModule
 from torchmetrics import MaxMetric, MeanMetric
+from src.utils.rigid_utils import Rigids
+from src.diffusion import losses
 
 
 class KestrelLitModule(LightningModule):
@@ -40,17 +42,20 @@ class KestrelLitModule(LightningModule):
     """
 
     def __init__(
-        self,
-        net: torch.nn.Module,
-        optimizer: torch.optim.Optimizer,
-        scheduler: torch.optim.lr_scheduler,
-        compile: bool,
+            self,
+            pair_feature_net: torch.nn.Module,
+            structure_net: torch.nn.Module,
+            optimizer: torch.optim.Optimizer,
+            scheduler: torch.optim.lr_scheduler,
+            compile: bool,
     ) -> None:
         """Initialize a `MNISTLitModule`.
 
-        :param net: The model to train.
+        :param pair_feature_net: featurizes the pair representation
+        :param structure_net: computes the final structure given pair and single rep.
         :param optimizer: The optimizer to use for training.
         :param scheduler: The learning rate scheduler to use for training.
+        :param compile: whether to compile the models
         """
         super().__init__()
 
@@ -58,23 +63,52 @@ class KestrelLitModule(LightningModule):
         # also ensures init params will be stored in ckpt
         self.save_hyperparameters(logger=False)
 
-        self.net = net
-
-        # loss function
-        self.criterion = torch.nn.CrossEntropyLoss()  # TODO: should be FAPE^2
+        # The two models that will be tested in Kestrel
+        self.pair_feature_net = pair_feature_net
+        self.structure_net = structure_net
 
         # for averaging loss across batches
         self.train_loss = MeanMetric()
         self.val_loss = MeanMetric()
         self.test_loss = MeanMetric()
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Perform a forward pass through the model `self.net`.
+    def forward(
+            self,
+            residue_idx: torch.Tensor,
+            coordinates: torch.Tensor,
+            residue_mask: torch.Tensor
+    ) -> Rigids:
+        """Perform a forward pass through the model.
 
-        :param x: a tensor of initial coordinates
-        :return: a tensor of predicted coordinates
+        :param residue_idx:
+            [*, n_res] a tensor of residue indices
+        :param coordinates:
+            [*, n_res, 4, 3] a tensor of initial coordinates
+        :param residue_mask:
+            [*, n_res]
+
+        :return:
+            [*, n_res] Rigids object
         """
-        return self.net(x)
+
+        batch_size, n_res = residue_mask.shape
+
+        # Pair Features
+        pair_representation = self.pair_feature_net(residue_idx=residue_idx,
+                                                    ca_coordinates=coordinates[:, :, 1, :],
+                                                    residue_mask=residue_mask)
+        # Single rep features as zeros
+        single_representation = torch.zeros((batch_size, n_res, self.structure_net.c_s))
+
+        # Initialize transforms as identity
+        transforms = Rigids.identity((batch_size, n_res))
+
+        # Apply Structure network
+        updated_transforms = self.structure_net(single_representation,
+                                                pair_representation,
+                                                transforms,
+                                                residue_mask)
+        return updated_transforms
 
     def on_train_start(self) -> None:
         """Lightning hook that is called when training begins."""
@@ -83,25 +117,40 @@ class KestrelLitModule(LightningModule):
         self.val_loss.reset()
 
     def model_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor]
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+            self, batch: Dict[str, torch.Tensor]
+    ) -> torch.Tensor:
         """Perform a single model step on a batch of data.
 
-        :param batch: A batch of data (a tuple) containing the input tensor of images and target labels.
+        :param batch:
+            a batch of data containing the dictionary returned by ProteinDataModule.
 
-        :return: A tuple containing (in order):
-            - A tensor of losses.
-            - A tensor of predictions.
-            - A tensor of target labels.
+        :return:
+            loss tensor
         """
-        x, y = batch
-        logits = self.forward(x)
-        loss = self.criterion(logits, y)
-        preds = torch.argmax(logits, dim=1)
-        return loss, preds, y
+        residue_idx = batch['residue_idx']
+        coordinates = batch['X']
+        residue_mask = batch['mask']
+
+        pred_frames = self.forward(residue_idx, coordinates, residue_mask)
+        pred_positions = pred_frames.get_trans()  # use Ca coordinate values
+
+        # Compute FAPE^2 error
+        gt_frames = Rigids.from_3_points(coordinates[:, :, 0, :],
+                                         coordinates[:, :, 1, :],
+                                         coordinates[:, :, 2, :])
+        gt_positions = gt_frames.get_trans()
+
+        squared_fape = losses.fape_squared_with_clamp(pred_frames=pred_frames,
+                                                      pred_positions=pred_positions,
+                                                      target_frames=gt_frames,
+                                                      target_positions=gt_positions,
+                                                      frames_mask=residue_mask,
+                                                      positions_mask=residue_mask)
+
+        return squared_fape
 
     def training_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
+            self, batch: Dict[str, torch.Tensor], batch_idx: int
     ) -> torch.Tensor:
         """Perform a single training step on a batch of data from the training set.
 
@@ -110,13 +159,11 @@ class KestrelLitModule(LightningModule):
         :param batch_idx: The index of the current batch.
         :return: A tensor of losses between model predictions and targets.
         """
-        loss, preds, targets = self.model_step(batch)
+        loss = self.model_step(batch)
 
         # update and log metrics
         self.train_loss(loss)
-        self.train_acc(preds, targets)
         self.log("train/loss", self.train_loss, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("train/acc", self.train_acc, on_step=False, on_epoch=True, prog_bar=True)
 
         # return loss or backpropagation will fail
         return loss
@@ -125,43 +172,40 @@ class KestrelLitModule(LightningModule):
         """Lightning hook that is called when a training epoch ends."""
         pass
 
-    def validation_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
+    def validation_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
         """Perform a single validation step on a batch of data from the validation set.
 
         :param batch: A batch of data (a tuple) containing the input tensor of images and target
             labels.
         :param batch_idx: The index of the current batch.
         """
-        loss, preds, targets = self.model_step(batch)
+        loss = self.model_step(batch)
 
         # update and log metrics
         self.val_loss(loss)
-        self.val_acc(preds, targets)
         self.log("val/loss", self.val_loss, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("val/acc", self.val_acc, on_step=False, on_epoch=True, prog_bar=True)
 
     def on_validation_epoch_end(self) -> None:
         """Lightning hook that is called when a validation epoch ends."""
-        acc = self.val_acc.compute()  # get current val acc
-        self.val_acc_best(acc)  # update best so far val acc
+        # acc = self.val_acc.compute()  # get current val acc
+        # self.val_acc_best(acc)  # update best so far val loss
         # log `val_acc_best` as a value through `.compute()` method, instead of as a metric object
         # otherwise metric would be reset by lightning after each epoch
-        self.log("val/acc_best", self.val_acc_best.compute(), sync_dist=True, prog_bar=True)
+        # self.log("val/acc_best", self.val_acc_best.compute(), sync_dist=True, prog_bar=True)
+        pass
 
-    def test_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
+    def test_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
         """Perform a single test step on a batch of data from the test set.
 
         :param batch: A batch of data (a tuple) containing the input tensor of images and target
             labels.
         :param batch_idx: The index of the current batch.
         """
-        loss, preds, targets = self.model_step(batch)
+        loss = self.model_step(batch)
 
         # update and log metrics
         self.test_loss(loss)
-        self.test_acc(preds, targets)
         self.log("test/loss", self.test_loss, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("test/acc", self.test_acc, on_step=False, on_epoch=True, prog_bar=True)
 
     def on_test_epoch_end(self) -> None:
         """Lightning hook that is called when a test epoch ends."""
@@ -177,7 +221,8 @@ class KestrelLitModule(LightningModule):
         :param stage: Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
         """
         if self.hparams.compile and stage == "fit":
-            self.net = torch.compile(self.net)
+            self.structure_net = torch.compile(self.structure_net)
+            self.pair_feature_net = torch.compile(self.pair_feature_net)
 
     def configure_optimizers(self) -> Dict[str, Any]:
         """Choose what optimizers and learning-rate schedulers to use in your optimization.
@@ -204,4 +249,4 @@ class KestrelLitModule(LightningModule):
 
 
 if __name__ == "__main__":
-    _ = KestrelLitModule(None, None, None, None)
+    _ = KestrelLitModule(None, None, None, None, False)

@@ -1,0 +1,36 @@
+_target_: src.models.kestrel_module.KestrelLitModule
+
+optimizer:
+  _target_: torch.optim.Adam
+  _partial_: true
+  lr: 0.001
+  weight_decay: 0.0
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+  _partial_: true
+  mode: min
+  factor: 0.1
+  patience: 10
+
+structure_net:
+  _target_: src.models.structure_net.StructureNet
+  c_s: 384
+  c_z: 128
+  n_structure_layer: 4
+  n_structure_block: 1
+  c_hidden_ipa: 16
+  n_head_ipa: 12
+  n_qk_point: 4
+  n_v_point: 8
+  ipa_dropout: 0.1
+  n_structure_transition_layer: 1
+  structure_transition_dropout: 0.1
+
+pair_feature_net:
+  _target_: src.models.pair_feature_net.PairFeatureNet
+  c_z: 128
+  relpos_k: 32
+
+# compile model for faster training with pytorch 2.0
+compile: false

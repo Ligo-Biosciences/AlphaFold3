@@ -1,0 +1,19 @@
+_target_: src.data.protein_datamodule.ProteinDataModule
+data_dir: "./data/"
+resolution_thr: 3.5  # Resolution threshold for PDB structures
+min_seq_id: 0.3  # Minimum sequence identity for MMSeq2 clustering
+crop_size: 384  # The number of residues to crop the proteins to.
+max_length: 10_000  # Entries with total length of chains larger than max_length will be disregarded.
+use_fraction: 1.0  #  the fraction of the clusters to use (first N in alphabetic order)
+entry_type: "chain"  # { "biounit", "chain", "pair" } the type of entries to generate
+classes_to_exclude: ['homomers', 'heteromers']  # a list of classes to exclude from the dataset
+mask_residues: False  # if True, the masked residues will be added to the output
+lower_limit: 15  # the lower limit of the number of residues to mask
+upper_limit: 100  # the upper limit of the number of residues to mask
+mask_frac: None  # if given, the number of residues to mask is mask_frac times the length of the chain
+mask_sequential: False  # if True, the masked residues will be neighbors in the sequence; otherwise geometric mask
+mask_whole_chains: False  # if True, the whole chain is masked
+force_binding_sites_frac: 0.15  #
+batch_size: 64  # The batch size. Defaults to `64`.
+num_workers: 0  # The number of workers. Defaults to `0`.
+pin_memory: False  # Whether to pin memory. Defaults to `False`.
