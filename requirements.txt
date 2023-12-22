@@ -28,7 +28,7 @@ rich~=13.3.5
 pytest~=7.4.2
 # sh            # for running bash commands in some tests (linux/macos only)
 
-proteinflow~=2.4.0
+proteinflow~=2.6.0
 omegaconf~=2.3.0
 packaging~=21.3
 setuptools~=41.2.0
