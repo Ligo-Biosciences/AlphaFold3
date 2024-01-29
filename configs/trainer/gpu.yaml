@@ -3,3 +3,5 @@ defaults:
 
 accelerator: gpu
 devices: 1
+
+precision: 'bf16-mixed'  # train with bfloat-16 mixed precision

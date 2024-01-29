@@ -99,7 +99,7 @@ class MNISTDataModule(LightningDataModule):
         case of multi-node training, the execution of this hook depends upon
         `self.prepare_data_per_node()`.
 
-        Do not use it to assign state (self.x = y).
+        Do not use it to assign state (self.other = y).
         """
         MNIST(self.hparams.data_dir, train=True, download=True)
         MNIST(self.hparams.data_dir, train=False, download=True)

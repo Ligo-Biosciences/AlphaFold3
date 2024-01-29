@@ -559,8 +559,8 @@ class Rotations:
         """
             Returns a new quaternion Rotations after updating the current
             object's underlying rotation with a quaternion update, formatted
-            as a [*, 3] tensor whose final three columns represent x, y, z such 
-            that (1, x, y, z) is the desired (not necessarily unit) quaternion
+            as a [*, 3] tensor whose final three columns represent other, y, z such
+            that (1, other, y, z) is the desired (not necessarily unit) quaternion
             update.
 
             Args:
@@ -868,7 +868,7 @@ class Rigids:
 
     @staticmethod
     def identity(
-            shape: Tuple[int],
+            shape: Tuple[int, ...],
             dtype: Optional[torch.dtype] = None,
             device: Optional[torch.device] = None,
             requires_grad: bool = True,
@@ -1006,8 +1006,8 @@ class Rigids:
                              ) -> Rigids:
         """
             Composes the transformation with a quaternion update vector of
-            shape [*, 6], where the final 6 columns represent the x, y, and
-            z values of a quaternion of form (1, x, y, z) followed by a 3D
+            shape [*, 6], where the final 6 columns represent the other, y, and
+            z values of a quaternion of form (1, other, y, z) followed by a 3D
             translation.
 
             Args:
@@ -1375,6 +1375,17 @@ class Rigids:
         rot_obj = Rotations(rot_mats=rots, quats=None)
 
         return Rigids(rot_obj, translation)
+
+    def to(self, other) -> Rigids:
+        """
+        Moves the transformation object to the device of other.
+
+        Returns:
+                a Tensor with same torch.dtype and torch.device as the
+                Tensor other.
+        """
+        return Rigids(self._rots.to(device=other.device, dtype=other.dtype),
+                      self._trans.to(other))
 
     def cuda(self) -> Rigids:
         """

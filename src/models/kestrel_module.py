@@ -94,18 +94,20 @@ class KestrelLitModule(LightningModule):
         batch_size, n_res = residue_mask.shape
 
         # Pair Features
-        pair_representation = self.pair_feature_net(residue_idx=residue_idx,
-                                                    ca_coordinates=coordinates[:, :, 1, :],
-                                                    residue_mask=residue_mask)
+        pair_repr = self.pair_feature_net(residue_idx=residue_idx,
+                                          ca_coordinates=coordinates[:, :, 1, :],
+                                          residue_mask=residue_mask)
         # Single rep features as zeros
-        single_representation = torch.zeros((batch_size, n_res, self.structure_net.c_s))
+        single_repr = torch.zeros((batch_size, n_res, self.structure_net.c_s))
+        single_repr = single_repr.to(coordinates.float())
 
         # Initialize transforms as identity
         transforms = Rigids.identity((batch_size, n_res))
+        transforms = transforms.to(coordinates.float())
 
         # Apply Structure network
-        updated_transforms = self.structure_net(single_representation,
-                                                pair_representation,
+        updated_transforms = self.structure_net(single_repr,
+                                                pair_repr,
                                                 transforms,
                                                 residue_mask)
         return updated_transforms
@@ -135,9 +137,9 @@ class KestrelLitModule(LightningModule):
         pred_positions = pred_frames.get_trans()  # use Ca coordinate values
 
         # Compute FAPE^2 error
-        gt_frames = Rigids.from_3_points(coordinates[:, :, 0, :],
-                                         coordinates[:, :, 1, :],
-                                         coordinates[:, :, 2, :])
+        gt_frames = Rigids.from_3_points(coordinates[:, :, 0, :],  # N
+                                         coordinates[:, :, 1, :],  # CA
+                                         coordinates[:, :, 2, :])  # C
         gt_positions = gt_frames.get_trans()
 
         squared_fape = losses.fape_squared_with_clamp(pred_frames=pred_frames,
@@ -185,6 +187,8 @@ class KestrelLitModule(LightningModule):
         self.val_loss(loss)
         self.log("val/loss", self.val_loss, on_step=False, on_epoch=True, prog_bar=True)
 
+        # TODO: add RMSD metric for validation
+
     def on_validation_epoch_end(self) -> None:
         """Lightning hook that is called when a validation epoch ends."""
         # acc = self.val_acc.compute()  # get current val acc
@@ -192,6 +196,7 @@ class KestrelLitModule(LightningModule):
         # log `val_acc_best` as a value through `.compute()` method, instead of as a metric object
         # otherwise metric would be reset by lightning after each epoch
         # self.log("val/acc_best", self.val_acc_best.compute(), sync_dist=True, prog_bar=True)
+        # TODO: log best validation loss and RMSD metrics
         pass
 
     def test_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
@@ -207,8 +212,11 @@ class KestrelLitModule(LightningModule):
         self.test_loss(loss)
         self.log("test/loss", self.test_loss, on_step=False, on_epoch=True, prog_bar=True)
 
+        # TODO: add RMSD metric for test
+
     def on_test_epoch_end(self) -> None:
         """Lightning hook that is called when a test epoch ends."""
+        # TODO: log best test loss and RMSD metrics
         pass
 
     def setup(self, stage: str) -> None:

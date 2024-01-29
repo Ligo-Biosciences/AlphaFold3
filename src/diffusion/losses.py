@@ -127,7 +127,7 @@ def fape_squared_with_clamp(
                                                    positions_mask=positions_mask,
                                                    l2_clamp_distance=l2_clamp_distance,
                                                    eps=eps)
-        use_clamped_fape = torch.Tensor([use_clamped_fape])  # for proper multiplication
+        use_clamped_fape = torch.Tensor([use_clamped_fape]).cuda()  # for proper multiplication
         # Average the two to provide a useful training signal even early on in training.
         fape_loss = fape_loss * use_clamped_fape + unclamped_fape_loss * (
                 1 - use_clamped_fape

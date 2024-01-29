@@ -9,11 +9,32 @@ accelerator: cpu
 devices: 1
 
 # mixed precision for extra speed-up
-# precision: 16
+# precision: 'transformer-engine', 'transformer-engine-float16', '16-true', '16-mixed', 'bf16-true',
+# 'bf16-mixed', '32-true',
 
 # perform a validation loop every N training epochs
 check_val_every_n_epoch: 1
 
-# set True to to ensure deterministic results
+# frequency of logging
+log_every_n_steps: 100
+
+# gradient clipping
+gradient_clip_val: null
+
+# How much of training/test/validation dataset to check.
+# Useful when debugging or testing something that happens at the end of an epoch
+limit_train_batches: 1.0
+limit_test_batches: 1.0
+limit_val_batches: 1.0
+
+# use only 1% of the train & val set
+# overfit_batches: 0.01
+
+# Profiler choose between "simple", "advanced"
+profiler: "simple"  # None
+
+enable_progress_bar: null
+
+# set True to ensure deterministic results
 # makes training slower but gives more reproducibility than just setting seeds
 deterministic: False

@@ -71,7 +71,7 @@ class PairFeatureNet(nn.Module):
 		:returns a pair representation with embedded pair distances of backbone atoms
 		"""
 		d_ij = torch.sum((ca_coordinates[:, :, None, :] - ca_coordinates[:, None, :, :]) ** 2, dim=-1)
-		v_bins = torch.linspace(3.375, 21.375, steps=10)  # same bin values as in AlphaFold
+		v_bins = torch.linspace(3.375, 21.375, steps=10).to(ca_coordinates.device)  # same bin values as in AlphaFold
 		one_hot = self.one_hot(d_ij, v_bins)
 		distance_pair_embed = self.linear_reldist(one_hot)
 		return distance_pair_embed

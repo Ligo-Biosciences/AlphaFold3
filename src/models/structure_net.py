@@ -121,6 +121,9 @@ class StructureNet(nn.Module):
 
         self.n_structure_block = n_structure_block
 
+        self.c_s = c_s
+        self.c_z = c_z
+
         # Initial projection and layer norms
         self.pair_rep_layer_norm = nn.LayerNorm(c_z)
         self.single_rep_layer_norm = nn.LayerNorm(c_s)

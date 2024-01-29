@@ -32,11 +32,11 @@ deepspeed_is_installed = importlib.util.find_spec("deepspeed") is not None
 if deepspeed_is_installed:
     import deepspeed
 
-fa_is_installed = importlib.util.find_spec("flash_attn") is not None
-if fa_is_installed:
-    from flash_attn.bert_padding import unpad_input, pad_input
-    from flash_attn.flash_attention import FlashAttention
-    from flash_attn.flash_attn_interface import flash_attn_unpadded_kvpacked_func
+# fa_is_installed = importlib.util.find_spec("flash_attn") is not None
+# if fa_is_installed:
+#    from flash_attn.bert_padding import unpad_input, pad_input
+#    from flash_attn.flash_attention import FlashAttention
+#    from flash_attn.flash_attn_interface import flash_attn_unpadded_kvpacked_func
 
 
 DEFAULT_LMA_Q_CHUNK_SIZE = 1024

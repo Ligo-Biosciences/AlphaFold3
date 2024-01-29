@@ -482,7 +482,7 @@ Enter a list of comma separated tags (dev):
 If no tags are provided for multirun, an error will be raised:
 
 ```bash
->>> python train.py -m +x=1,2,3 tags=[]
+>>> python train.py -m +other=1,2,3 tags=[]
 ValueError: Specify tags before launching a multirun!
 ```
 

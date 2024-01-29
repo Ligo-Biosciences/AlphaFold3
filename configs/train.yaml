@@ -8,13 +8,13 @@ defaults:
   - model: kestrel # mnist
   - callbacks: default
   - logger: wandb  # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
-  - trainer: default
+  - trainer: gpu
   - paths: default
   - extras: default
   - hydra: default
 
   # experiment configs allow for version control of specific hyperparameters
-  # e.g. best hyperparameters for given model and datamodule
+  # e.g. the best hyperparameters for given model and datamodule
   - experiment: null
 
   # config for hyperparameter optimization

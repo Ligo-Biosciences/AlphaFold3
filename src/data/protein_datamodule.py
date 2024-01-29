@@ -63,12 +63,11 @@ class Cropper(torch.nn.Module):
         n_res = protein_dict['residue_idx'].shape[0]
         n = max(n_res - self.crop_size, 1)
         crop_start = torch.randint(low=0, high=n, size=())
-        new_protein_dict = {}
         for key, value in protein_dict.items():
             if key == "chain_id" or key == "chain_dict":  # these are not Tensors, so skip
                 continue  # omit these from the new dict
-            new_protein_dict[key] = value[crop_start:crop_start + self.crop_size]
-        return new_protein_dict
+            protein_dict[key] = value[crop_start:crop_start + self.crop_size]
+        return protein_dict
 
 
 class ProteinDataModule(LightningDataModule):
@@ -129,6 +128,7 @@ class ProteinDataModule(LightningDataModule):
             batch_size: int = 64,
             num_workers: int = 0,
             pin_memory: bool = False,
+            debug: bool = False
     ) -> None:
         """Initialize a `ProteinDataModule`.
 
@@ -155,6 +155,7 @@ class ProteinDataModule(LightningDataModule):
         :param batch_size: The batch size. Defaults to `64`.
         :param num_workers: The number of workers. Defaults to `0`.
         :param pin_memory: Whether to pin memory. Defaults to `False`.
+        :param debug: In debugging mode or not. Defaults to 'False'
         """
         super().__init__()
 
@@ -179,13 +180,15 @@ class ProteinDataModule(LightningDataModule):
         case of multi-node training, the execution of this hook depends upon
         `self.prepare_data_per_node()`.
 
-        Do not use it to assign state (self.x = y).
+        Do not use it to assign state (self.other = y).
         """
-        # Download precomputed data, PDB cutoff date 27.02.23
-        # This is a dataset with min_res=3.5A, min_len=30, max_len=10_000, min_seq_id=0.3, train/val/test=90/5/5
-        os.system("proteinflow download --tag 20230102_stable")
+        data_path = os.path.join(self.hparams.data_dir, "proteinflow_20230102_stable")
+        if not os.path.exists(data_path):
+            # Download precomputed data, PDB cutoff date 27.02.23
+            # This is a dataset with min_res=3.5A, min_len=30, max_len=10_000, min_seq_id=0.3, train/val/test=90/5/5
+            os.system("proteinflow download --tag 20230102_stable")
 
-    def setup(self, stage: Optional[str] = None, debug: bool = False) -> None:
+    def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
 
         This method is called by Lightning before `trainer.fit()`, `trainer.validate()`, `trainer.test()`, and
@@ -194,7 +197,6 @@ class ProteinDataModule(LightningDataModule):
         `self.setup()` once the data is prepared and available for use.
 
         :param stage: The stage to setup. Either `"fit"`, `"validate"`, `"test"`, or `"predict"`. Defaults to ``None``.
-        :param debug: debugging mode
         """
         # Divide batch size by the number of devices.
         if self.trainer is not None:
@@ -207,65 +209,52 @@ class ProteinDataModule(LightningDataModule):
         train_folder = os.path.join(self.hparams.data_dir, "proteinflow_20230102_stable/train")
         test_folder = os.path.join(self.hparams.data_dir, "proteinflow_20230102_stable/test")
         val_folder = os.path.join(self.hparams.data_dir, "proteinflow_20230102_stable/valid")
-        if debug:
-            # only load the test dataset if in debug mode
-            test_dataset = proteinflow.ProteinDataset(test_folder,
-                                                      max_length=self.hparams.max_length,
-                                                      use_fraction=self.hparams.use_fraction,
-                                                      entry_type=self.hparams.entry_type,
-                                                      classes_to_exclude=self.hparams.classes_to_exclude,
-                                                      mask_residues=self.hparams.mask_residues,
-                                                      lower_limit=self.hparams.lower_limit,
-                                                      upper_limit=self.hparams.upper_limit,
-                                                      mask_frac=self.hparams.mask_frac,
-                                                      mask_sequential=self.hparams.mask_sequential,
-                                                      mask_whole_chains=self.hparams.mask_whole_chains,
-                                                      force_binding_sites_frac=self.hparams.force_binding_sites_frac)
-            self.data_test = TransformDataset(test_dataset, transform=self.transforms)
-            self.data_test = test_dataset
-        else:
-            if not self.data_train and not self.data_val and not self.data_test:
-                train_dataset = proteinflow.ProteinDataset(train_folder,
-                                                           max_length=self.hparams.max_length,
-                                                           use_fraction=self.hparams.use_fraction,
-                                                           entry_type=self.hparams.entry_type,
-                                                           classes_to_exclude=self.hparams.classes_to_exclude,
-                                                           mask_residues=self.hparams.mask_residues,
-                                                           lower_limit=self.hparams.lower_limit,
-                                                           upper_limit=self.hparams.upper_limit,
-                                                           mask_frac=self.hparams.mask_frac,
-                                                           mask_sequential=self.hparams.mask_sequential,
-                                                           mask_whole_chains=self.hparams.mask_whole_chains,
-                                                           force_binding_sites_frac=self.hparams.force_binding_sites_frac)
-                test_dataset = proteinflow.ProteinDataset(test_folder,
-                                                          max_length=self.hparams.max_length,
-                                                          use_fraction=self.hparams.use_fraction,
-                                                          entry_type=self.hparams.entry_type,
-                                                          classes_to_exclude=self.hparams.classes_to_exclude,
-                                                          mask_residues=self.hparams.mask_residues,
-                                                          lower_limit=self.hparams.lower_limit,
-                                                          upper_limit=self.hparams.upper_limit,
-                                                          mask_frac=self.hparams.mask_frac,
-                                                          mask_sequential=self.hparams.mask_sequential,
-                                                          mask_whole_chains=self.hparams.mask_whole_chains,
-                                                          force_binding_sites_frac=self.hparams.force_binding_sites_frac)
-                val_dataset = proteinflow.ProteinDataset(val_folder,
-                                                         max_length=self.hparams.max_length,
-                                                         use_fraction=self.hparams.use_fraction,
-                                                         entry_type=self.hparams.entry_type,
-                                                         classes_to_exclude=self.hparams.classes_to_exclude,
-                                                         mask_residues=self.hparams.mask_residues,
-                                                         lower_limit=self.hparams.lower_limit,
-                                                         upper_limit=self.hparams.upper_limit,
-                                                         mask_frac=self.hparams.mask_frac,
-                                                         mask_sequential=self.hparams.mask_sequential,
-                                                         mask_whole_chains=self.hparams.mask_whole_chains,
-                                                         force_binding_sites_frac=self.hparams.force_binding_sites_frac)
 
-                # Apply transforms
-                self.data_train = TransformDataset(train_dataset, transform=self.transforms)
-                self.data_val = TransformDataset(val_dataset, transform=self.transforms)
-                self.data_test = TransformDataset(test_dataset, transform=self.transforms)
+        if stage == "fit" and not self.data_train:
+            train_ds = proteinflow.ProteinDataset(train_folder,
+                                                  max_length=self.hparams.max_length,
+                                                  use_fraction=self.hparams.use_fraction,
+                                                  entry_type=self.hparams.entry_type,
+                                                  classes_to_exclude=self.hparams.classes_to_exclude,
+                                                  mask_residues=self.hparams.mask_residues,
+                                                  lower_limit=self.hparams.lower_limit,
+                                                  upper_limit=self.hparams.upper_limit,
+                                                  mask_frac=self.hparams.mask_frac,
+                                                  mask_sequential=self.hparams.mask_sequential,
+                                                  mask_whole_chains=self.hparams.mask_whole_chains,
+                                                  force_binding_sites_frac=self.hparams.force_binding_sites_frac,
+                                                  debug=self.hparams.debug)
+            val_ds = proteinflow.ProteinDataset(val_folder,
+                                                max_length=self.hparams.max_length,
+                                                use_fraction=self.hparams.use_fraction,
+                                                entry_type=self.hparams.entry_type,
+                                                classes_to_exclude=self.hparams.classes_to_exclude,
+                                                mask_residues=self.hparams.mask_residues,
+                                                lower_limit=self.hparams.lower_limit,
+                                                upper_limit=self.hparams.upper_limit,
+                                                mask_frac=self.hparams.mask_frac,
+                                                mask_sequential=self.hparams.mask_sequential,
+                                                mask_whole_chains=self.hparams.mask_whole_chains,
+                                                force_binding_sites_frac=self.hparams.force_binding_sites_frac,
+                                                debug=self.hparams.debug)
+            self.data_val = TransformDataset(val_ds, transform=self.transforms)
+            self.data_train = TransformDataset(train_ds, transform=self.transforms)
+
+        elif stage == "test" and not self.data_test:
+            test_ds = proteinflow.ProteinDataset(test_folder,
+                                                 max_length=self.hparams.max_length,
+                                                 use_fraction=self.hparams.use_fraction,
+                                                 entry_type=self.hparams.entry_type,
+                                                 classes_to_exclude=self.hparams.classes_to_exclude,
+                                                 mask_residues=self.hparams.mask_residues,
+                                                 lower_limit=self.hparams.lower_limit,
+                                                 upper_limit=self.hparams.upper_limit,
+                                                 mask_frac=self.hparams.mask_frac,
+                                                 mask_sequential=self.hparams.mask_sequential,
+                                                 mask_whole_chains=self.hparams.mask_whole_chains,
+                                                 force_binding_sites_frac=self.hparams.force_binding_sites_frac,
+                                                 debug=self.hparams.debug)
+            self.data_test = TransformDataset(test_ds, transform=self.transforms)
 
     def train_dataloader(self) -> DataLoader[Any]:
         """Create and return the train dataloader.
@@ -282,6 +271,7 @@ class ProteinDataModule(LightningDataModule):
         :return: The validation dataloader.
         """
         return proteinflow.ProteinLoader(self.data_val,
+                                         shuffle_batches=False,
                                          batch_size=self.batch_size_per_device,
                                          num_workers=self.hparams.num_workers,
                                          pin_memory=self.hparams.pin_memory)
@@ -292,6 +282,7 @@ class ProteinDataModule(LightningDataModule):
         :return: The test dataloader.
         """
         return proteinflow.ProteinLoader(self.data_test,
+                                         shuffle_batches=False,
                                          batch_size=self.batch_size_per_device,
                                          num_workers=self.hparams.num_workers,
                                          pin_memory=self.hparams.pin_memory)
