@@ -27,16 +27,16 @@ class TriangleMultiplicativeUpdate(nn.Module):
         Implements Algorithms 11 and 12.
     """
 
-    def __init__(self, c_z, c_hidden, _outgoing=True):
+    def __init__(self, c_in, c_hidden, _outgoing=True):
         """
             Args:
-                c_z:
+                c_in:
                     Input channel dimension
                 c:
                     Hidden channel dimension
         """
         super(TriangleMultiplicativeUpdate, self).__init__()
-        self.c_z = c_z
+        self.c_z = c_in
         self.c_hidden = c_hidden
         self._outgoing = _outgoing
 

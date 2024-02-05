@@ -62,11 +62,11 @@ class TriangleAttention(nn.Module):
                x: torch.Tensor,
                biases: List[torch.Tensor],
                chunk_size: int,
-               use_memory_efficient_kernel: bool = False,
+               use_deepspeed_evo_attention: bool = False,
                use_lma: bool = False,
                inplace_safe: bool = False,
                ) -> torch.Tensor:
-        "triangle! triangle!"
+        # triangle! triangle!
         mha_inputs = {
             "q_x": x,
             "kv_x": x,
@@ -76,7 +76,7 @@ class TriangleAttention(nn.Module):
         return chunk_layer(
             partial(
                 self.mha,
-                use_memory_efficient_kernel=use_memory_efficient_kernel,
+                use_deepspeed_evo_attention=use_deepspeed_evo_attention,
                 use_lma=use_lma
             ),
             mha_inputs,
@@ -89,7 +89,7 @@ class TriangleAttention(nn.Module):
                 x: torch.Tensor,
                 mask: Optional[torch.Tensor] = None,
                 chunk_size: Optional[int] = None,
-                use_memory_efficient_kernel: bool = False,
+                use_deepspeed_evo_attention: bool = False,
                 use_lma: bool = False,
                 inplace_safe: bool = False,
                 ) -> torch.Tensor:
@@ -97,6 +97,21 @@ class TriangleAttention(nn.Module):
         Args:
             x:
                 [*, I, J, C_in] input tensor (e.g. the pair representation)
+            mask:
+                [*, I, J] mask tensor
+            chunk_size:
+                The number of sub-batches per chunk. If multiple batch
+                dimensions are specified, a "sub-batch" is defined as a single
+                indexing of all batch dimensions simultaneously (s.t. the
+                number of sub-batches is the product of the batch dimensions).
+            use_deepspeed_evo_attention:
+                whether to use DeepSpeed's EvoFormer attention
+            use_lma:
+                whether to use low-memory attention, mutually exclusive with
+                use_deepspeed_evo_attention
+            inplace_safe:
+                in-place attention during inference and training
+
         Returns:
             [*, I, J, C_in] output tensor
         """
@@ -106,7 +121,7 @@ class TriangleAttention(nn.Module):
                 x.shape[:-1],
             )
 
-        if (not self.starting):
+        if not self.starting:
             x = x.transpose(-2, -3)
             mask = mask.transpose(-1, -2)
 
@@ -129,7 +144,7 @@ class TriangleAttention(nn.Module):
                 x,
                 biases,
                 chunk_size,
-                use_memory_efficient_kernel=use_memory_efficient_kernel,
+                use_deepspeed_evo_attention=use_deepspeed_evo_attention,
                 use_lma=use_lma,
                 inplace_safe=inplace_safe,
             )
@@ -138,7 +153,7 @@ class TriangleAttention(nn.Module):
                 q_x=x,
                 kv_x=x,
                 biases=biases,
-                use_memory_efficient_kernel=use_memory_efficient_kernel,
+                use_deepspeed_evo_attention=use_deepspeed_evo_attention,
                 use_lma=use_lma
             )
 
