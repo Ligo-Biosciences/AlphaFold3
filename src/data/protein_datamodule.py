@@ -6,6 +6,7 @@ from lightning import LightningDataModule
 from torch.utils.data import ConcatDataset, DataLoader, Dataset
 import proteinflow
 from torchvision import transforms
+from src.data.components.protein_dataset import ProteinDataset
 
 
 class TransformDataset(torch.utils.data.Dataset):
@@ -211,50 +212,52 @@ class ProteinDataModule(LightningDataModule):
         val_folder = os.path.join(self.hparams.data_dir, "proteinflow_20230102_stable/valid")
 
         if stage == "fit" and not self.data_train:
-            train_ds = proteinflow.ProteinDataset(train_folder,
-                                                  max_length=self.hparams.max_length,
-                                                  use_fraction=self.hparams.use_fraction,
-                                                  entry_type=self.hparams.entry_type,
-                                                  classes_to_exclude=self.hparams.classes_to_exclude,
-                                                  mask_residues=self.hparams.mask_residues,
-                                                  lower_limit=self.hparams.lower_limit,
-                                                  upper_limit=self.hparams.upper_limit,
-                                                  mask_frac=self.hparams.mask_frac,
-                                                  mask_sequential=self.hparams.mask_sequential,
-                                                  mask_whole_chains=self.hparams.mask_whole_chains,
-                                                  force_binding_sites_frac=self.hparams.force_binding_sites_frac,
-                                                  debug=self.hparams.debug)
-            val_ds = proteinflow.ProteinDataset(val_folder,
-                                                max_length=self.hparams.max_length,
-                                                use_fraction=self.hparams.use_fraction,
-                                                entry_type=self.hparams.entry_type,
-                                                classes_to_exclude=self.hparams.classes_to_exclude,
-                                                mask_residues=self.hparams.mask_residues,
-                                                lower_limit=self.hparams.lower_limit,
-                                                upper_limit=self.hparams.upper_limit,
-                                                mask_frac=self.hparams.mask_frac,
-                                                mask_sequential=self.hparams.mask_sequential,
-                                                mask_whole_chains=self.hparams.mask_whole_chains,
-                                                force_binding_sites_frac=self.hparams.force_binding_sites_frac,
-                                                debug=self.hparams.debug)
-            self.data_val = TransformDataset(val_ds, transform=self.transforms)
-            self.data_train = TransformDataset(train_ds, transform=self.transforms)
+            train_ds = ProteinDataset(train_folder,
+                                      max_length=self.hparams.max_length,
+                                      use_fraction=self.hparams.use_fraction,
+                                      entry_type=self.hparams.entry_type,
+                                      classes_to_exclude=self.hparams.classes_to_exclude,
+                                      mask_residues=self.hparams.mask_residues,
+                                      lower_limit=self.hparams.lower_limit,
+                                      upper_limit=self.hparams.upper_limit,
+                                      mask_frac=self.hparams.mask_frac,
+                                      mask_sequential=self.hparams.mask_sequential,
+                                      mask_whole_chains=self.hparams.mask_whole_chains,
+                                      force_binding_sites_frac=self.hparams.force_binding_sites_frac,
+                                      debug=self.hparams.debug)
+            val_ds = ProteinDataset(val_folder,
+                                    max_length=self.hparams.max_length,
+                                    use_fraction=self.hparams.use_fraction,
+                                    entry_type=self.hparams.entry_type,
+                                    classes_to_exclude=self.hparams.classes_to_exclude,
+                                    mask_residues=self.hparams.mask_residues,
+                                    lower_limit=self.hparams.lower_limit,
+                                    upper_limit=self.hparams.upper_limit,
+                                    mask_frac=self.hparams.mask_frac,
+                                    mask_sequential=self.hparams.mask_sequential,
+                                    mask_whole_chains=self.hparams.mask_whole_chains,
+                                    force_binding_sites_frac=self.hparams.force_binding_sites_frac,
+                                    debug=self.hparams.debug)
+            # TODO: add transforms later, removed for now
+            self.data_val = val_ds  # TransformDataset(val_ds, transform=self.transforms)
+            self.data_train = train_ds  # TransformDataset(train_ds, transform=self.transforms)
 
         elif stage == "test" and not self.data_test:
-            test_ds = proteinflow.ProteinDataset(test_folder,
-                                                 max_length=self.hparams.max_length,
-                                                 use_fraction=self.hparams.use_fraction,
-                                                 entry_type=self.hparams.entry_type,
-                                                 classes_to_exclude=self.hparams.classes_to_exclude,
-                                                 mask_residues=self.hparams.mask_residues,
-                                                 lower_limit=self.hparams.lower_limit,
-                                                 upper_limit=self.hparams.upper_limit,
-                                                 mask_frac=self.hparams.mask_frac,
-                                                 mask_sequential=self.hparams.mask_sequential,
-                                                 mask_whole_chains=self.hparams.mask_whole_chains,
-                                                 force_binding_sites_frac=self.hparams.force_binding_sites_frac,
-                                                 debug=self.hparams.debug)
-            self.data_test = TransformDataset(test_ds, transform=self.transforms)
+            test_ds = ProteinDataset(test_folder,
+                                     max_length=self.hparams.max_length,
+                                     use_fraction=self.hparams.use_fraction,
+                                     entry_type=self.hparams.entry_type,
+                                     classes_to_exclude=self.hparams.classes_to_exclude,
+                                     mask_residues=self.hparams.mask_residues,
+                                     lower_limit=self.hparams.lower_limit,
+                                     upper_limit=self.hparams.upper_limit,
+                                     mask_frac=self.hparams.mask_frac,
+                                     mask_sequential=self.hparams.mask_sequential,
+                                     mask_whole_chains=self.hparams.mask_whole_chains,
+                                     force_binding_sites_frac=self.hparams.force_binding_sites_frac,
+                                     debug=self.hparams.debug)
+            # TODO: add these later
+            self.data_test = test_ds  # TransformDataset(test_ds, transform=self.transforms)
 
     def train_dataloader(self) -> DataLoader[Any]:
         """Create and return the train dataloader.
