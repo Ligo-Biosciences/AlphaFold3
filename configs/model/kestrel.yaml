@@ -15,9 +15,9 @@ scheduler:
 
 structure_net:
   _target_: src.models.structure_net.StructureNet
-  c_s: 384
+  c_s: 128
   c_z: 128
-  n_structure_layer: 4
+  n_structure_layer: 3
   n_structure_block: 1
   c_hidden_ipa: 16
   n_head_ipa: 12

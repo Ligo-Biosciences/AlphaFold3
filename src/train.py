@@ -37,6 +37,7 @@ from src.utils import (
 )
 
 log = RankedLogger(__name__, rank_zero_only=True)
+# TODO: when I call things from python, the pausing error does not emerge. It is related to the terminal somehow.
 
 
 @task_wrapper

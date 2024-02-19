@@ -2,3 +2,6 @@
 
 rich_progress_bar:
   _target_: lightning.pytorch.callbacks.RichProgressBar
+
+refresh_rate: 0
+leave: False

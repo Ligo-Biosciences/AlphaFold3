@@ -18,7 +18,7 @@ class PairFeatureNet(nn.Module):
 			Defaults to 32 as in AlphaFold.
 		"""
 		super(PairFeatureNet, self).__init__()
-		assert c_z % 2 == 0, "Channels in pair representation c_z should be divisible by 2."
+		assert c_z % 2 == 0, "Channels in pair representation c_in should be divisible by 2."
 
 		self.c_p = c_z
 		self.relpos_k = relpos_k
@@ -53,7 +53,7 @@ class PairFeatureNet(nn.Module):
 		d = residue_idx[:, :, None] - residue_idx[:, None, :]
 
 		# [n_bin]
-		v_bins = torch.arange(-self.relpos_k, self.relpos_k + 1).to(residue_idx.device)
+		v_bins = torch.arange(-self.relpos_k, self.relpos_k + 1).to(residue_idx)
 
 		# One-hot encode to the nearest bin
 		one_hot = self.one_hot(d, v_bins)
@@ -71,7 +71,7 @@ class PairFeatureNet(nn.Module):
 		:returns a pair representation with embedded pair distances of backbone atoms
 		"""
 		d_ij = torch.sum((ca_coordinates[:, :, None, :] - ca_coordinates[:, None, :, :]) ** 2, dim=-1)
-		v_bins = torch.linspace(3.375, 21.375, steps=10).to(ca_coordinates.device)  # same bin values as in AlphaFold
+		v_bins = torch.linspace(3.375, 21.375, steps=10).to(ca_coordinates)  # same bin values as in AlphaFold
 		one_hot = self.one_hot(d_ij, v_bins)
 		distance_pair_embed = self.linear_reldist(one_hot)
 		return distance_pair_embed

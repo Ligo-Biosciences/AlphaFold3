@@ -1,14 +1,12 @@
 import torch
 from torch import nn
-
+from torch.utils.checkpoint import checkpoint
 from src.models.components.invariant_point_attention import InvariantPointAttention
 from src.models.components.structure_transition import StructureTransition
 from src.models.components.backbone_update import BackboneUpdate
 from src.utils.rigid_utils import Rigids
+from typing import Tuple
 import collections
-
-# Define the output structure to avoid clutter
-Structure = collections.namedtuple('Structure', ['single_rep', 'pair_rep', 'transforms', 'mask'])
 
 
 class StructureLayer(nn.Module):
@@ -67,17 +65,19 @@ class StructureLayer(nn.Module):
         # backbone update  TODO: it might be useful to zero the gradients on rotations.
         self.bb_update = BackboneUpdate(c_s)
 
-    def forward(self, inputs: Structure) -> Structure:
+    def forward(self, inputs) -> Tuple:
         """Updates a structure by explicitly attending the 3D frames."""
-        s, z, t, mask = inputs.single_rep, inputs.pair_rep, \
-                        inputs.transforms, inputs.mask
+        s, z, t, mask = inputs
         s = s + self.ipa(s, z, t, mask)
         s = self.ipa_dropout(s)
         s = self.ipa_layer_norm(s)
-        s = self.transition(s)
+        s = checkpoint(self.transition, s)
         t = t.compose(self.bb_update(s))
-        updated_structure = Structure(s, z, t, mask)
-        return updated_structure
+        return s, z, t, mask
+
+    # def forward(self, inputs) -> Tuple:
+    # """Forward pass with gradient checkpointing."""
+    # return checkpoint(self.forward_pass, inputs)
 
 
 class StructureNet(nn.Module):
@@ -123,6 +123,7 @@ class StructureNet(nn.Module):
 
         self.c_s = c_s
         self.c_z = c_z
+        self.n_structure_layer = n_structure_layer
 
         # Initial projection and layer norms
         self.pair_rep_layer_norm = nn.LayerNorm(c_z)
@@ -167,11 +168,14 @@ class StructureNet(nn.Module):
         pair_rep = self.pair_rep_layer_norm(pair_rep)
 
         # Initial structure
-        structure = Structure(single_rep, pair_rep, transforms, mask)
+        structure = (single_rep, pair_rep, transforms, mask)
 
-        # Updates with shared weights
+        # Updates with shared weights, grad checkpointing
         for _ in range(self.n_structure_block):
+            # structure = checkpoint_sequential(self.net,
+            #                                  segments=self.n_structure_layer,
+            #                                  input=structure)
             structure = self.net(structure)
 
         # Return updated transforms
-        return structure.transforms
+        return structure[2]

@@ -1123,9 +1123,9 @@ class Rigids:
             tensor.
 
             Args:
-                t: [*, 4, 4] homogenous transformation tensor
+                t: [..., 4, 4] homogenous transformation tensor
             Returns:
-                T object with shape [*]
+                T object with shape [...]
         """
         if t.shape[-2:] != (4, 4):
             raise ValueError("Incorrectly shaped input tensor")

@@ -1,10 +1,10 @@
-from typing import Any, Dict, Tuple
+from typing import Any, Dict
 
 import torch
 from lightning import LightningModule
-from torchmetrics import MaxMetric, MeanMetric
+from torchmetrics import MeanMetric
 from src.utils.rigid_utils import Rigids
-from src.diffusion import losses
+from src.utils import losses
 
 
 class KestrelLitModule(LightningModule):
@@ -59,7 +59,7 @@ class KestrelLitModule(LightningModule):
         """
         super().__init__()
 
-        # this line allows to access init params with 'self.hparams' attribute
+        # this line allows access to init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
         self.save_hyperparameters(logger=False)
 
