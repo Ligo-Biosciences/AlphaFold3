@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import torch.nn as nn
+from torch.utils.checkpoint import checkpoint
 from src.models.components.primitives import Linear
 
 
@@ -30,7 +31,7 @@ class StructureTransitionLayer(nn.Module):
 
         self.relu = nn.ReLU()
 
-    def forward(self, s):
+    def forward_pass(self, s):
         s_initial = s
         s = self.linear_1(s)
         s = self.relu(s)
@@ -39,8 +40,10 @@ class StructureTransitionLayer(nn.Module):
         s = self.linear_3(s)
 
         s = s + s_initial
-
         return s
+
+    def forward(self, s):
+        return checkpoint(self.forward_pass, s)
 
 
 class StructureTransition(nn.Module):
@@ -56,15 +59,15 @@ class StructureTransition(nn.Module):
 
         self.layers = nn.ModuleList()
         for _ in range(self.num_layers):
-            l = StructureTransitionLayer(self.c)
-            self.layers.append(l)
+            layer = StructureTransitionLayer(self.c)
+            self.layers.append(layer)
 
         self.dropout = nn.Dropout(self.dropout_rate)
         self.layer_norm = nn.LayerNorm(self.c)
 
     def forward(self, s):
-        for l in self.layers:
-            s = l(s)
+        for layer in self.layers:
+            s = layer(s)
         s = self.dropout(s)
         s = self.layer_norm(s)
         return s

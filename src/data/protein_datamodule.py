@@ -239,8 +239,8 @@ class ProteinDataModule(LightningDataModule):
                                     force_binding_sites_frac=self.hparams.force_binding_sites_frac,
                                     debug=self.hparams.debug)
             # TODO: add transforms later, removed for now
-            self.data_val = val_ds  # TransformDataset(val_ds, transform=self.transforms)
-            self.data_train = train_ds  # TransformDataset(train_ds, transform=self.transforms)
+            self.data_val = TransformDataset(val_ds, transform=self.transforms)
+            self.data_train = TransformDataset(train_ds, transform=self.transforms)
 
         elif stage == "test" and not self.data_test:
             test_ds = ProteinDataset(test_folder,
@@ -257,7 +257,7 @@ class ProteinDataModule(LightningDataModule):
                                      force_binding_sites_frac=self.hparams.force_binding_sites_frac,
                                      debug=self.hparams.debug)
             # TODO: add these later
-            self.data_test = test_ds  # TransformDataset(test_ds, transform=self.transforms)
+            self.data_test = TransformDataset(test_ds, transform=self.transforms)
 
     def train_dataloader(self) -> DataLoader[Any]:
         """Create and return the train dataloader.

@@ -71,7 +71,7 @@ class StructureLayer(nn.Module):
         s = s + self.ipa(s, z, t, mask)
         s = self.ipa_dropout(s)
         s = self.ipa_layer_norm(s)
-        s = checkpoint(self.transition, s)
+        s = self.transition(s)
         t = t.compose(self.bb_update(s))
         return s, z, t, mask
 
