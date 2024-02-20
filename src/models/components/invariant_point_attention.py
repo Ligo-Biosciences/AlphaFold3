@@ -188,7 +188,6 @@ class InvariantPointAttention(nn.Module):
         Returns:
             [*, N_res, C_s] single representation update
         """
-        z = [z]
 
         #######################################
         # Generate scalar and point activations
@@ -236,9 +235,9 @@ class InvariantPointAttention(nn.Module):
             kv_pts, [self.no_qk_points, self.no_v_points], dim=-2
         )
 
-        # Compute attention scores with grad checkpointing
+        # Compute attention scores
         # [*, N_res, N_res, H]
-        attention = checkpoint(self.compute_attention_scores, z[0], q, k, q_pts, k_pts, mask)
+        attention = checkpoint(self.compute_attention_scores, z, q, k, q_pts, k_pts, mask)
 
         ################
         # Compute output
@@ -273,7 +272,7 @@ class InvariantPointAttention(nn.Module):
         o_pt = o_pt.reshape(*o_pt.shape[:-3], -1, 3)
 
         # [*, N_res, H, C_z]
-        o_pair = torch.matmul(attention.transpose(-2, -3), z[0].to(dtype=attention.dtype))
+        o_pair = torch.matmul(attention.transpose(-2, -3), z.to(dtype=attention.dtype))
 
         # [*, N_res, H * C_z]
         o_pair = flatten_final_dims(o_pair, 2)
@@ -282,7 +281,7 @@ class InvariantPointAttention(nn.Module):
         s = self.linear_out(
             torch.cat(
                 (o, *torch.unbind(o_pt, dim=-1), o_pt_norm, o_pair), dim=-1
-            ).to(dtype=z[0].dtype)
+            ).to(dtype=z.dtype)
         )
 
         return s

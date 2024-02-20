@@ -17,14 +17,14 @@ structure_net:
   _target_: src.models.structure_net.StructureNet
   c_s: 128
   c_z: 128
-  n_structure_layer: 3
+  n_structure_layer: 1
   n_structure_block: 1
   c_hidden_ipa: 16
   n_head_ipa: 12
   n_qk_point: 4
   n_v_point: 8
   ipa_dropout: 0.1
-  n_structure_transition_layer: 1
+  n_structure_transition_layer: 3
   structure_transition_dropout: 0.1
 
 pair_feature_net:

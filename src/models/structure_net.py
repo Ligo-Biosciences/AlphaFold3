@@ -68,11 +68,11 @@ class StructureLayer(nn.Module):
     def forward(self, inputs) -> Tuple:
         """Updates a structure by explicitly attending the 3D frames."""
         s, z, t, mask = inputs
-        s = s + self.ipa(s, z, t, mask)
+        s = s + self.ipa(s, z, t.to_nanometers(), mask)  # IPA requires nanometer units
         s = self.ipa_dropout(s)
         s = self.ipa_layer_norm(s)
         s = self.transition(s)
-        t = t.compose(self.bb_update(s))
+        t = t.compose(self.bb_update(s).to_angstroms())  # predict in nanometers, compose in angstroms
         return s, z, t, mask
 
     # def forward(self, inputs) -> Tuple:

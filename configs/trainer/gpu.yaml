@@ -4,4 +4,8 @@ defaults:
 accelerator: gpu
 devices: 1
 
-precision: 'bf16-mixed'  # train with bfloat-16 mixed precision
+precision: '16-mixed' # 'transformer-engine', 'transformer-engine-float16', '16-true', '16-mixed', 'bf16-true',
+# 'bf16-mixed', '32-true',
+
+# Gradient accumulation
+accumulate_grad_batches: 1

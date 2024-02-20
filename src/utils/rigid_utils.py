@@ -1149,6 +1149,24 @@ class Rigids:
 
         return tensor
 
+    def to_nanometers(self) -> Rigids:
+        """
+            Converts the translation from Angstroms to nanometers.
+
+            Returns:
+                The transformed Rigids object
+        """
+        return Rigids(self._rots, self._trans / 10.0)
+
+    def to_angstroms(self) -> Rigids:
+        """
+            Converts the translation from nanometers to Angstroms.
+
+            Returns:
+                The transformed Rigids object
+        """
+        return Rigids(self._rots, self._trans * 10.0)
+
     @staticmethod
     def from_tensor_7(
             t: torch.Tensor,

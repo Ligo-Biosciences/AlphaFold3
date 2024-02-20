@@ -2,9 +2,11 @@ from typing import Any, Dict
 
 import torch
 from lightning import LightningModule
+from lightning.pytorch.utilities import grad_norm
 from torchmetrics import MeanMetric
 from src.utils.rigid_utils import Rigids
 from src.utils import losses
+import torch.nn.functional as F
 
 
 class KestrelLitModule(LightningModule):
@@ -97,9 +99,11 @@ class KestrelLitModule(LightningModule):
         pair_repr = self.pair_feature_net(residue_idx=residue_idx,
                                           ca_coordinates=coordinates[:, :, 1, :],
                                           residue_mask=residue_mask)
-        # Single rep features as zeros
-        single_repr = torch.zeros((batch_size, n_res, self.structure_net.c_s))
-        single_repr = single_repr.to(coordinates.float())
+        # Single rep features as pooled pair repr
+        pooled_tensor = F.avg_pool2d(pair_repr, kernel_size=(n_res, 1))  # Pool along second to last dimension
+        pooled_tensor = pooled_tensor.view(-1, n_res, pair_repr.shape[-1])  # Reshape to get [*, n_res, c_z]
+        single_repr = pooled_tensor.to(coordinates.float())
+
 
         # Initialize transforms as identity
         transforms = Rigids.identity((batch_size, n_res))
@@ -165,7 +169,7 @@ class KestrelLitModule(LightningModule):
 
         # update and log metrics
         self.train_loss(loss)
-        self.log("train/loss", self.train_loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("train/loss", self.train_loss, on_step=True, on_epoch=False, prog_bar=True)
 
         # return loss or backpropagation will fail
         return loss
@@ -173,6 +177,18 @@ class KestrelLitModule(LightningModule):
     def on_train_epoch_end(self) -> None:
         """Lightning hook that is called when a training epoch ends."""
         pass
+
+    def on_before_zero_grad(self, optimizer: torch.optim.Optimizer) -> None:
+        """Keeps an eye on weight norms during training."""
+        weight_norms = {}
+        for name, param in self.named_parameters():
+            weight_norms[f"{name}_abs_mean"] = param.abs().mean().item()
+        self.log_dict(weight_norms)
+
+    def on_before_optimizer_step(self, optimizer):
+        """Keeps an eye on gradient norms during training."""
+        norms = grad_norm(self.structure_net, norm_type=2)
+        self.log_dict(norms)
 
     def validation_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
         """Perform a single validation step on a batch of data from the validation set.

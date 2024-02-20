@@ -3,13 +3,13 @@ _target_: lightning.pytorch.trainer.Trainer
 default_root_dir: ${paths.output_dir}
 
 min_epochs: 1 # prevents early stopping
-max_epochs: 10
+max_epochs: 100
 
 accelerator: cpu
 devices: 1
 
 # mixed precision for extra speed-up
-# precision: 'transformer-engine', 'transformer-engine-float16', '16-true', '16-mixed', 'bf16-true',
+precision: '32-true' # 'transformer-engine', 'transformer-engine-float16', '16-true', '16-mixed', 'bf16-true',
 # 'bf16-mixed', '32-true',
 
 # perform a validation loop every N training epochs
@@ -32,6 +32,9 @@ limit_val_batches: 1.0
 
 # Profiler choose between "simple", "advanced"
 profiler: "simple"  # None
+
+# Detect autograd anomalies. This will significantly slow down compute speed, useful for debugging
+detect_anomaly: False
 
 enable_progress_bar: null
 
