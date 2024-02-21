@@ -14,54 +14,53 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Backbone update with the geometry package."""
+
 import torch
-from torch import nn
+import torch.nn as nn
 
 from src.models.components.primitives import Linear
-from src.utils.rigid_utils import Rigids, Rotations
+from src.utils.geometry.rigid_matrix_vector import Rigid3Array
+from src.utils.geometry.rotation_matrix import Rot3Array
+from src.utils.geometry.vector import Vec3Array
 
 
 class BackboneUpdate(nn.Module):
-    """
-        Implements Algorithm 23.
-    """
+    """Computes the backbone update."""
 
-    def __init__(self, c_s):
+    def __init__(
+            self,
+            c_hidden,
+            full_quat) -> None:
         """
-            Args:
-                c_s:
-                    Single representation channel dimension
+        Args:
+            c_hidden: The number of hidden channels.
+            full_quat: Whether to use full quaternion representation.
         """
-        super(BackboneUpdate, self).__init__()
+        super().__init__()
+        self.full_quat = full_quat
+        if self.full_quat:
+            rigid_dim = 7
+        else:
+            rigid_dim = 6
 
-        self.c_s = c_s
+        self.linear = Linear(c_hidden, rigid_dim, init="final", precision=torch.float32)
 
-        self.linear = Linear(self.c_s, 6)  # , init="final")
+    def forward(self, activations: torch.Tensor) -> Rigid3Array:
+        # NOTE: During training, this needs to be run in higher precision
+        rigid_flat = self.linear(activations)
 
-    def forward(self, s):
-        """
-            Args:
-                [*, N_res, C_s] single representation
-            Returns:
-                [*, N_res] affine transformation object
-        """
-        # [*, 6]
-        params = self.linear(s)
+        rigid_flat = torch.unbind(rigid_flat, dim=-1)
+        if self.full_quat:
+            qw, qx, qy, qz = rigid_flat[:4]
+            translation = rigid_flat[4:]
+        else:
+            qx, qy, qz = rigid_flat[:3]
+            qw = torch.ones_like(qx)
+            translation = rigid_flat[3:]
 
-        # [*, 3]
-        quats, trans = params[..., :3], params[..., 3:]
-
-        # [*]
-        norm_denominator = torch.sqrt(torch.sum(quats ** 2, dim=-1) + 1)
-
-        # As many ones as there are dimensions in quats
-        ones = s.new_ones((1,) * len(quats.shape))
-
-        # [*, 4]
-        quats = torch.cat((ones.expand(*quats.shape[:-1], 1), quats), dim=-1)
-        quats = quats / norm_denominator.unsqueeze(-1)
-
-        # [*, 3, 3]
-        rots = Rotations(quats=quats)
-
-        return Rigids(rots, trans)
+        rotation = Rot3Array.from_quaternion(
+            qw, qx, qy, qz, normalize=True,
+        )
+        translation = Vec3Array(*translation)
+        return Rigid3Array(rotation, translation)

@@ -31,7 +31,7 @@ class StructureTransitionLayer(nn.Module):
 
         self.relu = nn.ReLU()
 
-    def forward_pass(self, s):
+    def forward(self, s):
         s_initial = s
         s = self.linear_1(s)
         s = self.relu(s)
@@ -42,15 +42,18 @@ class StructureTransitionLayer(nn.Module):
         s = s + s_initial
         return s
 
-    def forward(self, s):
-        return checkpoint(self.forward_pass, s)
-
 
 class StructureTransition(nn.Module):
     def __init__(self,
-                 c,
+                 c: int,
                  num_layers: int = 1,
                  dropout_rate: float = 0.1):
+        """
+        Args:
+            c: the number of channels in the input and output tensors.
+            num_layers: int, the number of structure transition layers.
+            dropout_rate: float, the dropout rate
+        """
         super(StructureTransition, self).__init__()
 
         self.c = c

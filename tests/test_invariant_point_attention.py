@@ -1,8 +1,6 @@
 import torch
-import numpy as np
 import unittest
 from src.models.components.invariant_point_attention import InvariantPointAttention
-from src.utils.rigid_utils import Rotations, Rigids
 from src.utils.geometry import rotation_matrix, vector
 from src.utils.geometry.rigid_matrix_vector import Rigid3Array
 

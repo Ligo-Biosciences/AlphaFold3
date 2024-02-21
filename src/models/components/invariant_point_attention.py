@@ -19,11 +19,8 @@
 import math
 import torch
 import torch.nn as nn
-from torch.utils.checkpoint import checkpoint
-from typing import Optional, Tuple, Sequence, Union
+from typing import Optional, Tuple, Union
 
-from src.utils.precision_utils import is_fp16_enabled
-from src.utils.rigid_utils import Rotations, Rigids
 from src.utils.geometry.rigid_matrix_vector import Rigid3Array
 from src.utils.geometry.vector import Vec3Array, square_euclidean_distance
 
@@ -55,7 +52,7 @@ class PointProjection(nn.Module):
 
     def forward(self,
                 activations: torch.Tensor,
-                rigids: Union[Rigids, Rigid3Array],
+                rigids: Rigid3Array,
                 ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         # TODO: Needs to run in high precision during training
         points_local = self.linear(activations)
