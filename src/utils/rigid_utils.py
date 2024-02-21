@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# TODO: this whole file should be deleted! Instead, use the geometry package elements within utils/geometry/
+
 from __future__ import annotations
 from functools import lru_cache
 from typing import Tuple, Any, Sequence, Callable, Optional
@@ -355,7 +357,7 @@ class Rotations:
                     should require gradient computation
                 fmt:
                     One of "quat" or "rot_mat". Determines the underlying format
-                    of the new object's rotation 
+                    of the new object's rotation
             Returns:
                 A new identity rotation
         """
@@ -444,7 +446,7 @@ class Rotations:
             or quaternion. If the Rotations was initialized with a [10, 3, 3]
             rotation matrix tensor, for example, the resulting shape would be
             [10].
-        
+
             Returns:
                 The virtual shape of the rotation object
         """
@@ -559,8 +561,8 @@ class Rotations:
         """
             Returns a new quaternion Rotations after updating the current
             object's underlying rotation with a quaternion update, formatted
-            as a [*, 3] tensor whose final three columns represent other, y, z such
-            that (1, other, y, z) is the desired (not necessarily unit) quaternion
+            as a [*, 3] tensor whose final three columns represent x, y, z such
+            that (1, x, y, z) is the desired (not necessarily unit) quaternion
             update.
 
             Args:
@@ -673,7 +675,7 @@ class Rotations:
         """
             Analogous to torch.unsqueeze. The dimension is relative to the
             shape of the Rotations object.
-            
+
             Args:
                 dim: A positive or negative dimension index.
             Returns:
@@ -704,10 +706,10 @@ class Rotations:
             regardless of the format of input rotations.
 
             Args:
-                rs: 
+                rs:
                     A list of rotation objects
-                dim: 
-                    The dimension along which the rotations should be 
+                dim:
+                    The dimension along which the rotations should be
                     concatenated
             Returns:
                 A concatenated Rotations object in rotation matrix format
@@ -816,9 +818,9 @@ class Rotations:
 
 class Rigids:
     """
-        A class representing rigid transformations. Little more than a wrapper
+        A class representing a rigid transformation. Little more than a wrapper
         around two objects: a Rotations object and a [*, 3] translation
-        Designed to behave approximately like a single torch tensor with the 
+        Designed to behave approximately like a single torch tensor with the
         shape of the shared batch dimensions of its component parts.
     """
 
@@ -868,7 +870,7 @@ class Rigids:
 
     @staticmethod
     def identity(
-            shape: Tuple[int, ...],
+            shape: Tuple[int],
             dtype: Optional[torch.dtype] = None,
             device: Optional[torch.device] = None,
             requires_grad: bool = True,
@@ -878,13 +880,13 @@ class Rigids:
             Constructs an identity transformation.
 
             Args:
-                shape: 
+                shape:
                     The desired shape
-                dtype: 
+                dtype:
                     The dtype of both internal tensors
-                device: 
+                device:
                     The device of both internal tensors
-                requires_grad: 
+                requires_grad:
                     Whether grad should be enabled for the internal tensors
             Returns:
                 The identity transformation
@@ -897,15 +899,15 @@ class Rigids:
     def __getitem__(self,
                     index: Any,
                     ) -> Rigids:
-        """ 
+        """
             Indexes the affine transformation with PyTorch-style indices.
             The index is applied to the shared dimensions of both the rotation
             and the translation.
 
             E.g.::
 
-                residue_idx = Rotations(rot_mats=torch.rand(10, 10, 3, 3), quats=None)
-                t = Rigid(residue_idx, torch.rand(10, 10, 3))
+                r = Rotations(rot_mats=torch.rand(10, 10, 3, 3), quats=None)
+                t = Rigids(r, torch.rand(10, 10, 3))
                 indexed = t[3, 4:6]
                 assert(indexed.shape == (2,))
                 assert(indexed.get_rots().shape == (2,))
@@ -915,7 +917,7 @@ class Rigids:
                 index: A standard torch tensor index. E.g. 8, (10, None, 3),
                 or (3, slice(0, 1, None))
             Returns:
-                The indexed tensor 
+                The indexed tensor
         """
         if type(index) != tuple:
             index = (index,)
@@ -930,7 +932,7 @@ class Rigids:
                 ) -> Rigids:
         """
             Pointwise left multiplication of the transformation with a tensor.
-            Can be used to e.g. mask the Rigid.
+            Can be used to e.g. mask the Rigids.
 
             Args:
                 right:
@@ -950,7 +952,7 @@ class Rigids:
                  left: torch.Tensor,
                  ) -> Rigids:
         """
-            Reverse pointwise multiplication of the transformation with a 
+            Reverse pointwise multiplication of the transformation with a
             tensor.
 
             Args:
@@ -966,7 +968,7 @@ class Rigids:
         """
             Returns the shape of the shared dimensions of the rotation and
             the translation.
-            
+
             Returns:
                 The shape of the transformation
         """
@@ -976,12 +978,22 @@ class Rigids:
     @property
     def device(self) -> torch.device:
         """
-            Returns the device on which the Rigid's tensors are located.
+            Returns the device on which the Rigids's tensors are located.
 
             Returns:
-                The device on which the Rigid's tensors are located
+                The device on which the Rigids's tensors are located
         """
         return self._trans.device
+
+    @property
+    def dtype(self) -> torch.dtype:
+        """
+            Returns the dtype of the Rigids tensors.
+
+            Returns:
+                The dtype of the Rigids tensors
+        """
+        return self._rots.dtype
 
     def get_rots(self) -> Rotations:
         """
@@ -1006,8 +1018,8 @@ class Rigids:
                              ) -> Rigids:
         """
             Composes the transformation with a quaternion update vector of
-            shape [*, 6], where the final 6 columns represent the other, y, and
-            z values of a quaternion of form (1, other, y, z) followed by a 3D
+            shape [*, 6], where the final 6 columns represent the x, y, and
+            z values of a quaternion of form (1, x, y, z) followed by a 3D
             translation.
 
             Args:
@@ -1031,7 +1043,7 @@ class Rigids:
 
             Args:
                 r:
-                    Another Rigid object
+                    Another Rigids object
             Returns:
                 The composition of the two transformations
         """
@@ -1089,9 +1101,9 @@ class Rigids:
 
             Args:
                 fn:
-                    A Tensor -> Tensor function to be mapped over the Rigid
+                    A Tensor -> Tensor function to be mapped over the Rigids
             Returns:
-                The transformed Rigid object
+                The transformed Rigids object
         """
         new_rots = self._rots.map_tensor_fn(fn)
         new_trans = torch.stack(
@@ -1123,9 +1135,9 @@ class Rigids:
             tensor.
 
             Args:
-                t: [..., 4, 4] homogenous transformation tensor
+                t: [*, 4, 4] homogenous transformation tensor
             Returns:
-                T object with shape [...]
+                T object with shape [*]
         """
         if t.shape[-2:] != (4, 4):
             raise ValueError("Incorrectly shaped input tensor")
@@ -1137,7 +1149,7 @@ class Rigids:
 
     def to_tensor_7(self) -> torch.Tensor:
         """
-            Converts a transformation to a tensor with 7 final columns, four 
+            Converts a transformation to a tensor with 7 final columns, four
             for the quaternion followed by three for the translation.
 
             Returns:
@@ -1148,24 +1160,6 @@ class Rigids:
         tensor[..., 4:] = self._trans
 
         return tensor
-
-    def to_nanometers(self) -> Rigids:
-        """
-            Converts the translation from Angstroms to nanometers.
-
-            Returns:
-                The transformed Rigids object
-        """
-        return Rigids(self._rots, self._trans / 10.0)
-
-    def to_angstroms(self) -> Rigids:
-        """
-            Converts the translation from nanometers to Angstroms.
-
-            Returns:
-                The transformed Rigids object
-        """
-        return Rigids(self._rots, self._trans * 10.0)
 
     @staticmethod
     def from_tensor_7(
@@ -1193,7 +1187,7 @@ class Rigids:
             eps: float = 1e-8
     ) -> Rigids:
         """
-            Implements algorithm 21. Constructs transformations from sets of 3 
+            Implements algorithm 21. Constructs transformations from sets of 3
             points using the Gram-Schmidt algorithm.
 
             Args:
@@ -1236,7 +1230,7 @@ class Rigids:
         """
             Analogous to torch.unsqueeze. The dimension is relative to the
             shared dimensions of the rotation/translation.
-            
+
             Args:
                 dim: A positive or negative dimension index.
             Returns:
@@ -1258,10 +1252,10 @@ class Rigids:
             Concatenates transformations along a new dimension.
 
             Args:
-                ts: 
+                ts:
                     A list of T objects
-                dim: 
-                    The dimension along which the transformations should be 
+                dim:
+                    The dimension along which the transformations should be
                     concatenated
             Returns:
                 A concatenated transformation object
@@ -1290,7 +1284,7 @@ class Rigids:
             Applies a Tensor -> Tensor function to the stored translation.
 
             Args:
-                fn: 
+                fn:
                     A function of type Tensor -> Tensor to be applied to the
                     translation
             Returns:
@@ -1311,6 +1305,24 @@ class Rigids:
         fn = lambda t: t * trans_scale_factor
         return self.apply_trans_fn(fn)
 
+    def to_nanometers(self) -> Rigids:
+        """
+            Converts the translation from Angstroms to nanometers.
+
+            Returns:
+                The transformed Rigids object
+        """
+        return self.scale_translation(0.1)
+
+    def to_angstroms(self) -> Rigids:
+        """
+            Converts the translation from nanometers to Angstroms.
+
+            Returns:
+                The transformed Rigids object
+        """
+        return self.scale_translation(10.0)
+
     def stop_rot_gradient(self) -> Rigids:
         """
             Detaches the underlying rotation object
@@ -1325,20 +1337,20 @@ class Rigids:
     def make_transform_from_reference(n_xyz, ca_xyz, c_xyz, eps=1e-20):
         """
             Returns a transformation object from reference coordinates.
-  
-            Note that this method does not take care of symmetries. If you 
-            provide the atom positions in the non-standard way, the N atom will 
-            end up not at [-0.527250, 1.359329, 0.0] but instead at 
-            [-0.527250, -1.359329, 0.0]. You need to take care of such cases in 
+
+            Note that this method does not take care of symmetries. If you
+            provide the atom positions in the non-standard way, the N atom will
+            end up not at [-0.527250, 1.359329, 0.0] but instead at
+            [-0.527250, -1.359329, 0.0]. You need to take care of such cases in
             your code.
-  
+
             Args:
                 n_xyz: A [*, 3] tensor of nitrogen xyz coordinates.
                 ca_xyz: A [*, 3] tensor of carbon alpha xyz coordinates.
                 c_xyz: A [*, 3] tensor of carbon xyz coordinates.
             Returns:
-                A transformation object. After applying the translation and 
-                rotation to the reference backbone, the coordinates will 
+                A transformation object. After applying the translation and
+                rotation to the reference backbone, the coordinates will
                 approximately equal to the input coordinates.
         """
         translation = -1 * ca_xyz
@@ -1394,6 +1406,15 @@ class Rigids:
 
         return Rigids(rot_obj, translation)
 
+    def cuda(self) -> Rigids:
+        """
+            Moves the transformation object to GPU memory
+
+            Returns:
+                A version of the transformation on GPU
+        """
+        return Rigids(self._rots.cuda(), self._trans.cuda())
+
     def to(self, other) -> Rigids:
         """
         Moves the transformation object to the device of other.
@@ -1404,12 +1425,3 @@ class Rigids:
         """
         return Rigids(self._rots.to(device=other.device, dtype=other.dtype),
                       self._trans.to(other))
-
-    def cuda(self) -> Rigids:
-        """
-            Moves the transformation object to GPU memory
-            
-            Returns:
-                A version of the transformation on GPU
-        """
-        return Rigids(self._rots.cuda(), self._trans.cuda())

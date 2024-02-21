@@ -108,6 +108,48 @@ def ipa_point_weights_init_(weights):
         weights.fill_(softplus_inverse_1)
 
 
+def generate_sinusoidal_encodings(indices, c_s, max_pos=10_000):
+    """
+    Generates a sinusoidal encoding for a given tensor of residue indices.
+
+    Args:
+        indices (torch.Tensor): A tensor of residue indices with shape [*, n_res].
+        c_s (int): The size of the channel dimension for the sinusoidal encoding.
+        max_pos (int, optional): The maximum possible residue index. Default is 10000.
+
+    Returns:
+        torch.Tensor: A tensor with sinusoidal encodings of shape [*, n_res, c_s].
+
+    Example:
+        # >>> indices = torch.randint(0, 500, (5, n_res))
+        # >>> encoded_tensor = generate_sinusoidal_encodings(indices, 64)
+        # >>> print(encoded_tensor.shape)
+        # Output: torch.Size([5, n_res, 64])
+    """
+    # Create a position array of shape [max_pos, 1]
+    position = torch.arange(max_pos, dtype=torch.float).unsqueeze(1)
+
+    # Compute the div term
+    div_term = torch.exp(torch.arange(0, c_s, 2).float() * -(math.log(10000.0) / c_s))
+
+    # Initialize sinusoidal encoding matrix
+    sinusoid_table = torch.zeros(max_pos, c_s).to(indices)
+
+    # Apply sin to even indices in the array; 2i
+    sinusoid_table[:, 0::2] = torch.sin(position * div_term)
+
+    # Move sinusoid table to the same device as the indices
+    sinusoid_table = sinusoid_table.to(indices.device)
+
+    # Apply cos to odd indices in the array; 2i+1
+    sinusoid_table[:, 1::2] = torch.cos(position * div_term)
+
+    # Apply the encoding to each index in the input tensor
+    encoded_indices = sinusoid_table[indices.long()]
+
+    return encoded_indices
+
+
 class Linear(nn.Linear):
     """
     A Linear layer with built-in nonstandard initializations. Called just
@@ -118,12 +160,13 @@ class Linear(nn.Linear):
     """
 
     def __init__(
-            self,
-            in_dim: int,
-            out_dim: int,
-            bias: bool = True,
-            init: str = "default",
-            init_fn: Optional[Callable[[torch.Tensor, torch.Tensor], None]] = None,
+        self,
+        in_dim: int,
+        out_dim: int,
+        bias: bool = True,
+        init: str = "default",
+        init_fn: Optional[Callable[[torch.Tensor, torch.Tensor], None]] = None,
+        precision=None
     ):
         """
         Args:
@@ -174,6 +217,28 @@ class Linear(nn.Linear):
                     final_init_(self.weight)
                 else:
                     raise ValueError("Invalid init string.")
+
+        self.precision = precision
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        d = input.dtype
+        deepspeed_is_initialized = (
+                deepspeed_is_installed and
+                deepspeed.comm.comm.is_initialized()
+        )
+        if self.precision is not None:
+            with torch.cuda.amp.autocast(enabled=False):
+                bias = self.bias.to(dtype=self.precision) if self.bias is not None else None
+                return nn.functional.linear(input.to(dtype=self.precision),
+                                            self.weight.to(dtype=self.precision),
+                                            bias).to(dtype=d)
+
+        if d is torch.bfloat16 and not deepspeed_is_initialized:
+            with torch.cuda.amp.autocast(enabled=False):
+                bias = self.bias.to(dtype=d) if self.bias is not None else None
+                return nn.functional.linear(input, self.weight.to(dtype=d), bias)
+
+        return nn.functional.linear(input, self.weight, self.bias)
 
 
 class LayerNorm(nn.Module):

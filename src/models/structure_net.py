@@ -6,7 +6,8 @@ from src.models.components.structure_transition import StructureTransition
 from src.models.components.backbone_update import BackboneUpdate
 from src.utils.rigid_utils import Rigids
 from typing import Tuple
-import collections
+
+# TODO: this should be close to the StructureModule in its implementation
 
 
 class StructureLayer(nn.Module):
@@ -44,6 +45,9 @@ class StructureLayer(nn.Module):
         """
         super(StructureLayer, self).__init__()
 
+        self.c_s = c_s
+        self.c_z = c_z
+
         self.ipa = InvariantPointAttention(
             c_s,
             c_z,
@@ -71,7 +75,7 @@ class StructureLayer(nn.Module):
         s = s + self.ipa(s, z, t.to_nanometers(), mask)  # IPA requires nanometer units
         s = self.ipa_dropout(s)
         s = self.ipa_layer_norm(s)
-        s = self.transition(s)
+        s = checkpoint(self.transition, s)
         t = t.compose(self.bb_update(s).to_angstroms())  # predict in nanometers, compose in angstroms
         return s, z, t, mask
 
@@ -170,7 +174,7 @@ class StructureNet(nn.Module):
         # Initial structure
         structure = (single_rep, pair_rep, transforms, mask)
 
-        # Updates with shared weights, grad checkpointing
+        # Updates with shared weights
         for _ in range(self.n_structure_block):
             # structure = checkpoint_sequential(self.net,
             #                                  segments=self.n_structure_layer,

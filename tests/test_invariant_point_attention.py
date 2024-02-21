@@ -3,6 +3,8 @@ import numpy as np
 import unittest
 from src.models.components.invariant_point_attention import InvariantPointAttention
 from src.utils.rigid_utils import Rotations, Rigids
+from src.utils.geometry import rotation_matrix, vector
+from src.utils.geometry.rigid_matrix_vector import Rigid3Array
 
 
 class TestInvariantPointAttention(unittest.TestCase):
@@ -22,10 +24,10 @@ class TestInvariantPointAttention(unittest.TestCase):
         mask = torch.ones((batch_size, n_res))
 
         rot_mats = torch.rand((batch_size, n_res, 3, 3))
-        rots = Rotations(rot_mats=rot_mats, quats=None)
-        trans = torch.rand((batch_size, n_res, 3))
-
-        r = Rigids(rots, trans)
+        rots = rotation_matrix.Rot3Array.from_array(rot_mats)
+        trans_ = torch.rand((batch_size, n_res, 3))
+        trans = vector.Vec3Array.from_array(trans_)
+        r = Rigid3Array(rots, trans)
 
         ipa = InvariantPointAttention(
             c_m, c_z, c_hidden, no_heads, no_qp, no_vp
