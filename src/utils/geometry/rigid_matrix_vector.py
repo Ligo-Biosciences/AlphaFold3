@@ -31,7 +31,7 @@ class Rigid3Array:
     translation: vector.Vec3Array
 
     def __matmul__(self, other: Rigid3Array) -> Rigid3Array:
-        new_rotation = self.rotation @ other.rotation # __matmul__
+        new_rotation = self.rotation @ other.rotation  # __matmul__
         new_translation = self.apply_to_point(other.translation)
         return Rigid3Array(new_rotation, new_translation)
 
@@ -173,6 +173,33 @@ class Rigid3Array:
             array[..., 0, 3], array[..., 1, 3], array[..., 2, 3]
         )
         return cls(rotation, translation)
+
+    @classmethod
+    def from_3_points(cls,
+                      x1: vector.Vec3Array,
+                      x2: vector.Vec3Array,
+                      x3: vector.Vec3Array
+                      ) -> Rigid3Array:
+        """Implements algorithm 21. Constructs transformations from sets of 3
+        points using the Gram-Schmidt algorithm.
+        Args:
+            x1:
+                N atom coordinates as Vec3Array object [..., 3]
+            x2:
+                origin, CA atom coordinates as Vec3Array object [..., 3]
+            x3:
+                C atom coordinates as Vec3Array object [..., 3]
+        """
+        v1 = x3 - x2
+        v2 = x1 - x2
+        e1 = v1 / v1.norm()
+        u2 = v2 - e1 * (e1.dot(v2))
+        e2 = u2 / u2.norm()
+        e3 = e1.cross(e2)
+        R = torch.stack([e1.to_tensor(), e2.to_tensor(), e3.to_tensor()], dim=-2)
+        R = rotation_matrix.Rot3Array.from_array(R)
+        t = x2
+        return cls(R, t)
 
     def cuda(self) -> Rigid3Array:
         return Rigid3Array.from_tensor_4x4(self.to_tensor_4x4().cuda())

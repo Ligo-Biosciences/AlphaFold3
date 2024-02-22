@@ -2,7 +2,6 @@ from functools import reduce
 import importlib
 import math
 import sys
-from operator import mul
 
 import torch
 import torch.nn as nn
@@ -14,6 +13,7 @@ from src.models.components.invariant_point_attention import InvariantPointAttent
 from src.models.components.structure_transition import StructureTransition
 
 from src.utils.geometry.rigid_matrix_vector import Rigid3Array
+from src.common import residue_constants
 from src.common.residue_constants import restype_atom14_rigid_group_positions
 from src.utils.tensor_utils import dict_multimap
 
@@ -24,18 +24,15 @@ class StructureModule(nn.Module):
             c_s,
             c_z,
             c_ipa,
-            c_resnet,
             no_heads_ipa,
             no_qk_points,
             no_v_points,
             dropout_rate,
             no_blocks,
             no_transition_layers,
-            no_resnet_blocks,
-            no_angles,
             trans_scale_factor,
-            epsilon,
-            inf,
+            epsilon=1e-6,
+            inf=1e8,
             **kwargs,
     ):
         """
@@ -46,8 +43,6 @@ class StructureModule(nn.Module):
                 Pair representation channel dimension
             c_ipa:
                 IPA hidden channel dimension
-            c_resnet:
-                Angle resnet (Alg. 23 lines 11-14) hidden channel dimension
             no_heads_ipa:
                 Number of IPA heads
             no_qk_points:
@@ -58,17 +53,10 @@ class StructureModule(nn.Module):
                 Dropout rate used throughout the layer
             no_blocks:
                 Number of structure module blocks
-            no_transition_layers:
-                Number of layers in the single representation transition
-                (Alg. 23 lines 8-9)
-            no_resnet_blocks:
-                Number of blocks in the angle resnet
-            no_angles:
-                Number of angles to generate in the angle resnet
             trans_scale_factor:
                 Scale of single representation transition hidden dimension
             epsilon:
-                Small number used in angle resnet normalization
+                Small number used for numerical stability
             inf:
                 Large number used for attention masking
         """
@@ -77,23 +65,17 @@ class StructureModule(nn.Module):
         self.c_s = c_s
         self.c_z = c_z
         self.c_ipa = c_ipa
-        self.c_resnet = c_resnet
         self.no_heads_ipa = no_heads_ipa
         self.no_qk_points = no_qk_points
         self.no_v_points = no_v_points
         self.dropout_rate = dropout_rate
         self.no_blocks = no_blocks
         self.no_transition_layers = no_transition_layers
-        self.no_resnet_blocks = no_resnet_blocks
-        self.no_angles = no_angles
         self.trans_scale_factor = trans_scale_factor
         self.epsilon = epsilon
         self.inf = inf
 
         # Buffers to be lazily initialized later
-        # self.default_frames
-        # self.group_idx
-        # self.atom_mask
         # self.lit_positions
 
         self.layer_norm_s = LayerNorm(self.c_s)
@@ -127,7 +109,6 @@ class StructureModule(nn.Module):
     def _forward_multimer(
             self,
             evoformer_output_dict,
-            aatype,
             mask=None,
     ):
         s = evoformer_output_dict["single"]  # the single representation
@@ -188,7 +169,6 @@ class StructureModule(nn.Module):
     def forward(
             self,
             evoformer_output_dict,
-            aatype,
             mask=None,
     ):
         """
@@ -199,14 +179,12 @@ class StructureModule(nn.Module):
                         [*, N_res, C_s] single representation
                     "pair":
                         [*, N_res, N_res, C_z] pair representation
-            aatype:
-                [*, N_res] amino acid indices
             mask:
                 Optional [*, N_res] sequence mask
         Returns:
             A dictionary of outputs
         """
-        outputs = self._forward_multimer(evoformer_output_dict, aatype, mask)
+        outputs = self._forward_multimer(evoformer_output_dict, mask)
         return outputs
 
     def _init_residue_constants(self, float_dtype, device):
@@ -225,7 +203,7 @@ class StructureModule(nn.Module):
 
     def frames_to_atom4_pos(
             self,
-            frames: Rigid3Array,
+            frames: Rigid3Array,  # [*, N_res]
             reference_atom: str = "ALA",
     ):
         """Given backbone frames, convert to atom positions using the literature positions
@@ -236,4 +214,14 @@ class StructureModule(nn.Module):
         """
         # Lazily initialize the residue constants on the correct device
         self._init_residue_constants(frames.dtype, frames.device)
-        raise NotImplementedError("Implement me!")
+
+        # Extract the reference atom position
+        one_letter_ref_atom = residue_constants.restype_3to1[reference_atom]
+        order = residue_constants.restype_order[one_letter_ref_atom]
+        backbone_atoms = self.lit_positions[order][:4]  # [4, 3]
+
+        # Apply rigid transformations to the reference atom
+        frames = frames.unsqueeze(dim=-1)  # [*, N_res, 1]
+        backbone_xyz = frames.apply(backbone_atoms)  # [*, N, 4, 3]
+        return backbone_xyz
+
