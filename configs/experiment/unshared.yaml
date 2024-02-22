@@ -25,7 +25,7 @@ model:
   optimizer:
     lr: 0.001
   structure_net:
-    n_structure_transition_layer: 1
+    n_structure_transition_layer: 3
   compile: false
 
 data:

@@ -6,7 +6,7 @@ from lightning.pytorch.utilities import grad_norm
 from torchmetrics import MeanMetric
 from src.utils.rigid_utils import Rigids
 from src.utils import losses
-import torch.nn.functional as F
+from src.models.components.primitives import generate_sinusoidal_encodings
 
 
 class KestrelLitModule(LightningModule):
@@ -99,11 +99,8 @@ class KestrelLitModule(LightningModule):
         pair_repr = self.pair_feature_net(residue_idx=residue_idx,
                                           ca_coordinates=coordinates[:, :, 1, :],
                                           residue_mask=residue_mask)
-        # Single rep features as pooled pair repr
-        pooled_tensor = F.avg_pool2d(pair_repr, kernel_size=(n_res, 1))  # Pool along second to last dimension
-        pooled_tensor = pooled_tensor.view(-1, n_res, pair_repr.shape[-1])  # Reshape to get [*, n_res, c_z]
-        single_repr = pooled_tensor.to(coordinates.float())
-
+        # Single rep features as residue index  [*, n_res, c_s]
+        single_repr = generate_sinusoidal_encodings(residue_idx, c_s=self.structure_net.c_s)
 
         # Initialize transforms as identity
         transforms = Rigids.identity((batch_size, n_res))
@@ -146,14 +143,14 @@ class KestrelLitModule(LightningModule):
                                          coordinates[:, :, 2, :])  # C
         gt_positions = gt_frames.get_trans()
 
-        squared_fape = losses.fape_squared_with_clamp(pred_frames=pred_frames,
-                                                      pred_positions=pred_positions,
-                                                      target_frames=gt_frames,
-                                                      target_positions=gt_positions,
-                                                      frames_mask=residue_mask,
-                                                      positions_mask=residue_mask)
+        fape = losses.fape_loss(pred_frames=pred_frames,
+                                pred_positions=pred_positions,
+                                target_frames=gt_frames,
+                                target_positions=gt_positions,
+                                frames_mask=residue_mask,
+                                positions_mask=residue_mask)
 
-        return squared_fape
+        return fape
 
     def training_step(
             self, batch: Dict[str, torch.Tensor], batch_idx: int
