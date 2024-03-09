@@ -1,8 +1,3 @@
-from functools import reduce
-import importlib
-import math
-import sys
-
 import torch
 import torch.nn as nn
 from typing import Optional, Tuple, Sequence, Union
@@ -21,16 +16,16 @@ from src.utils.tensor_utils import dict_multimap
 class StructureModule(nn.Module):
     def __init__(
             self,
-            c_s,
-            c_z,
-            c_ipa,
-            no_heads_ipa,
-            no_qk_points,
-            no_v_points,
-            dropout_rate,
+            c_s: int,
+            c_z: int,
+            c_ipa: int,
+            no_heads_ipa: int,
+            no_qk_points: int,
+            no_v_points: int,
+            dropout_rate: float,
             no_blocks,
-            no_transition_layers,
-            trans_scale_factor,
+            no_transition_layers: int,
+            trans_scale_factor: float,
             epsilon=1e-6,
             inf=1e8,
             **kwargs,
@@ -54,7 +49,7 @@ class StructureModule(nn.Module):
             no_blocks:
                 Number of structure module blocks
             trans_scale_factor:
-                Scale of single representation transition hidden dimension
+                Scale factor for translations
             epsilon:
                 Small number used for numerical stability
             inf:
@@ -83,8 +78,7 @@ class StructureModule(nn.Module):
 
         self.linear_in = Linear(self.c_s, self.c_s)
 
-        ipa = InvariantPointAttention
-        self.ipa = ipa(
+        self.ipa = InvariantPointAttention(
             self.c_s,
             self.c_z,
             self.c_ipa,

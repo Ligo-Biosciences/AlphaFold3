@@ -13,7 +13,7 @@ from src.models.components.pair_transition import PairTransition
 from src.models.components.dropout import DropoutRowwise, DropoutColumnwise
 
 
-class EvoformerPairStackBlock(torch.nn.Module):
+class EvoformerPairBlock(torch.nn.Module):
     """A block that evolves the pair representation."""
 
     def __init__(
@@ -24,17 +24,19 @@ class EvoformerPairStackBlock(torch.nn.Module):
             dropout_rate: float = 0.25,
     ):
         """Initialize the pair stack block.
-        :param c_s: the latent dimensionality of pair representation
-        :param n_heads: number of attention heads in triangle attention
+        Args:
+            c_s: the latent dimensionality of pair representation
+            n_heads: number of attention heads in triangle attention
         """
         super().__init__()
         assert c_hidden % n_heads == 0, "c_hidden must be divisible by n_heads for multi-head attention."
 
+        # Pair representation
         self.outgoing_dropout_rowwise = DropoutRowwise(dropout_rate)
-        self.triangle_multiplication_outgoing = TriangleMultiplicationOutgoing(c_z=c_s, c_hidden=c_hidden)
+        self.triangle_multiplication_outgoing = TriangleMultiplicationOutgoing(c_in=c_s, c_hidden=c_hidden)
 
         self.incoming_dropout_rowwise = DropoutRowwise(dropout_rate)
-        self.triangle_multiplication_incoming = TriangleMultiplicationIncoming(c_z=c_s, c_hidden=c_hidden)
+        self.triangle_multiplication_incoming = TriangleMultiplicationIncoming(c_in=c_s, c_hidden=c_hidden)
 
         self.starting_dropout_rowwise = DropoutRowwise(dropout_rate)
         self.triangle_attention_starting_node = TriangleAttentionStartingNode(c_in=c_s, c_hidden=c_hidden // n_heads,
@@ -47,8 +49,9 @@ class EvoformerPairStackBlock(torch.nn.Module):
 
     def forward(self, z, mask=None):
         """Feedforward of pair stack block. Implements part of Alg. 6 in Jumper et al. 2021
-        :param z: the pair representation tensor [*, N_res, N_res, C_z]
-        :param mask: input mask [*, N_res, N_res]
+        Args:
+            z: the pair representation tensor [*, N_res, N_res, C_z]
+            mask: input mask [*, N_res, N_res]
         """
         z += self.outgoing_dropout_rowwise(self.triangle_multiplication_outgoing(z, mask))
         z += self.incoming_dropout_rowwise(self.triangle_multiplication_incoming(z, mask))
@@ -70,10 +73,10 @@ class EvoformerPairStack(torch.nn.Module):
             dropout_rate: float = 0.25
     ):
         super().__init__()
-        self.blocks = nn.ModuleList([EvoformerPairStackBlock(c_s=c_s,
-                                                             n_heads=n_heads,
-                                                             c_hidden=c_hidden,
-                                                             dropout_rate=dropout_rate)
+        self.blocks = nn.ModuleList([EvoformerPairBlock(c_s=c_s,
+                                                        n_heads=n_heads,
+                                                        c_hidden=c_hidden,
+                                                        dropout_rate=dropout_rate)
                                      for _ in range(n_blocks)])
 
     def forward(self, z, mask=None):

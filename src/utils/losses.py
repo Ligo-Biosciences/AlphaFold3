@@ -3,6 +3,9 @@ from typing import Dict, Optional
 
 from src.common import residue_constants
 from src.utils.rigid_utils import Rotations, Rigids
+from src.utils.geometry.rigid_matrix_vector import Rigid3Array
+from src.utils.geometry import vector
+from src.utils.geometry.vector import Vec3Array
 from src.utils.tensor_utils import (
     masked_mean,
     permute_final_dims,
@@ -28,56 +31,61 @@ def sigmoid_cross_entropy(logits, labels):
     return loss
 
 
-def compute_fape(
-        pred_frames: Rigids,
-        target_frames: Rigids,
-        frames_mask: torch.Tensor,
-        pred_positions: torch.Tensor,
-        target_positions: torch.Tensor,
-        positions_mask: torch.Tensor,
+def _frame_aligned_point_error(
+        pred_frames: Rigid3Array,  # shape [*, num_frames]
+        target_frames: Rigid3Array,  # shape [*, num_frames]
+        frames_mask: torch.Tensor,  # shape [*, num_frames]
+        pred_positions: Vec3Array,  # shape [*, num_positions]
+        target_positions: Vec3Array,  # shape [*, num_positions]
+        positions_mask: torch.Tensor,  # shape [*, num_positions]
         length_scale: float = 10.0,
         l1_clamp_distance: Optional[float] = None,
-        eps=1e-8,
-) -> torch.Tensor:
-    """
-        Computes FAPE loss.
+        epsilon=1e-8,
+        squared: bool = False,
+) -> torch.Tensor:  # shape [*]
+    """Measure point error under different alignments.
 
-        Args:
-            pred_frames:
-                [*, N_frames] Rigid object of predicted frames
-            target_frames:
-                [*, N_frames] Rigid object of ground truth frames
-            frames_mask:
-                [*, N_frames] binary mask for the frames
-            pred_positions:
-                [*, N_pts, 3] predicted atom positions
-            target_positions:
-                [*, N_pts, 3] ground truth positions
-            positions_mask:
-                [*, N_pts] positions mask
-            length_scale:
-                Length scale by which the loss is divided
-            l1_clamp_distance:
-                Cutoff above which distance errors are disregarded
-            eps:
-                Small value used to regularize denominators
-        Returns:
-            [*] loss tensor
-    """
-    # [*, N_frames, N_pts, 3]
-    local_pred_pos = pred_frames.invert()[..., None].apply(
-        pred_positions[..., None, :, :],
-    )
-    local_target_pos = target_frames.invert()[..., None].apply(
-        target_positions[..., None, :, :],
-    )
+    Jumper et al. (2021) Suppl. Alg. 28 "computeFAPE"
 
-    error_dist = torch.sqrt(
-        torch.sum((local_pred_pos - local_target_pos) ** 2, dim=-1) + eps
-    )
+    Computes error between two structures with B points under A alignments derived
+    from the given pairs of frames.
+    Args:
+      pred_frames: num_frames reference frames for 'pred_positions'.
+      target_frames: num_frames reference frames for 'target_positions'.
+      frames_mask: Mask for frame pairs to use.
+      pred_positions: num_positions predicted positions of the structure.
+      target_positions: num_positions target positions of the structure.
+      positions_mask: Mask on which positions to score.
+      length_scale: length scale to divide loss by.
+      l1_clamp_distance: Distance cutoff on error beyond which gradients will
+        be zero.
+      epsilon: small value used to regularize denominator for masked average.
+      squared: If True, return squared error.
+    Returns:
+      Masked Frame Aligned Point Error.
+    """
+    # Compute array of predicted positions in the predicted frames.
+    # Vec3Array (*, num_frames, num_positions)
+    local_pred_pos = pred_frames[..., None].apply_inverse_to_point(pred_positions)
+
+    # Compute array of target positions in the target frames.
+    # Vec3Array (*, num_frames, num_positions)
+    local_target_pos = target_frames[..., None].apply_inverse_to_point(target_positions)
+
+    # Compute errors between the structures.
+    # torch.Tensor (*, num_frames, num_positions)
+    error_dist = vector.square_euclidean_distance(local_pred_pos, local_target_pos)
+    if not squared:
+        error_dist = torch.sqrt(error_dist + epsilon)
 
     if l1_clamp_distance is not None:
-        error_dist = torch.clamp(error_dist, min=0, max=l1_clamp_distance)
+        clamp_distance = l1_clamp_distance
+        if squared:  # convert to l2 clamped distance if squared
+            clamp_distance = clamp_distance ** 2
+        error_dist = torch.clamp(error_dist, min=0, max=clamp_distance)
+
+    if squared:
+        length_scale = length_scale ** 2  # squared length scale to make loss unitless
 
     normed_error = error_dist / length_scale
     normed_error = normed_error * frames_mask[..., None]
@@ -94,140 +102,54 @@ def compute_fape(
     # ("roughly" because eps is necessarily duplicated in the latter)
     normed_error = torch.sum(normed_error, dim=-1)
     normed_error = (
-            normed_error / (eps + torch.sum(frames_mask, dim=-1))[..., None]
+            normed_error / (epsilon + torch.sum(frames_mask, dim=-1))[..., None]
     )
     normed_error = torch.sum(normed_error, dim=-1)
-    normed_error = normed_error / (eps + torch.sum(positions_mask, dim=-1))
+    normed_error = normed_error / (epsilon + torch.sum(positions_mask, dim=-1))
 
     return normed_error
 
 
-def compute_fape_squared(
-        pred_frames: Rigids,
-        target_frames: Rigids,
-        frames_mask: torch.Tensor,
-        pred_positions: torch.Tensor,
-        target_positions: torch.Tensor,
-        positions_mask: torch.Tensor,
+def frame_aligned_point_error(
+        pred_frames: Rigid3Array,  # shape [*, num_frames]
+        target_frames: Rigid3Array,  # shape [*, num_frames]
+        frames_mask: torch.Tensor,  # shape [*, num_frames]
+        pred_positions: Vec3Array,  # shape [*, num_positions]
+        target_positions: Vec3Array,  # shape [*, num_positions]
+        positions_mask: torch.Tensor,  # shape [*, num_positions]
         length_scale: float = 10.0,
-        l2_clamp_distance: Optional[float] = None,
-        eps=1e-8,
-) -> torch.Tensor:
-    """
-        Computes squared FAPE loss.
-        Args:
-            pred_frames:
-                [*, N_frames] Rigid object of predicted frames
-            target_frames:
-                [*, N_frames] Rigid object of ground truth frames
-            frames_mask:
-                [*, N_frames] binary mask for the frames
-            pred_positions:
-                [*, N_pts, 3] predicted atom positions
-            target_positions:
-                [*, N_pts, 3] ground truth positions
-            positions_mask:
-                [*, N_pts] positions mask
-            length_scale:
-                Length scale by which the loss is divided
-            l2_clamp_distance:
-                Cutoff above which squared distance errors are disregarded.
-            eps:
-                Small value used to regularize denominators
-        Returns:
-            [*] loss tensor
-    """
-    # [*, N_frames, N_pts, 3]
-    local_pred_pos = pred_frames.invert()[..., None].apply(
-        pred_positions[..., None, :, :],
-    )
-    local_target_pos = target_frames.invert()[..., None].apply(
-        target_positions[..., None, :, :],
-    )
-    error_dist = torch.sum((local_pred_pos - local_target_pos) ** 2, dim=-1)
-    if l2_clamp_distance is not None:
-        error_dist = torch.clamp(error_dist, min=0, max=l2_clamp_distance)
-    normed_error = error_dist / length_scale
-    normed_error = normed_error * frames_mask[..., None]
-    normed_error = normed_error * positions_mask[..., None, :]
-    # FP16-friendly averaging. Roughly equivalent to:
-    #
-    # norm_factor = (
-    #     torch.sum(frames_mask, dim=-1) *
-    #     torch.sum(positions_mask, dim=-1)
-    # )
-    # normed_error = torch.sum(normed_error, dim=(-1, -2)) / (eps + norm_factor)
-    #
-    # ("roughly" because eps is necessarily duplicated in the latter)
-    normed_error = torch.sum(normed_error, dim=-1)
-    normed_error = (
-            normed_error / (eps + torch.sum(frames_mask, dim=-1))[..., None]
-    )
-    normed_error = torch.sum(normed_error, dim=-1)
-    normed_error = normed_error / (eps + torch.sum(positions_mask, dim=-1))
-    return normed_error
+        l1_clamp_distance: Optional[float] = 10.0,
+        clamp_fraction: Optional[float] = 0.9,
+        epsilon=1e-8,
+        squared: bool = False,
+) -> torch.Tensor:  # shape [*]
+    """Measure point error under different alignments.
 
+    Jumper et al. (2021) Suppl. Alg. 28 "computeFAPE"
 
-def fape_squared_with_clamp(
-        pred_frames: Rigids,
-        target_frames: Rigids,
-        frames_mask: torch.Tensor,
-        pred_positions: torch.Tensor,
-        target_positions: torch.Tensor,
-        positions_mask: torch.Tensor,
-        use_clamped_fape: float = 0.9,
-        l2_clamp_distance: float = 100.0,  # 10A ^ 2
-        eps: float = 1e-4,
-        **kwargs,
-) -> torch.Tensor:
-    """Compute squared FAPE loss with clamping.
-        Args:
-                pred_frames:
-                    [*, N_frames] Rigid object of predicted frames
-                target_frames:
-                    [*, N_frames] Rigid object of ground truth frames
-                frames_mask:
-                    [*, N_frames] binary mask for the frames
-                pred_positions:
-                    [*, N_pts, 3] predicted atom positions
-                target_positions:
-                    [*, N_pts, 3] ground truth positions
-                positions_mask:
-                    [*, N_pts] positions mask
-                use_clamped_fape:
-                    ratio of clamped to unclamped FAPE in final loss
-                l2_clamp_distance:
-                    Cutoff above which squared distance errors are disregarded.
-                eps:
-                    Small value used to regularize denominators
-            Returns:
-                [*] loss tensor
+    Computes error between two structures with B points under A alignments derived
+    from the given pairs of frames.
+    Args:
+      pred_frames: num_frames reference frames for 'pred_positions'.
+      target_frames: num_frames reference frames for 'target_positions'.
+      frames_mask: Mask for frame pairs to use.
+      pred_positions: num_positions predicted positions of the structure.
+      target_positions: num_positions target positions of the structure.
+      positions_mask: Mask on which positions to score.
+      length_scale: length scale to divide loss by.
+      l1_clamp_distance: Distance cutoff on error beyond which gradients will
+        be zero.
+      clamp_fraction: The fraction of clamped 'examples'. The OpenFold experiments
+        discovered that mixing clamped and unclamped loss, instead of batch-wise clamping,
+        improves the stability and rate of training.
+      epsilon: small value used to regularize denominator for masked average.
+      squared: If True, return squared error.
+    Returns:
+      Masked Frame Aligned Point Error.
     """
-    fape_loss = compute_fape_squared(pred_frames=pred_frames,
-                                     target_frames=target_frames,
-                                     frames_mask=frames_mask,
-                                     pred_positions=pred_positions,
-                                     target_positions=target_positions,
-                                     positions_mask=positions_mask,
-                                     l2_clamp_distance=l2_clamp_distance,
-                                     eps=eps)
-    if use_clamped_fape is not None:
-        unclamped_fape_loss = compute_fape_squared(pred_frames=pred_frames,
-                                                   target_frames=target_frames,
-                                                   frames_mask=frames_mask,
-                                                   pred_positions=pred_positions,
-                                                   target_positions=target_positions,
-                                                   positions_mask=positions_mask,
-                                                   l2_clamp_distance=l2_clamp_distance,
-                                                   eps=eps)
-        use_clamped_fape = torch.Tensor([use_clamped_fape]).to(fape_loss)  # for proper multiplication
-        # Average the two to provide a useful training signal even early on in training.
-        fape_loss = fape_loss * use_clamped_fape + unclamped_fape_loss * (
-                1 - use_clamped_fape
-        )
-    # Average over the batch dimension
-    fape_loss = torch.mean(fape_loss)
-    return fape_loss
+    # TODO: whether to use per-example clamping or mixing losses with the given fraction
+
+    return torch.Tensor([0.0])
 
 
 def fape_loss(

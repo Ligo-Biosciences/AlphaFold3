@@ -93,12 +93,13 @@ class PairFeatureNet(nn.Module):
 			residue_mask: torch.Tensor
 	):
 		"""Featurizes a protein given Ca coordinates and residue indices.
-		:param residue_idx:
-			[*, n_res] tensor encoding the residue indices in the original
-		:param ca_coordinates:
-			[*, n_res, 3] tensor containing the carbon alpha coordinates
-		:param residue_mask:
-			[*, n_res] tensor of residue mask (0 where coordinates are missing, 1 otherwise)
+		Args:
+			residue_idx:
+				[*, n_res] tensor encoding the residue indices in the original
+			ca_coordinates:
+				[*, n_res, 3] tensor containing the carbon alpha coordinates
+			residue_mask:
+				[*, n_res] tensor of residue mask (0 where coordinates are missing, 1 otherwise)
 		"""
 		# Compute relpos features
 		relpos_features = self.relpos(residue_idx)

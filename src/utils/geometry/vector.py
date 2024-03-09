@@ -1,16 +1,3 @@
-# Copyright 2021 DeepMind Technologies Limited
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 """Vec3Array Class."""
 
 from __future__ import annotations
@@ -100,11 +87,11 @@ class Vec3Array:
         new_z = self.x * other.y - self.y * other.x
         return Vec3Array(new_x, new_y, new_z)
 
-    def dot(self, other: Vec3Array) -> Float:
+    def dot(self, other: Vec3Array) -> torch.Tensor:
         """Compute dot product between 'self' and 'other'."""
         return self.x * other.x + self.y * other.y + self.z * other.z
 
-    def norm(self, epsilon: float = 1e-6) -> Float:
+    def norm(self, epsilon: float = 1e-6) -> torch.Tensor:
         """Compute Norm of Vec3Array, clipped to epsilon."""
         # To avoid NaN on the backward pass, we must use maximum before the sqrt
         norm2 = self.dot(self)
@@ -177,7 +164,7 @@ def square_euclidean_distance(
         vec1: Vec3Array,
         vec2: Vec3Array,
         epsilon: float = 1e-6
-) -> Float:
+) -> torch.Tensor:
     """Computes square of euclidean distance between 'vec1' and 'vec2'.
 
     Args:
@@ -197,15 +184,15 @@ def square_euclidean_distance(
     return distance
 
 
-def dot(vector1: Vec3Array, vector2: Vec3Array) -> Float:
+def dot(vector1: Vec3Array, vector2: Vec3Array) -> torch.Tensor:
     return vector1.dot(vector2)
 
 
-def cross(vector1: Vec3Array, vector2: Vec3Array) -> Float:
+def cross(vector1: Vec3Array, vector2: Vec3Array) -> Vec3Array:
     return vector1.cross(vector2)
 
 
-def norm(vector: Vec3Array, epsilon: float = 1e-6) -> Float:
+def norm(vector: Vec3Array, epsilon: float = 1e-6) -> torch.Tensor:
     return vector.norm(epsilon)
 
 

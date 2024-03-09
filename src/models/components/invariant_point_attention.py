@@ -170,12 +170,14 @@ class InvariantPointAttention(nn.Module):
             z:
                 [*, N_res, N_res, C_z] pair representation
             r:
-                [*, N_res] transformation object
+                [*, N_res] transformation object, units in Angstroms
             mask:
                 [*, N_res] mask
         Returns:
             [*, N_res, C_s] single representation update
         """
+        # Convert units to nanometers
+        r = r.scale_translation(0.10)
 
         a = 0.
 
