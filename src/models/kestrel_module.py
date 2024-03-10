@@ -5,7 +5,9 @@ from lightning import LightningModule
 from lightning.pytorch.utilities import grad_norm
 from torchmetrics import MeanMetric
 from src.utils.rigid_utils import Rigids
-from src.utils import losses
+from src.utils.geometry.rigid_matrix_vector import Rigid3Array
+from src.utils.geometry.vector import Vec3Array
+from src.utils.losses import frame_aligned_point_error
 from src.models.components.primitives import generate_sinusoidal_encodings
 
 
@@ -38,23 +40,20 @@ class KestrelLitModule(LightningModule):
     def configure_optimizers(self):
     # Define and configure optimizers and LR schedulers.
     ```
-
-    Docs:
-        https://lightning.ai/docs/pytorch/latest/common/lightning_module.html
     """
 
     def __init__(
             self,
             pair_feature_net: torch.nn.Module,
-            structure_net: torch.nn.Module,
+            structure_module: torch.nn.Module,
             optimizer: torch.optim.Optimizer,
             scheduler: torch.optim.lr_scheduler,
             compile: bool,
     ) -> None:
-        """Initialize a `MNISTLitModule`.
+        """Initialize a KestrelLitModule
 
         :param pair_feature_net: featurizes the pair representation
-        :param structure_net: computes the final structure given pair and single rep.
+        :param structure_module: computes the final structure given pair and single rep.
         :param optimizer: The optimizer to use for training.
         :param scheduler: The learning rate scheduler to use for training.
         :param compile: whether to compile the models
@@ -67,7 +66,7 @@ class KestrelLitModule(LightningModule):
 
         # The two models that will be tested in Kestrel
         self.pair_feature_net = pair_feature_net
-        self.structure_net = structure_net
+        self.structure_module = structure_module
 
         # for averaging loss across batches
         self.train_loss = MeanMetric()
@@ -90,28 +89,28 @@ class KestrelLitModule(LightningModule):
             [*, n_res]
 
         :return:
-            [*, n_res] Rigids object
+            a dictionary of outputs from the StructureModule containing:
+                "single":
+                    [*, N_res, C_s] the single representation
+                "frames":
+                    backbone frames of shape [no_blocks, *, N_res]
+                "positions":
+                    xyz positions of shape [no_blocks, *, N_res, 4, 3]
         """
-
-        batch_size, n_res = residue_mask.shape
 
         # Pair Features
         pair_repr = self.pair_feature_net(residue_idx=residue_idx,
                                           ca_coordinates=coordinates[:, :, 1, :],
                                           residue_mask=residue_mask)
         # Single rep features as residue index  [*, n_res, c_s]
-        single_repr = generate_sinusoidal_encodings(residue_idx, c_s=self.structure_net.c_s)
+        single_repr = generate_sinusoidal_encodings(residue_idx, c_s=self.structure_module.c_s)
+        evoformer_output_dict = {"single": single_repr,
+                                 "pair": pair_repr}
 
-        # Initialize transforms as identity
-        transforms = Rigids.identity((batch_size, n_res))
-        transforms = transforms.to(coordinates.float())
+        # Apply the structure module
+        structure_output = self.structure_module(evoformer_output_dict)
 
-        # Apply Structure network
-        updated_transforms = self.structure_net(single_repr,
-                                                pair_repr,
-                                                transforms,
-                                                residue_mask)
-        return updated_transforms
+        return structure_output
 
     def on_train_start(self) -> None:
         """Lightning hook that is called when training begins."""
@@ -134,21 +133,27 @@ class KestrelLitModule(LightningModule):
         coordinates = batch['X']
         residue_mask = batch['mask']
 
-        pred_frames = self.forward(residue_idx, coordinates, residue_mask)
-        pred_positions = pred_frames.get_trans()  # use Ca coordinate values
+        gt_frames = Rigid3Array.from_3_points(Vec3Array.from_array(coordinates[:, :, 0, :]),  # N
+                                              Vec3Array.from_array(coordinates[:, :, 1, :]),  # CA
+                                              Vec3Array.from_array(coordinates[:, :, 2, :]))  # C
+        target_positions = Vec3Array.from_array(coordinates[:, :, 1, :])  # [*, N_res]
 
-        # Compute FAPE^2 error
-        gt_frames = Rigids.from_3_points(coordinates[:, :, 0, :],  # N
-                                         coordinates[:, :, 1, :],  # CA
-                                         coordinates[:, :, 2, :])  # C
-        gt_positions = gt_frames.get_trans()
+        structure_module_output = self.forward(residue_idx, coordinates, residue_mask)
 
-        fape = losses.fape_loss(pred_frames=pred_frames,
-                                pred_positions=pred_positions,
-                                target_frames=gt_frames,
-                                target_positions=gt_positions,
-                                frames_mask=residue_mask,
-                                positions_mask=residue_mask)
+        fape = torch.Tensor([0.0]).to(coordinates)
+        # Apply FAPE to the CA coordinates of every iteration of structure module
+        for i in range(structure_module_output["frames"].shape[0]):
+            frames = structure_module_output["frames"][i]
+            pred_frames = Rigid3Array.from_tensor_4x4(frames)  # [*, N_res]
+            positions = structure_module_output["positions"][i]  # [*, N_res, 4, 3]
+            pred_positions = Vec3Array.from_array(positions[:, :, 1, :])  # extract CA coordinates [*, N_res]
+            fape += frame_aligned_point_error(pred_frames=pred_frames,
+                                              target_frames=gt_frames,
+                                              frames_mask=residue_mask,
+                                              pred_positions=pred_positions,
+                                              target_positions=target_positions,
+                                              positions_mask=residue_mask,
+                                              l1_clamp_distance=10.0)
 
         return fape
 
@@ -184,7 +189,7 @@ class KestrelLitModule(LightningModule):
 
     def on_before_optimizer_step(self, optimizer):
         """Keeps an eye on gradient norms during training."""
-        norms = grad_norm(self.structure_net, norm_type=2)
+        norms = grad_norm(self.structure_module, norm_type=2)
         self.log_dict(norms)
 
     def validation_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> None:

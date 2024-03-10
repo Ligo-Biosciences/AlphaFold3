@@ -13,19 +13,19 @@ scheduler:
   factor: 0.1
   patience: 10
 
-structure_net:
-  _target_: src.models.structure_net.StructureNet
+structure_module:
+  _target_: src.models.structure_module.StructureModule
   c_s: 128
   c_z: 128
-  n_structure_layer: 1
-  n_structure_block: 1
-  c_hidden_ipa: 16
-  n_head_ipa: 12
-  n_qk_point: 4
-  n_v_point: 8
-  ipa_dropout: 0.1
-  n_structure_transition_layer: 3
-  structure_transition_dropout: 0.1
+  c_ipa: 16
+  no_heads_ipa: 12
+  no_qk_points: 4
+  no_v_points: 8
+  dropout_rate: 0.1
+  no_blocks: 8
+  no_transition_layers: 1
+  epsilon: 1e-6
+  inf: 1e8
 
 pair_feature_net:
   _target_: src.models.pair_feature_net.PairFeatureNet

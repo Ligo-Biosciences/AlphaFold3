@@ -25,7 +25,6 @@ class StructureModule(nn.Module):
             dropout_rate: float,
             no_blocks,
             no_transition_layers: int,
-            trans_scale_factor: float,
             epsilon=1e-6,
             inf=1e8,
             **kwargs,
@@ -48,8 +47,6 @@ class StructureModule(nn.Module):
                 Dropout rate used throughout the layer
             no_blocks:
                 Number of structure module blocks
-            trans_scale_factor:
-                Scale factor for translations
             epsilon:
                 Small number used for numerical stability
             inf:
@@ -66,7 +63,6 @@ class StructureModule(nn.Module):
         self.dropout_rate = dropout_rate
         self.no_blocks = no_blocks
         self.no_transition_layers = no_transition_layers
-        self.trans_scale_factor = trans_scale_factor
         self.epsilon = epsilon
         self.inf = inf
 
@@ -128,16 +124,13 @@ class StructureModule(nn.Module):
         outputs = []
         for i in range(self.no_blocks):
             # [*, N, C_s]
-            s = s + self.ipa(s, z, rigids, mask)  # TODO: the coordinates should be in nanometers, not sure here
+            s = s + self.ipa(s, z, rigids, mask)
             s = self.ipa_dropout(s)
             s = self.layer_norm_ipa(s)
             s = self.transition(s)
 
             # [*, N]
             rigids = rigids @ self.bb_update(s)  # compose
-
-            # Scale frame translations
-            rigids = rigids.scale_translation(self.trans_scale_factor)
 
             # Convert to atom positions
             pred_xyz = self.frames_to_atom4_pos(rigids)
@@ -147,16 +140,17 @@ class StructureModule(nn.Module):
                 "positions": pred_xyz,
             }
 
-            preds = {k: v.to(dtype=s.dtype) for k, v in preds.items()}
+            preds = {k: v.to(dtype=s.dtype) for k, v in preds.items()}  # dtype conversion
 
             outputs.append(preds)
 
+            # Stop rotation gradient in between iterations to stabilize training
             rigids = rigids.stop_rot_gradient()
 
         del z
-
+        # Stack all the intermediate and final outputs along the first dimension
         outputs = dict_multimap(torch.stack, outputs)
-        outputs["single"] = s
+        outputs["single"] = s  # add single representation
 
         return outputs
 
@@ -176,7 +170,13 @@ class StructureModule(nn.Module):
             mask:
                 Optional [*, N_res] sequence mask
         Returns:
-            A dictionary of outputs
+            A dictionary of outputs containing:
+                "single":
+                    [*, N_res, C_s] the single representation
+                "frames":
+                    backbone frames of shape [no_blocks, *, N_res]
+                "positions":
+                    xyz positions of shape [no_blocks, *, N_res, 4, 3]
         """
         outputs = self._forward_multimer(evoformer_output_dict, mask)
         return outputs
