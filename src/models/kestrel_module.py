@@ -44,29 +44,38 @@ class KestrelLitModule(LightningModule):
 
     def __init__(
             self,
-            pair_feature_net: torch.nn.Module,
+            feature_net: torch.nn.Module,
             structure_module: torch.nn.Module,
+            evoformer: torch.nn.Module,
             optimizer: torch.optim.Optimizer,
             scheduler: torch.optim.lr_scheduler,
             compile: bool,
     ) -> None:
         """Initialize a KestrelLitModule
-
-        :param pair_feature_net: featurizes the pair representation
-        :param structure_module: computes the final structure given pair and single rep.
-        :param optimizer: The optimizer to use for training.
-        :param scheduler: The learning rate scheduler to use for training.
-        :param compile: whether to compile the models
+        Args:
+            feature_net:
+                featurizes the initial single and pair representations
+            structure_module:
+                computes the final structure given pair and single rep.
+            evoformer:
+                Evoformer module
+            optimizer:
+                The optimizer to use for training.
+            scheduler:
+                The learning rate scheduler to use for training.
+            compile:
+                whether to compile the models
         """
         super().__init__()
 
         # this line allows access to init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
-        self.save_hyperparameters(logger=False)
+        self.save_hyperparameters(logger=False, ignore=['feature_net', 'structure_module', 'evoformer'])
 
         # The two models that will be tested in Kestrel
-        self.pair_feature_net = pair_feature_net
+        self.feature_net = feature_net
         self.structure_module = structure_module
+        self.evoformer = evoformer
 
         # for averaging loss across batches
         self.train_loss = MeanMetric()
@@ -98,14 +107,13 @@ class KestrelLitModule(LightningModule):
                     xyz positions of shape [no_blocks, *, N_res, 4, 3]
         """
 
-        # Pair Features
-        pair_repr = self.pair_feature_net(residue_idx=residue_idx,
-                                          ca_coordinates=coordinates[:, :, 1, :],
-                                          residue_mask=residue_mask)
-        # Single rep features as residue index  [*, n_res, c_s]
-        single_repr = generate_sinusoidal_encodings(residue_idx, c_s=self.structure_module.c_s)
-        evoformer_output_dict = {"single": single_repr,
-                                 "pair": pair_repr}
+        # Initial Features
+        init_repr = self.feature_net(residue_idx=residue_idx,
+                                     coordinates=coordinates,
+                                     residue_mask=residue_mask)
+
+        # Evoformer Block
+        evoformer_output_dict = self.evoformer(s=init_repr["single"], z=init_repr["pair"])
 
         # Apply the structure module
         structure_output = self.structure_module(evoformer_output_dict)
@@ -142,19 +150,21 @@ class KestrelLitModule(LightningModule):
 
         fape = torch.Tensor([0.0]).to(coordinates)
         # Apply FAPE to the CA coordinates of every iteration of structure module
-        for i in range(structure_module_output["frames"].shape[0]):
+
+        for i in range(self.structure_module.no_blocks):
             frames = structure_module_output["frames"][i]
             pred_frames = Rigid3Array.from_tensor_4x4(frames)  # [*, N_res]
             positions = structure_module_output["positions"][i]  # [*, N_res, 4, 3]
             pred_positions = Vec3Array.from_array(positions[:, :, 1, :])  # extract CA coordinates [*, N_res]
-            fape += frame_aligned_point_error(pred_frames=pred_frames,
-                                              target_frames=gt_frames,
-                                              frames_mask=residue_mask,
-                                              pred_positions=pred_positions,
-                                              target_positions=target_positions,
-                                              positions_mask=residue_mask,
-                                              l1_clamp_distance=10.0)
-
+            fape = fape + frame_aligned_point_error(pred_frames=pred_frames,
+                                                    target_frames=gt_frames,
+                                                    frames_mask=residue_mask,
+                                                    pred_positions=pred_positions,
+                                                    target_positions=target_positions,
+                                                    positions_mask=residue_mask,
+                                                    l1_clamp_distance=10.0)
+        # Average over structure module blocks
+        fape = torch.div(fape, self.structure_module.no_blocks)
         return fape
 
     def training_step(
@@ -247,8 +257,8 @@ class KestrelLitModule(LightningModule):
         :param stage: Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
         """
         if self.hparams.compile and stage == "fit":
-            self.structure_net = torch.compile(self.structure_net)
-            self.pair_feature_net = torch.compile(self.pair_feature_net)
+            self.structure_module = torch.compile(self.structure_module)
+            self.feature_net = torch.compile(self.feature_net)
 
     def configure_optimizers(self) -> Dict[str, Any]:
         """Choose what optimizers and learning-rate schedulers to use in your optimization.

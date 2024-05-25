@@ -82,7 +82,6 @@ class MSAAttention(nn.Module):
                m: torch.Tensor,
                biases: Optional[List[torch.Tensor]],
                chunk_size: int,
-               use_memory_efficient_kernel: bool,
                use_deepspeed_evo_attention: bool,
                use_lma: bool,
                use_flash: bool,
@@ -94,11 +93,10 @@ class MSAAttention(nn.Module):
                 q_x=m,
                 kv_x=m,
                 biases=biases,
-                use_memory_efficient_kernel=use_memory_efficient_kernel,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
                 use_lma=use_lma,
-                use_flash=use_flash,
-                flash_mask=flash_mask,
+                # use_flash=use_flash, TODO: add flash attention back in
+                # flash_mask=flash_mask,
             )
 
         inputs = {"m": m}
@@ -213,7 +211,6 @@ class MSAAttention(nn.Module):
                 z: Optional[torch.Tensor] = None,
                 mask: Optional[torch.Tensor] = None,
                 chunk_size: Optional[int] = None,
-                use_memory_efficient_kernel: bool = False,
                 use_deepspeed_evo_attention: bool = False,
                 use_lma: bool = False,
                 use_flash: bool = False,
@@ -261,11 +258,10 @@ class MSAAttention(nn.Module):
                 m,
                 biases,
                 chunk_size,
-                use_memory_efficient_kernel=use_memory_efficient_kernel,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
                 use_lma=use_lma,
-                use_flash=use_flash,
-                flash_mask=mask,
+                # use_flash=use_flash,
+                # flash_mask=mask,
             )
         else:
             m = self.layer_norm_m(m)
@@ -273,11 +269,10 @@ class MSAAttention(nn.Module):
                 q_x=m,
                 kv_x=m,
                 biases=biases,
-                use_memory_efficient_kernel=use_memory_efficient_kernel,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-                use_lma=use_lma,
-                use_flash=use_flash,
-                flash_mask=mask,
+                use_lma=use_lma,  # TODO: add flash attention back in for this module
+                # use_flash=use_flash,
+                # flash_mask=mask,
             )
 
         return m

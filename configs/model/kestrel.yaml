@@ -3,7 +3,7 @@ _target_: src.models.kestrel_module.KestrelLitModule
 optimizer:
   _target_: torch.optim.Adam
   _partial_: true
-  lr: 0.001
+  lr: 1e-5
   weight_decay: 0.0
 
 scheduler:
@@ -27,9 +27,28 @@ structure_module:
   epsilon: 1e-6
   inf: 1e8
 
-pair_feature_net:
-  _target_: src.models.pair_feature_net.PairFeatureNet
+evoformer:
+  _target_: src.models.evoformer.EvoformerStack
+  n_blocks: 1
+  c_s: 128
   c_z: 128
+  n_msa_row_attention_heads: 8
+  c_hidden_msa_per_head: 32
+  c_hidden_outer: 32
+  c_hidden_tri_mul: 128
+  n_triangle_attention_heads: 4
+  c_hidden_tri_att_per_head: 32
+  dropout_msa: 0.15
+  dropout_pair: 0.25
+
+feature_net:
+  _target_: src.models.feature_net.FeatureNet
+  c_z: 128
+  c_s: 128
+  c_ipa: 16
+  no_heads_ipa: 12
+  no_qk_points: 4
+  no_v_points: 8
   relpos_k: 32
 
 # compile model for faster training with pytorch 2.0

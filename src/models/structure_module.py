@@ -144,8 +144,9 @@ class StructureModule(nn.Module):
 
             outputs.append(preds)
 
-            # Stop rotation gradient in between iterations to stabilize training
-            rigids = rigids.stop_rot_gradient()
+            if i + 1 < self.no_blocks:  # if l < N_layer
+                # Stop rotation gradient in between iterations to stabilize training
+                rigids = rigids.stop_rot_gradient()
 
         del z
         # Stack all the intermediate and final outputs along the first dimension

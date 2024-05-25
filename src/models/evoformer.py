@@ -104,18 +104,18 @@ class EvoformerBlock(torch.nn.Module):
             pair_mask = mask[:, :, None] * mask[:, None, :]  # [*, N_res, N_res] input mask
 
         # MSA Stack
-        m += self.msa_dropout(self.msa_row_attention(m, z, msa_mask))
-        m += self.msa_transition(m, msa_mask)
+        m = m + self.msa_dropout(self.msa_row_attention(m, z, msa_mask))
+        m = m + self.msa_transition(m, msa_mask)
 
         # Communication
-        z += self.outer_product_mean(m, msa_mask)
+        z = z + self.outer_product_mean(m, msa_mask)
 
         # Pair Stack
-        z += self.outgoing_dropout_rowwise(self.triangle_multiplication_outgoing(z, pair_mask))
-        z += self.incoming_dropout_rowwise(self.triangle_multiplication_incoming(z, pair_mask))
-        z += self.starting_dropout_rowwise(self.triangle_attention_starting_node(z, pair_mask))
-        z += self.ending_dropout_columnwise(self.triangle_attention_ending_node(z, pair_mask))
-        z += self.pair_transition(z, pair_mask)
+        z = z + self.outgoing_dropout_rowwise(self.triangle_multiplication_outgoing(z, pair_mask))
+        z = z + self.incoming_dropout_rowwise(self.triangle_multiplication_incoming(z, pair_mask))
+        z = z + self.starting_dropout_rowwise(self.triangle_attention_starting_node(z, pair_mask))
+        z = z + self.ending_dropout_columnwise(self.triangle_attention_ending_node(z, pair_mask))
+        z = z + self.pair_transition(z, pair_mask)
         return m, z
 
 
@@ -166,7 +166,7 @@ class EvoformerStack(torch.nn.Module):
             m, z = block(m, z, mask)
 
         evoformer_output_dict = {
-            "single": m.unsqueeze(-3),  # remove the singleton dimension
+            "single": m.squeeze(-3),  # remove the singleton dimension
             "pair": z
         }
         return evoformer_output_dict

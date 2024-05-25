@@ -238,7 +238,6 @@ class ProteinDataModule(LightningDataModule):
                                     mask_whole_chains=self.hparams.mask_whole_chains,
                                     force_binding_sites_frac=self.hparams.force_binding_sites_frac,
                                     debug=self.hparams.debug)
-            # TODO: add transforms later, removed for now
             self.data_val = TransformDataset(val_ds, transform=self.transforms)
             self.data_train = TransformDataset(train_ds, transform=self.transforms)
 
@@ -256,7 +255,6 @@ class ProteinDataModule(LightningDataModule):
                                      mask_whole_chains=self.hparams.mask_whole_chains,
                                      force_binding_sites_frac=self.hparams.force_binding_sites_frac,
                                      debug=self.hparams.debug)
-            # TODO: add these later
             self.data_test = TransformDataset(test_ds, transform=self.transforms)
 
     def train_dataloader(self) -> DataLoader[Any]:

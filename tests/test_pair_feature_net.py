@@ -3,7 +3,7 @@ import torch
 from prettytable import PrettyTable
 
 from tests.config import consts
-from src.models.pair_feature_net import PairFeatureNet
+from src.models.feature_net import PairFeatureNet
 
 
 class TestPairFeatureNet(unittest.TestCase):

@@ -19,6 +19,7 @@ from typing import Optional, Callable, List, Tuple, Sequence
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from scipy.stats import truncnorm
 from src.utils.checkpointing import get_checkpoint_fn
 # from src.utils.chunk_utils import _chunk_slice
@@ -119,12 +120,6 @@ def generate_sinusoidal_encodings(indices, c_s, max_pos=10_000):
 
     Returns:
         torch.Tensor: A tensor with sinusoidal encodings of shape [*, n_res, c_s].
-
-    Example:
-        # >>> indices = torch.randint(0, 500, (5, n_res))
-        # >>> encoded_tensor = generate_sinusoidal_encodings(indices, 64)
-        # >>> print(encoded_tensor.shape)
-        # Output: torch.Size([5, n_res, 64])
     """
     # Create a position array of shape [max_pos, 1]
     position = torch.arange(max_pos, dtype=torch.float).unsqueeze(1)
@@ -148,6 +143,10 @@ def generate_sinusoidal_encodings(indices, c_s, max_pos=10_000):
     encoded_indices = sinusoid_table[indices.long()]
 
     return encoded_indices
+
+
+class FourierEmbedding(torch.nn.Module):
+    pass
 
 
 class Linear(nn.Linear):
@@ -276,6 +275,30 @@ class LayerNorm(nn.Module):
             )
 
         return out
+
+
+class AdaLN(nn.Module):
+    """Adaptive Layer Normalization."""
+    def __init__(self, normalized_shape):
+        super(AdaLN, self).__init__()
+        # Layer norms
+        self.a_layer_norm = nn.LayerNorm(normalized_shape,  # equivalent to scale=False, offset=False in Haiku
+                                         elementwise_affine=False,
+                                         bias=False)
+        self.s_layer_norm = nn.LayerNorm(normalized_shape,  # equivalent to scale=True, offset=False in Haiku
+                                         elementwise_affine=True,
+                                         bias=False)
+
+        # Linear layers for gating and the skip connection
+        dim = normalized_shape if isinstance(normalized_shape, int) else normalized_shape[-1]
+        self.gating_linear = nn.Linear(dim, dim)
+        self.skip_linear = nn.Linear(dim, dim, bias=False)
+
+    def forward(self, a, s):
+        a = self.a_layer_norm(a)
+        s = self.s_layer_norm(s)
+        a = F.sigmoid(self.gating_linear(s)) * a + self.skip_linear(s)
+        return a
 
 
 @torch.jit.ignore
