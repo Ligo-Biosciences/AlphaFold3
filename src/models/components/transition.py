@@ -4,6 +4,30 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from src.models.components.primitives import AdaLN
+from src.models.components.primitives import Linear
+
+
+class Transition(nn.Module):
+    """A transition block for a residual update.
+    Warning: at initialization, the final output linear layer is initialized with zeros."""
+    def __init__(self, input_dim: int, n: int = 4):
+        """
+        Args:
+            input_dim:
+                Channels of the input tensor
+            n:
+                channel expansion factor for hidden dimensions
+        """
+        super(Transition, self).__init__()
+        self.layer_norm = nn.LayerNorm(input_dim)
+        self.linear_1 = Linear(input_dim, n * input_dim, bias=False, init='relu')
+        self.linear_2 = Linear(input_dim, n * input_dim, bias=False, init='default')
+        self.output_linear = Linear(input_dim * n, input_dim, bias=False, init='final')
+
+    def forward(self, x):
+        x = self.layer_norm(x)
+        x = F.silu(self.linear_1(x)) * self.linear_2(x)
+        return self.output_linear(x)
 
 
 class ConditionedTransitionBlock(nn.Module):
@@ -20,11 +44,12 @@ class ConditionedTransitionBlock(nn.Module):
         """
         super(ConditionedTransitionBlock, self).__init__()
         self.ada_ln = AdaLN(input_dim)
-        self.hidden_gating_linear = nn.Linear(input_dim, n * input_dim, bias=False)
-        self.hidden_linear = nn.Linear(input_dim, n * input_dim, bias=False)
-        self.output_linear = nn.Linear(input_dim * n, input_dim)
-        self.output_gating_linear = nn.Linear(input_dim, input_dim)
-        self.output_gating_linear.bias = nn.Parameter(torch.ones(input_dim) * -2.0)
+        self.hidden_gating_linear = Linear(input_dim, n * input_dim, bias=False, init='relu')
+        self.hidden_linear = Linear(input_dim, n * input_dim, bias=False, init='default')
+        self.output_linear = Linear(input_dim * n, input_dim, init='default')
+        # TODO: check if this is in line with the adaLN-Zero initialization
+        self.output_gating_linear = Linear(input_dim, input_dim, init='gating')
+        self.output_gating_linear.bias = nn.Parameter(torch.ones(input_dim) * -2.0)  # gate values will be ~0.11
 
     def forward(self, a, s):
         a = self.ada_ln(a, s)

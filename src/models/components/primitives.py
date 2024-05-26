@@ -291,8 +291,8 @@ class AdaLN(nn.Module):
 
         # Linear layers for gating and the skip connection
         dim = normalized_shape if isinstance(normalized_shape, int) else normalized_shape[-1]
-        self.gating_linear = nn.Linear(dim, dim)
-        self.skip_linear = nn.Linear(dim, dim, bias=False)
+        self.gating_linear = Linear(dim, dim, init='gating')
+        self.skip_linear = Linear(dim, dim, bias=False, init='final')
 
     def forward(self, a, s):
         a = self.a_layer_norm(a)
