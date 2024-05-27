@@ -145,10 +145,6 @@ def generate_sinusoidal_encodings(indices, c_s, max_pos=10_000):
     return encoded_indices
 
 
-class FourierEmbedding(torch.nn.Module):
-    pass
-
-
 class Linear(nn.Linear):
     """
     A Linear layer with built-in nonstandard initializations. Called just
