@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from src.models.components.transition import ConditionedTransitionBlock
+from src.models.components.primitives import AttentionPairBias
 
 
 class DiffusionTransformer(nn.Module):
@@ -15,8 +16,6 @@ class DiffusionTransformer(nn.Module):
             num_blocks: int = 24,
             num_heads: int = 16,
             dropout=0.0,
-            n_queries: int = 32,
-            n_keys: int = 128,
             device=None,
             dtype=None,
     ):
@@ -33,11 +32,6 @@ class DiffusionTransformer(nn.Module):
                 (i.e. each head will have dimension embed_dim // num_heads).
             dropout:
                 Dropout probability on attn_output_weights. Default: 0.0 (no dropout).
-            n_queries:
-                The size of the atom window. Defaults to 32.
-            n_keys:
-                Number of atoms each atom attends to in local sequence space. Defaults to 128.
-
         """
         super().__init__()
         self.c_token = c_token
@@ -45,22 +39,20 @@ class DiffusionTransformer(nn.Module):
         self.num_blocks = num_blocks
         self.num_heads = num_heads
         self.dropout = dropout
-        self.n_queries = n_queries
-        self.n_keys = n_keys
         self.device = device
         self.dtype = dtype
 
         self.attention_blocks = nn.ModuleList(
-            [AttentionPairBias(c_token, c_pair, num_heads, dropout, n_queries, n_keys, device, dtype)
+            [AttentionPairBias(c_token, c_pair, num_heads, dropout, device, dtype)
              for _ in range(num_blocks)]
         )
         self.conditioned_transition_blocks = nn.ModuleList(
             [ConditionedTransitionBlock(c_token) for _ in range(num_blocks)]
         )
 
-    def forward(self, atom_single_repr, atom_single_proj, atom_pair_repr, mask=None):
+    def forward(self, single_repr, single_proj, pair_repr, mask=None):
         """Forward pass of the AtomTransformer module. Algorithm 23 in AlphaFold3 supplement."""
         for i in range(self.num_blocks):
-            b = self.attention_blocks[i](atom_single_repr, atom_single_proj, atom_pair_repr, mask)
-            atom_single_repr = b + self.conditioned_transition_blocks[i](atom_single_repr, b)
-        return atom_single_repr
+            b = self.attention_blocks[i](single_repr, single_proj, pair_repr, mask)
+            single_repr = b + self.conditioned_transition_blocks[i](single_repr, single_proj)
+        return single_repr

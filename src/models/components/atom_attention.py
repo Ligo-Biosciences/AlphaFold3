@@ -281,7 +281,7 @@ class AtomTransformer(nn.Module):
         """Forward pass of the AtomTransformer module. Algorithm 23 in AlphaFold3 supplement."""
         for i in range(self.num_blocks):
             b = self.attention_blocks[i](atom_single_repr, atom_single_proj, atom_pair_repr, mask)
-            atom_single_repr = b + self.conditioned_transition_blocks[i](atom_single_repr, b)
+            atom_single_repr = b + self.conditioned_transition_blocks[i](atom_single_repr, atom_single_proj)
         return atom_single_repr
 
 

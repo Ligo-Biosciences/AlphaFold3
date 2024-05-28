@@ -399,11 +399,9 @@ class AttentionPairBias(nn.Module):
     def __init__(
             self,
             embed_dim,
+            c_pair: int = 16,
             num_heads=8,
             dropout=0.0,
-            n_queries: int = 32,
-            n_keys: int = 128,
-            c_pair: int = 16,
             device=None,
             dtype=None,
     ):
@@ -418,20 +416,14 @@ class AttentionPairBias(nn.Module):
                 (i.e. each head will have dimension embed_dim // num_heads).
             dropout:
                 Dropout probability on attn_output_weights. Default: 0.0 (no dropout).
-            n_queries:
-                The size of the atom window. Defaults to 32.
-            n_keys:
-                Number of atoms each atom attends to in local sequence space. Defaults to 128.
         """
         super().__init__()
         self.embed_dim = embed_dim
+        self.c_pair = c_pair
         self.num_heads = num_heads
         self.dropout = dropout
         self.device = device
         self.dtype = dtype
-        self.n_queries = n_queries
-        self.n_keys = n_keys
-        self.c_pair = c_pair
 
         # Projections
         self.ada_ln = AdaLN(embed_dim)
