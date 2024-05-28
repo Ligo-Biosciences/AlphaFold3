@@ -120,6 +120,7 @@ def generate_sinusoidal_encodings(indices, c_s, max_pos=10_000):
 
     Returns:
         torch.Tensor: A tensor with sinusoidal encodings of shape [*, n_res, c_s].
+    TODO: delete this
     """
     # Create a position array of shape [max_pos, 1]
     position = torch.arange(max_pos, dtype=torch.float).unsqueeze(1)
@@ -390,6 +391,93 @@ def _attention_chunked_trainable(
 
     o = torch.cat(o_chunks, dim=chunk_dim)
     return o
+
+
+class AttentionPairBias(nn.Module):
+    """Full self-attention with pair bias."""
+
+    def __init__(
+            self,
+            embed_dim,
+            num_heads=8,
+            dropout=0.0,
+            n_queries: int = 32,
+            n_keys: int = 128,
+            c_pair: int = 16,
+            device=None,
+            dtype=None,
+    ):
+        """Initialize the AttentionPairBias module.
+        Args:
+            embed_dim:
+                Total dimension of the model.
+            c_pair:
+                The number of channels for the pair representation. Defaults to 16.
+            num_heads:
+                Number of parallel attention heads. Note that embed_dim will be split across num_heads
+                (i.e. each head will have dimension embed_dim // num_heads).
+            dropout:
+                Dropout probability on attn_output_weights. Default: 0.0 (no dropout).
+            n_queries:
+                The size of the atom window. Defaults to 32.
+            n_keys:
+                Number of atoms each atom attends to in local sequence space. Defaults to 128.
+        """
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.dropout = dropout
+        self.device = device
+        self.dtype = dtype
+        self.n_queries = n_queries
+        self.n_keys = n_keys
+        self.c_pair = c_pair
+
+        # Projections
+        self.ada_ln = AdaLN(embed_dim)
+        self.output_proj_linear = Linear(embed_dim, embed_dim, init='gating')
+        self.output_proj_linear.bias = nn.Parameter(torch.ones(embed_dim) * -2.0)  # gate values will be ~0.11
+
+        # QKV projections and MHA
+        self.q_linear = Linear(embed_dim, embed_dim, init='glorot')
+        self.k_linear = Linear(embed_dim, embed_dim, init='glorot', bias=False)
+        self.v_linear = Linear(embed_dim, embed_dim, init='glorot', bias=False)
+        self.mha = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout, batch_first=True,
+                                         device=device, dtype=dtype)
+
+        # Pair bias
+        self.layer_norm_pair = nn.LayerNorm(self.c_pair)
+        self.linear_pair = Linear(self.c_pair, self.num_heads, init='default', bias=False)
+
+        # Gating
+        self.gating_linear = Linear(embed_dim, embed_dim, init='gating', bias=False)
+        self.attention_proj = Linear(embed_dim, embed_dim, init='default', bias=False)
+
+    def forward(self, single_repr, single_proj, pair_repr, mask=None):
+        """Full self-attention at the token-level with pair bias."""
+        batch_size, n_tokens, embed_dim = single_repr.shape
+        # Input projections
+        a = self.ada_ln(single_repr, single_proj)  # AdaLN(a, s)  shape: (bs, n_tokens, embed_dim)
+
+        # Project query, key, value vectors
+        q = self.q_linear(a)  # (bs, n_tokens, embed_dim)
+        k = self.k_linear(a)
+        v = self.v_linear(a)
+
+        # Pair bias
+        pair_bias = self.linear_pair(self.layer_norm_pair(pair_repr))  # (bs, n_tokens, n_tokens, n_heads)
+        pair_bias = pair_bias.permute(0, 3, 1, 2).reshape(batch_size * self.num_heads, n_tokens, n_tokens)
+
+        # Multi-head attention
+        attn_output = self.mha(q, k, v, attn_mask=pair_bias, need_weights=False)[0]  # (bs, n_tokens, embed_dim)
+
+        # Gating
+        gated_output = F.sigmoid(self.gating_linear(attn_output)) * attn_output
+        output = self.attention_proj(gated_output)  # (bs, n_atoms, embed_dim)
+
+        # Output projection (from adaLN-Zero)
+        output = F.sigmoid(self.output_proj_linear(output)) * output
+        return output
 
 
 class Attention(nn.Module):

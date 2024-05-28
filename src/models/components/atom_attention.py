@@ -14,7 +14,7 @@ from src.models.components.transition import ConditionedTransitionBlock
 from src.utils.tensor_utils import partition_tensor
 
 
-def split_heads(x, n_heads):
+def _split_heads(x, n_heads):
     """Split the last dimension of a tensor into multiple heads."""
     # x has shape (batch_size, seq_length, 128, embed_dim)
     batch_size, seq_length, tokens, embed_dim = x.shape
@@ -32,7 +32,7 @@ def split_heads(x, n_heads):
     return x
 
 
-def concatenate_heads(x):
+def _concatenate_heads(x):
     """Concatenate the heads in the second dimension of a tensor along the final dimension."""
     # x has shape (bs, n_heads, n_atoms // 32, 32, embed_dim // n_heads)
     bs, n_heads, seq_length, tokens, head_dim = x.shape
@@ -118,7 +118,7 @@ class AtomAttentionPairBias(nn.Module):
             device=None,
             dtype=None,
     ):
-        """Initialize the AttentionPairBias module.
+        """Initialize the AtomAttentionPairBias module.
         Args:
             embed_dim:
                 Total dimension of the model.
@@ -196,9 +196,9 @@ class AtomAttentionPairBias(nn.Module):
         v = partition_tensor(v, self.n_queries, self.n_keys)  # (bs, n_atoms // 32, 128, embed_dim)
 
         # Split heads and rearrange
-        q = split_heads(q, self.num_heads)  # (bs, n_heads, n_atoms // 32, 128, embed_dim // n_heads)
-        k = split_heads(k, self.num_heads)  # (bs, n_heads, n_atoms // 32, 128, embed_dim // n_heads)
-        v = split_heads(v, self.num_heads)  # (bs, n_heads, n_atoms // 32, 128, embed_dim // n_heads)
+        q = _split_heads(q, self.num_heads)  # (bs, n_heads, n_atoms // 32, 128, embed_dim // n_heads)
+        k = _split_heads(k, self.num_heads)  # (bs, n_heads, n_atoms // 32, 128, embed_dim // n_heads)
+        v = _split_heads(v, self.num_heads)  # (bs, n_heads, n_atoms // 32, 128, embed_dim // n_heads)
 
         # Compute attention pair biases
         pair_bias = self.linear_pair(self.layer_norm_pair(atom_pair_repr))  # (bs, n_atoms, n_atoms, n_heads)
@@ -209,7 +209,7 @@ class AtomAttentionPairBias(nn.Module):
 
         # Attention  (bs, n_heads, n_atoms // 32, 32, embed_dim // n_heads)
         attention_output = F.scaled_dot_product_attention(q, k, v, attn_mask=local_pair_biases, dropout_p=self.dropout)
-        attention_output = concatenate_heads(attention_output).reshape(atom_single_repr.shape)  # concat and flatten
+        attention_output = _concatenate_heads(attention_output).reshape(atom_single_repr.shape)  # concat and flatten
 
         # Gating
         gated_output = F.sigmoid(self.gating_linear(attention_output)) * attention_output
