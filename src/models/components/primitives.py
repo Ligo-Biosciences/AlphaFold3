@@ -412,8 +412,8 @@ class AttentionPairBias(nn.Module):
             c_pair:
                 The number of channels for the pair representation. Defaults to 16.
             num_heads:
-                Number of parallel attention heads. Note that embed_dim will be split across num_heads
-                (i.e. each head will have dimension embed_dim // num_heads).
+                Number of parallel attention heads. Note that c_atom will be split across num_heads
+                (i.e. each head will have dimension c_atom // num_heads).
             dropout:
                 Dropout probability on attn_output_weights. Default: 0.0 (no dropout).
         """
@@ -449,10 +449,10 @@ class AttentionPairBias(nn.Module):
         """Full self-attention at the token-level with pair bias."""
         batch_size, n_tokens, embed_dim = single_repr.shape
         # Input projections
-        a = self.ada_ln(single_repr, single_proj)  # AdaLN(a, s)  shape: (bs, n_tokens, embed_dim)
+        a = self.ada_ln(single_repr, single_proj)  # AdaLN(a, s)  shape: (bs, n_tokens, c_atom)
 
         # Project query, key, value vectors
-        q = self.q_linear(a)  # (bs, n_tokens, embed_dim)
+        q = self.q_linear(a)  # (bs, n_tokens, c_atom)
         k = self.k_linear(a)
         v = self.v_linear(a)
 
@@ -461,11 +461,11 @@ class AttentionPairBias(nn.Module):
         pair_bias = pair_bias.permute(0, 3, 1, 2).reshape(batch_size * self.num_heads, n_tokens, n_tokens)
 
         # Multi-head attention
-        attn_output = self.mha(q, k, v, attn_mask=pair_bias, need_weights=False)[0]  # (bs, n_tokens, embed_dim)
+        attn_output = self.mha(q, k, v, attn_mask=pair_bias, need_weights=False)[0]  # (bs, n_tokens, c_atom)
 
         # Gating
         gated_output = F.sigmoid(self.gating_linear(attn_output)) * attn_output
-        output = self.attention_proj(gated_output)  # (bs, n_atoms, embed_dim)
+        output = self.attention_proj(gated_output)  # (bs, n_atoms, c_atom)
 
         # Output projection (from adaLN-Zero)
         output = F.sigmoid(self.output_proj_linear(output)) * output

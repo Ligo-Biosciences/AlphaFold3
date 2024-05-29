@@ -28,8 +28,8 @@ class DiffusionTransformer(nn.Module):
             num_blocks:
                 Number of blocks.
             num_heads:
-                Number of parallel attention heads. Note that embed_dim will be split across num_heads
-                (i.e. each head will have dimension embed_dim // num_heads).
+                Number of parallel attention heads. Note that c_atom will be split across num_heads
+                (i.e. each head will have dimension c_atom // num_heads).
             dropout:
                 Dropout probability on attn_output_weights. Default: 0.0 (no dropout).
         """
