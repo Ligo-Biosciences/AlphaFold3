@@ -19,7 +19,8 @@ class FourierEmbedding(nn.Module):
 
     def forward(self, t):
         """Compute embeddings"""
-        return torch.cos(torch.tensor(2 * math.pi) * (t * self.weight + self.bias))
+        two_pi = torch.tensor(2 * math.pi, device=t.device)
+        return torch.cos(two_pi * (t * self.weight + self.bias))
 
 
 class RelativePositionEncoding(nn.Module):

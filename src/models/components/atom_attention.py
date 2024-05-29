@@ -58,6 +58,8 @@ def extract_local_biases(bias_tensor, partition_increment=32, partition_length=1
             The length of the partitions.
     Returns:
         A tensor of shape [batch_size, N_atoms // partition_increment, partition_length, channels].
+    TODO: make this more memory efficient! likely can use advanced indexing to avoid the loop
+     and the intermediate tensors
     """
     batch_size, N_atoms, N_atoms, channels = bias_tensor.shape
     half_length = partition_length // 2
@@ -363,6 +365,7 @@ def aggregate_atom_to_token(
         Aggregated token representations of shape (bs, n_tokens, c_atom).
     """
     bs, n_atoms, c_atom = atom_representation.shape
+
     # Initialize the token representation tensor with zeros
     token_representation = torch.zeros(bs, n_tokens, c_atom,
                                        device=atom_representation.device,
