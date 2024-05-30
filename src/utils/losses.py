@@ -139,7 +139,7 @@ def lddt(
 ) -> torch.Tensor:
     """Compute the local distance difference test (LDDT) score.
     TODO: there is something off with per_residue=True, it seems to be the other way around
-    TODO: the lddt values seem far too high as I noise the protein, it doesn't go below 0.8.
+    TODO: the lddt values seem far too high as I noise the protein, it doesn'timesteps go below 0.8.
     """
     n = all_atom_mask.shape[-2]
     dmat_true = torch.sqrt(

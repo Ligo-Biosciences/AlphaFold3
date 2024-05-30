@@ -83,18 +83,20 @@ class TestAtomAttentionEncoder(unittest.TestCase):
         }
         noisy_pos = torch.rand(self.batch_size, self.n_atoms, 3)
 
-        # Pairformer output mock (adjust as per actual module expectations)
-        pairformer_output = {
-            'token_single': torch.rand(self.batch_size, self.n_tokens, self.c_token),
-            'token_pair': torch.rand(self.batch_size, self.n_tokens, self.n_tokens, self.c_trunk_pair)
-        }
+        # Pairformer outputs (adjust as per actual module expectations)
+        s_trunk = torch.rand(self.batch_size, self.n_tokens, self.c_token)
+        z_trunk = torch.rand(self.batch_size, self.n_tokens, self.n_tokens, self.c_trunk_pair)
+        # pairformer_output = {
+        #     'token_single': torch.rand(self.batch_size, self.n_tokens, self.c_token),
+        #     'token_pair': torch.rand(self.batch_size, self.n_tokens, self.n_tokens, self.c_trunk_pair)
+        # }
 
-        output = self.encoder(features, pairformer_output, noisy_pos)
-        self.assertEqual(output['token_single'].shape, torch.Size([self.batch_size, self.n_tokens, self.c_token]))
-        self.assertEqual(output['atom_single_skip_repr'].shape, torch.Size([self.batch_size, self.n_atoms, self.c_atom]))
-        self.assertEqual(output['atom_single_skip_proj'].shape, torch.Size([self.batch_size, self.n_atoms, self.c_atom]))
-        self.assertEqual(output['atom_pair_skip_repr'].shape, torch.Size([self.batch_size, self.n_atoms,
-                                                                          self.n_atoms, self.c_atompair]))
+        output = self.encoder(features, s_trunk, z_trunk, noisy_pos)
+        self.assertEqual(output.token_single.shape, torch.Size([self.batch_size, self.n_tokens, self.c_token]))
+        self.assertEqual(output.atom_single_skip_repr.shape, torch.Size([self.batch_size, self.n_atoms, self.c_atom]))
+        self.assertEqual(output.atom_single_skip_proj.shape, torch.Size([self.batch_size, self.n_atoms, self.c_atom]))
+        self.assertEqual(output.atom_pair_skip_repr.shape, torch.Size([self.batch_size, self.n_atoms,
+                                                                       self.n_atoms, self.c_atompair]))
 
 
 class TestAtomAttentionDecoder(unittest.TestCase):

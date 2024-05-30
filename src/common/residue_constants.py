@@ -29,7 +29,7 @@ import tree
 ca_ca = 3.80209737096
 
 # Format: The list for each AA type contains chi1, chi2, chi3, chi4 in
-# this order (or a relevant subset from chi1 onwards). ALA and GLY don't have
+# this order (or a relevant subset from chi1 onwards). ALA and GLY don'timesteps have
 # chi angles so their chi angle lists are empty.
 chi_angles_atoms = {
     'ALA': [],
@@ -553,7 +553,7 @@ def sequence_to_onehot(
     sequence: An amino acid sequence.
     mapping: A dictionary mapping amino acids to integers.
     map_unknown_to_x: If True, any amino acid that is not in the mapping will be
-      mapped to the unknown amino acid 'X'. If the mapping doesn't contain
+      mapped to the unknown amino acid 'X'. If the mapping doesn'timesteps contain
       amino acid 'X', an error will be thrown. If False, any amino acid not in
       the mapping will throw an error.
 
@@ -562,7 +562,7 @@ def sequence_to_onehot(
     the sequence.
 
   Raises:
-    ValueError: If the mapping doesn't contain values from 0 to
+    ValueError: If the mapping doesn'timesteps contain values from 0 to
       num_unique_aas - 1 without any gaps.
   """
     num_entries = max(mapping.values()) + 1
@@ -642,7 +642,7 @@ def atom_id_to_type(atom_id: str) -> str:
 # NB: restype_3to1 differs from Bio.PDB.protein_letters_3to1 by being a simple
 # 1-to-1 mapping of 3 letter names to one letter names. The latter contains
 # many more, and less common, three letter names as keys and maps many of these
-# to the same one letter name (including 'X' and 'U' which we don't use here).
+# to the same one letter name (including 'X' and 'U' which we don'timesteps use here).
 restype_3to1 = {v: k for k, v in restype_1to3.items()}
 
 # Define a restype name for all unknown residues.

@@ -139,16 +139,16 @@ class DiffusionConditioning(nn.Module):
 
     def forward(
             self,
-            t: torch.Tensor,  # timestep (bs, 1)
+            timesteps: torch.Tensor,  # timestep (bs, 1)
             features: Dict[str, torch.Tensor],  # input feature dict
             s_inputs: torch.Tensor,  # (bs, n_tokens, c_token)
             s_trunk: torch.Tensor,  # (bs, n_tokens, c_token)
             z_trunk: torch.Tensor,  # (bs, n_tokens, n_tokens, c_pair)
-            sd_data: torch.Tensor  # standard dev of data (bs, 1)
+            sd_data: float = 16.0,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Diffusion conditioning.
         Args:
-            t:
+            timesteps:
                 [*, 1] timestep tensor
             features:
                 input feature dictionary for the RelativePositionEncoding containing:
@@ -170,7 +170,7 @@ class DiffusionConditioning(nn.Module):
             z_trunk:
                 [*, n_tokens, n_tokens, c_pair] Pair conditioning from Pairformer trunk
             sd_data:
-                [*, 1] Standard deviation of the data
+                Scaling factor for the timesteps before fourier embedding
         """
         # Pair conditioning
         pair_repr = torch.cat([z_trunk, self.relative_position_encoding(features)], dim=-1)
@@ -181,7 +181,7 @@ class DiffusionConditioning(nn.Module):
         # Single conditioning
         token_repr = torch.cat([s_trunk, s_inputs], dim=-1)
         token_repr = self.linear_single(self.single_layer_norm(token_repr))
-        fourier_repr = self.fourier_embedding(torch.log(t / sd_data) / 4.0)
+        fourier_repr = self.fourier_embedding(torch.log(torch.div(torch.div(timesteps, sd_data), 4.0)))
         fourier_repr = self.linear_fourier(self.fourier_layer_norm(fourier_repr))
         token_repr = token_repr + fourier_repr.unsqueeze(1)
         for transition in self.single_transitions:

@@ -127,7 +127,7 @@ class ProteinDataset(Dataset):
         use_fraction : float, default 1
             the fraction of the clusters to use (first N in alphabetic order)
         load_to_ram : bool, default False
-            if `True`, the data will be stored in RAM (use with caution! if RAM isn't big enough the machine might crash)
+            if `True`, the data will be stored in RAM (use with caution! if RAM isn'timesteps big enough the machine might crash)
         debug : bool, default False
             only process 1000 files
         interpolate : {"none", "only_middle", "all"}

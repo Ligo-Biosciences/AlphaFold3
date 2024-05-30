@@ -183,7 +183,7 @@ def _chunk_slice(
     """
         Equivalent to
 
-            t.reshape((-1,) + t.shape[no_batch_dims:])[flat_start:flat_end]
+            timesteps.reshape((-1,) + timesteps.shape[no_batch_dims:])[flat_start:flat_end]
 
         but without the need for the initial reshape call, which can be
         memory-intensive in certain situations. The only reshape operations
@@ -235,7 +235,7 @@ def chunk_layer(
         chunk_size:
             The number of sub-batches per chunk. If multiple batch
             dimensions are specified, a "sub-batch" is defined as a single
-            indexing of all batch dimensions simultaneously (s.t. the
+            indexing of all batch dimensions simultaneously (s.timesteps. the
             number of sub-batches is the product of the batch dimensions).
         no_batch_dims:
             How many of the initial dimensions of each input tensor can

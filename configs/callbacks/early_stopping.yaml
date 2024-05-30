@@ -12,4 +12,4 @@ early_stopping:
   stopping_threshold: null # stop training immediately once the monitored quantity reaches this threshold
   divergence_threshold: null # stop training as soon as the monitored quantity becomes worse than this threshold
   check_on_train_epoch_end: null # whether to run early stopping at the end of the training epoch
-  # log_rank_zero_only: False  # this keyword argument isn't available in stable version
+  # log_rank_zero_only: False  # this keyword argument isn'timesteps available in stable version

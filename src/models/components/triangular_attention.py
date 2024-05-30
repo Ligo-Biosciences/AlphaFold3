@@ -102,7 +102,7 @@ class TriangleAttention(nn.Module):
             chunk_size:
                 The number of sub-batches per chunk. If multiple batch
                 dimensions are specified, a "sub-batch" is defined as a single
-                indexing of all batch dimensions simultaneously (s.t. the
+                indexing of all batch dimensions simultaneously (s.timesteps. the
                 number of sub-batches is the product of the batch dimensions).
             use_deepspeed_evo_attention:
                 whether to use DeepSpeed's EvoFormer attention

@@ -1,5 +1,4 @@
 """Data augmentations applied prior to sampling from the diffusion trajectory."""
-import torch
 from src.utils.geometry.vector import Vec3Array
 from src.utils.geometry.rotation_matrix import Rot3Array
 

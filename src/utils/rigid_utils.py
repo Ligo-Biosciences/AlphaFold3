@@ -907,8 +907,8 @@ class Rigids:
             E.g.::
 
                 r = Rotations(rot_mats=torch.rand(10, 10, 3, 3), quats=None)
-                t = Rigids(r, torch.rand(10, 10, 3))
-                indexed = t[3, 4:6]
+                timesteps = Rigids(r, torch.rand(10, 10, 3))
+                indexed = timesteps[3, 4:6]
                 assert(indexed.shape == (2,))
                 assert(indexed.get_rots().shape == (2,))
                 assert(indexed.get_trans().shape == (2, 3))

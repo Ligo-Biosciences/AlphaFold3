@@ -26,10 +26,10 @@ hydra:
 
 trainer:
   max_epochs: 1
-  accelerator: cpu # debuggers don't like gpus
-  devices: 1 # debuggers don't like multiprocessing
+  accelerator: cpu # debuggers don'timesteps like gpus
+  devices: 1 # debuggers don'timesteps like multiprocessing
   detect_anomaly: true # raise exception if NaN or +/-inf is detected in any tensor
 
 data:
-  num_workers: 0 # debuggers don't like multiprocessing
+  num_workers: 0 # debuggers don'timesteps like multiprocessing
   pin_memory: False # disable gpu memory pin

@@ -22,7 +22,7 @@ import torch.nn as nn
 
 
 def add(m1, m2, inplace):
-    # The first operation in a checkpoint can't be in-place, but it's
+    # The first operation in a checkpoint can'timesteps be in-place, but it's
     # nice to have in-place addition during inference. Thus...
     if not inplace:
         m1 = m1 + m2

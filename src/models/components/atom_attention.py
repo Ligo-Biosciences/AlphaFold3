@@ -12,7 +12,7 @@ from torch.nn import functional as F
 from src.models.components.primitives import AdaLN, Linear
 from src.models.components.transition import ConditionedTransitionBlock
 from src.utils.tensor_utils import partition_tensor
-from typing import Dict, Tuple
+from typing import Dict, Tuple, NamedTuple
 
 
 def _split_heads(x, n_heads):
@@ -383,6 +383,14 @@ def aggregate_atom_to_token(
     return token_representation
 
 
+class AtomAttentionEncoderOutput(NamedTuple):
+    """Structured output class for AtomAttentionEncoder."""
+    token_single: torch.Tensor  # (bs, n_tokens, c_token)
+    atom_single_skip_repr: torch.Tensor  # (bs, n_atoms, c_atom)
+    atom_single_skip_proj: torch.Tensor  # (bs, n_atoms, c_atom)
+    atom_pair_skip_repr: torch.Tensor  # (bs, n_atoms, n_atoms c_atompair)
+
+
 class AtomAttentionEncoder(nn.Module):
     """AtomAttentionEncoder"""
 
@@ -492,9 +500,11 @@ class AtomAttentionEncoder(nn.Module):
     def forward(
             self,
             features: Dict[str, torch.Tensor],
-            pairformer_output: Dict[str, torch.tensor] = None,
+            # pairformer_output: Dict[str, torch.tensor] = None,
+            s_trunk: torch.Tensor = None,  # (bs, n_tokens, c_token)
+            z_trunk: torch.Tensor = None,  # (bs, n_tokens, c_trunk_pair)
             noisy_pos: torch.Tensor = None,  # (bs, n_atoms, 3)
-    ) -> Dict[str, torch.Tensor]:
+    ) -> AtomAttentionEncoderOutput:
         """Forward pass for the AtomAttentionEncoder module.
         Args:
             features:
@@ -516,23 +526,21 @@ class AtomAttentionEncoder(nn.Module):
                         length 4.
                     "tok_idx":
                         [*, N_atoms] Token index for each atom in the flat atom representation.
-            pairformer_output:
-                Dictionary containing the output of the Pairformer model:
-                    "token_single":
-                        [*, N_tokens, c_token] single representation
-                    "token_pair":
-                        [*, N_tokens, N_tokens, c_pair] pair representation
+            s_trunk:
+                [*, N_tokens, c_token] single representation of the Pairformer trunk
+            z_trunk:
+                [*, N_tokens, N_tokens, c_pair] pair representation of the Pairformer trunk
             noisy_pos:
                 [*, N_atoms, 3] Tensor containing the noisy positions. Defaults to None.
         Returns:
-            Dictionary containing the output features:
-                "token_single":
+            A named tuple containing the following fields:
+                token_single:
                     [*, N_tokens, c_token] single representation
-                "atom_single_skip_repr":
+                atom_single_skip_repr:
                     [*, N_atoms, c_atom] atom single representation (denoted q_l in AF3 Supplement)
-                "atom_single_skip_proj":
+                atom_single_skip_proj:
                     [*, N_atoms, c_atom] atom single projection (denoted c_l in AF3 Supplement)
-                "atom_pair_skip_repr":
+                atom_pair_skip_repr:
                     [*, N_atoms, N_atoms, c_atompair] atom pair representation (denoted p_lm in AF3 Supplement)
         """
         batch_size, n_atoms, _ = features['ref_pos'].size()
@@ -568,11 +576,11 @@ class AtomAttentionEncoder(nn.Module):
         # If provided, add trunk embeddings and noisy positions
         if self.trunk_conditioning:
             atom_single = atom_single + self.linear_trunk_single(
-                self.trunk_single_layer_norm(gather_token_repr(pairformer_output['token_single'], features['tok_idx']))
+                self.trunk_single_layer_norm(gather_token_repr(s_trunk, features['tok_idx']))
             )
             atom_pair = atom_pair + self.linear_trunk_pair(
                 self.trunk_pair_layer_norm(map_token_pairs_to_atom_pairs(
-                    pairformer_output['token_pair'], features['tok_idx'])
+                    z_trunk, features['tok_idx'])
                 )
             )
             # Add the noisy positions
@@ -592,13 +600,13 @@ class AtomAttentionEncoder(nn.Module):
         token_repr = aggregate_atom_to_token(atom_representation=F.relu(self.linear_output(atom_single_conditioning)),
                                              tok_idx=features['tok_idx'],
                                              n_tokens=self.n_tokens)
-        output_dict = {
-            "token_single": token_repr,
-            "atom_single_skip_repr": atom_single_conditioning,
-            "atom_single_skip_proj": atom_single,
-            "atom_pair_skip_repr": atom_pair,
-        }
-        return output_dict
+        output = AtomAttentionEncoderOutput(
+            token_single=token_repr,
+            atom_single_skip_repr=atom_single_conditioning,
+            atom_single_skip_proj=atom_single,
+            atom_pair_skip_repr=atom_pair,
+        )
+        return output
 
 
 class AtomAttentionDecoder(nn.Module):
