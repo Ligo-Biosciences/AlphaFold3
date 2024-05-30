@@ -102,5 +102,3 @@ class RelativePositionEncoding(nn.Module):
             torch.full_like(relative_dists, 2*clamp_max + 1)
         )
         return F.one_hot(d_ij, num_classes=2 * clamp_max + 2)  # (bs, n_tokens, n_tokens, 2 * clamp_max + 2)
-
-

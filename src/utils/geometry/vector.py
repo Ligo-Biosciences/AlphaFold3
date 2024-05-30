@@ -120,11 +120,18 @@ class Vec3Array:
 
         return Vec3Array(x, y, z)
 
-    def sum(self, dim: int) -> Vec3Array:
+    def sum(self, dim: int, keepdim=False) -> Vec3Array:
         return Vec3Array(
-            torch.sum(self.x, dim=dim),
-            torch.sum(self.y, dim=dim),
-            torch.sum(self.z, dim=dim),
+            torch.sum(self.x, dim=dim, keepdim=keepdim),
+            torch.sum(self.y, dim=dim, keepdim=keepdim),
+            torch.sum(self.z, dim=dim, keepdim=keepdim),
+        )
+
+    def mean(self, dim: int, keepdim=False) -> Vec3Array:
+        return Vec3Array(
+            torch.mean(self.x, dim=dim, keepdim=keepdim),
+            torch.mean(self.y, dim=dim, keepdim=keepdim),
+            torch.mean(self.z, dim=dim, keepdim=keepdim),
         )
 
     def unsqueeze(self, dim: int):
