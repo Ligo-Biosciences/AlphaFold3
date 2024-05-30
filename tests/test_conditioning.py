@@ -1,6 +1,6 @@
 import unittest
 import torch
-from src.diffusion.conditioning import FourierEmbedding, RelativePositionEncoding
+from src.diffusion.conditioning import FourierEmbedding, RelativePositionEncoding, DiffusionConditioning
 from src.models.components.primitives import Linear
 
 
@@ -61,6 +61,36 @@ class TestRelativePositionEncoding(unittest.TestCase):
         output = self.module(features)
         self.assertEqual(output.shape, (self.batch_size, self.n_tokens, self.n_tokens, self.c_pair))
         self.assertTrue(torch.is_tensor(output))
+
+
+class TestDiffusionConditioning(unittest.TestCase):
+    def setUp(self):
+        self.batch_size = 2
+        self.n_tokens = 384
+
+        self.c_token = 128
+        self.c_pair = 64
+        # self.r_max = 32
+        # self.s_max = 2
+        self.module = DiffusionConditioning(self.c_token, self.c_pair)
+
+    def test_forward(self):
+        features = {
+            "residue_index": torch.randint(0, self.n_tokens, (self.batch_size, self.n_tokens)),
+            "token_index": torch.randint(0, self.n_tokens, (self.batch_size, self.n_tokens)),
+            "asym_id": torch.randint(0, self.n_tokens, (self.batch_size, self.n_tokens)),
+            "entity_id": torch.randint(0, self.n_tokens, (self.batch_size, self.n_tokens)),
+            "sym_id": torch.randint(0, self.n_tokens, (self.batch_size, self.n_tokens)),
+        }
+        t = torch.randn(self.batch_size, 1)
+        s_inputs = torch.randn(self.batch_size, self.n_tokens, self.c_token)
+        s_trunk = torch.randn(self.batch_size, self.n_tokens, self.c_token)
+        z_trunk = torch.randn(self.batch_size, self.n_tokens, self.n_tokens, self.c_pair)
+        sd_data = torch.randn(self.batch_size, 1)  # standard dev of data (bs, 1)
+
+        output = self.module(t, features, s_inputs, s_trunk, z_trunk, sd_data)
+        self.assertEqual(output[0].shape, (self.batch_size, self.n_tokens, self.c_token))
+        self.assertEqual(output[1].shape, (self.batch_size, self.n_tokens, self.n_tokens, self.c_pair))
 
 
 if __name__ == "__main__":
