@@ -78,6 +78,7 @@ class DiffusionModule(torch.nn.Module):
             num_heads=token_transformer_heads,
             dropout=dropout,
         )
+        self.token_post_layer_norm = nn.LayerNorm(c_token)
 
         # Broadcast token activations to atoms and run sequence-local atom attention
         self.atom_attention_decoder = AtomAttentionDecoder(
@@ -110,5 +111,31 @@ class DiffusionModule(torch.nn.Module):
         r_noisy = noisy_atoms / scale_factor
 
         # Sequence local atom attention and aggregation to coarse-grained tokens
-        atom_encoder_out = self.atom_attention_encoder(features=features, )
-        pass
+        atom_encoder_output = self.atom_attention_encoder(features, s_trunk, z_trunk, r_noisy)
+
+        # Full self-attention on token level
+        token_single = atom_encoder_output.token_single + self.linear_token_residual(
+            self.token_residual_layer_norm(token_repr)
+        )
+        token_single = self.diffusion_transformer(single_repr=token_single,
+                                                  single_proj=token_repr,
+                                                  pair_repr=pair_repr,
+                                                  mask=None)
+        token_single = self.token_post_layer_norm(token_single)
+
+        # Broadcast token activations to atoms and run sequence-local atom attention
+        atom_pos_updates = self.atom_attention_decoder(
+            token_repr=token_single,
+            atom_single_skip_repr=atom_encoder_output.atom_single_skip_repr,  # (bs, n_atoms, c_atom)
+            atom_single_skip_proj=atom_encoder_output.atom_single_skip_proj,  # (bs, n_atoms, c_atom)
+            atom_pair_skip_repr=atom_encoder_output.atom_pair_skip_repr,  # (bs, n_atoms, n_atoms, c_atom)
+            tok_idx=features["atom_to_token"],  # (bs, n_atoms)
+            mask=None  # (bs, n_atoms)
+        )
+
+        # Rescale updates to positions and combine with input positions
+        common = torch.add(timesteps ** 2, sd_data ** 2)
+        noisy_pos_scale = torch.div(sd_data ** 2, common)  # (bs, 1)
+        atom_pos_update_scale = torch.div(torch.mul(sd_data, timesteps), torch.sqrt(common))
+        output_pos = noisy_atoms * noisy_pos_scale + atom_pos_updates * atom_pos_update_scale
+        return output_pos

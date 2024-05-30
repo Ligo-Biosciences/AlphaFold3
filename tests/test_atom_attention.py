@@ -4,6 +4,7 @@ import torch.nn as nn
 from src.models.components.atom_attention import (
     AtomAttentionPairBias, AtomAttentionEncoder, AtomAttentionDecoder
 )
+from src.utils.geometry.vector import Vec3Array
 
 
 class TestAttentionPairBias(unittest.TestCase):
@@ -79,9 +80,9 @@ class TestAtomAttentionEncoder(unittest.TestCase):
             'ref_mask': torch.ones(self.batch_size, self.n_atoms),
             'ref_element': torch.rand(self.batch_size, self.n_atoms, 128),
             'ref_atom_name_chars': torch.randint(0, 2, (self.batch_size, self.n_atoms, 4, 64)),
-            'tok_idx': torch.randint(0, self.n_tokens, (self.batch_size, self.n_atoms)),
+            'atom_to_token': torch.randint(0, self.n_tokens, (self.batch_size, self.n_atoms)),
         }
-        noisy_pos = torch.rand(self.batch_size, self.n_atoms, 3)
+        noisy_pos = Vec3Array.from_array(torch.rand(self.batch_size, self.n_atoms, 3))
 
         # Pairformer outputs (adjust as per actual module expectations)
         s_trunk = torch.rand(self.batch_size, self.n_tokens, self.c_token)
@@ -143,7 +144,9 @@ class TestAtomAttentionDecoder(unittest.TestCase):
             mask
         )
 
-        self.assertEqual(output.shape, (self.bs, self.n_atoms, self.decoder.c_atom))
+        self.assertEqual(output.shape, (self.bs, self.n_atoms))
+        self.assertEqual(output.to_tensor().shape, (self.bs, self.n_atoms, 3))
+        self.assertIsInstance(output, Vec3Array)
 
 
 # Run the tests
