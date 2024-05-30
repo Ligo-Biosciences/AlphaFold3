@@ -166,6 +166,14 @@ class Vec3Array:
             torch.cat([v.z for v in vecs], dim=dim),
         )
 
+    @classmethod
+    def randn(cls, shape, device="cpu"):
+        return cls(
+            torch.randn(shape, dtype=torch.float32, device=device),
+            torch.randn(shape, dtype=torch.float32, device=device),
+            torch.randn(shape, dtype=torch.float32, device=device),
+        )
+
 
 def square_euclidean_distance(
         vec1: Vec3Array,

@@ -22,21 +22,14 @@ def centre_random_augmentation(
     device = atom_positions.x.device
 
     # Center the atoms
-    center = atom_positions.mean(dim=-1, keepdim=True)
+    center = atom_positions.mean(dim=1, keepdim=True)
     atom_positions = atom_positions - center
 
     # Sample random rotation
-    quaternions = torch.randn(batch_size, 4, device=device)
-    rots = Rot3Array.from_quaternion(w=quaternions[:, 0],
-                                     x=quaternions[:, 1],
-                                     y=quaternions[:, 2],
-                                     z=quaternions[:, 3],
-                                     normalize=True)  # (bs)
-    rots = rots.unsqueeze(-1)  # (bs, 1)
+    rots = Rot3Array.uniform_random((batch_size, 1), device)
 
-    # Sample random translation
-    trans = s_trans * Vec3Array.from_array(torch.randn((batch_size, 3), device=device))
-    trans = trans.unsqueeze(-1)  # (bs, 1)
+    # Sample random translation from normal distribution
+    trans = s_trans * Vec3Array.randn((batch_size, 1), device)
 
     # Apply
     atom_positions = rots.apply_to_point(atom_positions) + trans

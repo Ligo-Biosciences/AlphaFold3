@@ -147,6 +147,16 @@ class Rot3Array:
         rc = [torch.unbind(e, dim=-1) for e in rows]
         return cls(*[e for row in rc for e in row])
 
+    @classmethod
+    def uniform_random(cls, shape, device='cpu') -> Rot3Array:
+        """Generates a random rotation of given shape."""
+        quaternions = torch.randn((*shape, 4), device=device)
+        return Rot3Array.from_quaternion(w=quaternions[..., 0],
+                                         x=quaternions[..., 1],
+                                         y=quaternions[..., 2],
+                                         z=quaternions[..., 3],
+                                         normalize=True)
+
     def to_tensor(self) -> torch.Tensor:
         """Convert Rot3Array to array of shape [..., 3, 3]."""
         return torch.stack(
