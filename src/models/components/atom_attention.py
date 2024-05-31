@@ -104,6 +104,17 @@ def extract_local_biases(bias_tensor, partition_increment=32, partition_length=1
     return output_tensor
 
 
+def _compute_pair_attention_mask(mask, large_number=-1e6):
+    # Compute boolean pair mask
+    pair_mask = (mask[:, :, None] & mask[:, None, :]).unsqueeze(-1).float()  # (bs, n, n, 1)
+
+    # Invert such that 0.0 indicates attention, 1.0 indicates no attention
+    pair_mask_inv = torch.add(1, -pair_mask)
+
+    # Multiply with large number such that 0.0 indicates attention, -large_number no attention
+    return torch.mul(large_number, pair_mask_inv)
+
+
 class AtomAttentionPairBias(nn.Module):
     """Implements the sequence-local atom attention with pair bias.
     This is implemented separately to the attention module that performs full self-attention
@@ -172,16 +183,15 @@ class AtomAttentionPairBias(nn.Module):
         Attention mechanism for sequence-local atom attention.
         Args:
             atom_single_repr:
-                tensor of shape (bs, n_atoms, c_atom)
+                atom single representation tensor of shape (bs, n_atoms, c_atom)
             atom_single_proj:
-                tensor of shape (bs, n_atoms, c_atom)
+                atom single projection tensor of shape (bs, n_atoms, c_atom)
             atom_pair_repr:
-                tensor of shape (bs, n_atoms, n_atoms, c_atompair)
+                atom pair representation tensor of shape (bs, n_atoms, n_atoms, c_atompair)
             mask:
-                tensor of shape (bs, n_atoms)
+                atom mask tensor of shape (bs, n_atoms)
         Returns:
             tensor of shape (bs, n_atoms, c_atom) after sequence-local atom attention
-        TODO: implement masking
         """
         # Input projections
         a = self.ada_ln(atom_single_repr, atom_single_proj)  # AdaLN(a, s)
@@ -206,6 +216,9 @@ class AtomAttentionPairBias(nn.Module):
 
         # Local pair biases (bs, n_atoms // 32, 32, 128, n_heads)
         local_pair_biases = extract_local_biases(pair_bias, self.n_queries, self.n_keys)
+        if mask is not None:
+            pair_mask = _compute_pair_attention_mask(mask).expand(pair_bias.shape)
+            local_pair_biases += extract_local_biases(pair_mask, self.n_queries, self.n_keys)  # apply mask
         local_pair_biases = local_pair_biases.permute(0, 4, 1, 2, 3)  # move n_heads to second dimension
 
         # Attention  (bs, n_heads, n_atoms // 32, 32, c_atom // n_heads)
@@ -364,6 +377,8 @@ def aggregate_atom_to_token(
             The number of tokens.
     Returns:
         Aggregated token representations of shape (bs, n_tokens, c_atom).
+    Warning: this method is masking aware as long as tok_idx does not encode a mapping like
+    masked_atom -> legitimate_token
     """
     bs, n_atoms, c_atom = atom_representation.shape
 
@@ -434,7 +449,6 @@ class AtomAttentionEncoder(nn.Module):
                 The size of the atom window. Defaults to 32.
             n_keys:
                 Number of atoms each atom attends to in local sequence space. Defaults to 128.
-
             trunk_conditioning:
                 Whether to condition the atom single and atom-pair representation on the trunk.
                 Defaults to False.
@@ -504,6 +518,7 @@ class AtomAttentionEncoder(nn.Module):
             s_trunk: torch.Tensor = None,  # (bs, n_tokens, c_token)
             z_trunk: torch.Tensor = None,  # (bs, n_tokens, c_trunk_pair)
             noisy_pos: Vec3Array = None,  # (bs, n_atoms)
+            mask: torch.Tensor = None,  # (bs, n_atoms)
     ) -> AtomAttentionEncoderOutput:
         """Forward pass for the AtomAttentionEncoder module.
         Args:
@@ -536,6 +551,8 @@ class AtomAttentionEncoder(nn.Module):
                 [*, N_tokens, N_tokens, c_pair] pair representation of the Pairformer trunk
             noisy_pos:
                 [*, N_atoms] Vec3Array containing the noisy positions. Defaults to None.
+            mask:
+                [*, N_atoms]
         Returns:
             A named tuple containing the following fields:
                 token_single:
@@ -598,7 +615,7 @@ class AtomAttentionEncoder(nn.Module):
         atom_pair = self.linear_pair_2(F.relu(self.linear_pair_1(F.relu(atom_pair))))
 
         # Cross attention transformer
-        atom_single_conditioning = self.atom_transformer(atom_single_conditioning, atom_single, atom_pair)
+        atom_single_conditioning = self.atom_transformer(atom_single_conditioning, atom_single, atom_pair, mask)
 
         # Aggregate per-atom representation to per-token representation
         token_repr = aggregate_atom_to_token(atom_representation=F.relu(self.linear_output(atom_single_conditioning)),

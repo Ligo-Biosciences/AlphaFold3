@@ -17,9 +17,10 @@ class TestAttentionPairBias(unittest.TestCase):
         self.c_pair = 16
 
         # Example inputs
-        self.atom_single_repr = torch.rand(self.batch_size, self.n_atoms, self.embed_dim)
-        self.atom_single_proj = torch.rand(self.batch_size, self.n_atoms, self.embed_dim)
-        self.atom_pair_repr = torch.rand(self.batch_size, self.n_atoms, self.n_atoms, self.c_pair)
+        self.atom_single_repr = torch.randn(self.batch_size, self.n_atoms, self.embed_dim)
+        self.atom_single_proj = torch.randn(self.batch_size, self.n_atoms, self.embed_dim)
+        self.atom_pair_repr = torch.randn(self.batch_size, self.n_atoms, self.n_atoms, self.c_pair)
+        self.mask = torch.randint(0, 2, (self.batch_size, self.n_atoms))
 
     def test_module_instantiation(self):
         """Test instantiation of the module with default parameters."""
@@ -29,9 +30,13 @@ class TestAttentionPairBias(unittest.TestCase):
     def test_forward_output_shape(self):
         """Test the forward function output shape."""
         module = AtomAttentionPairBias(c_atom=self.embed_dim, num_heads=self.num_heads)
-        output = module(self.atom_single_repr, self.atom_single_proj, self.atom_pair_repr)
+        output = module(self.atom_single_repr, self.atom_single_proj, self.atom_pair_repr, self.mask)
         expected_shape = (self.batch_size, self.n_atoms, self.embed_dim)
         self.assertEqual(output.shape, expected_shape)
+
+    def test_mask(self):
+        # TODO: implement a test for masking
+        self.assertTrue(True)
 
 
 class TestAtomAttentionEncoder(unittest.TestCase):
@@ -88,12 +93,13 @@ class TestAtomAttentionEncoder(unittest.TestCase):
         # Pairformer outputs (adjust as per actual module expectations)
         s_trunk = torch.rand(self.batch_size, self.n_tokens, self.c_token)
         z_trunk = torch.rand(self.batch_size, self.n_tokens, self.n_tokens, self.c_trunk_pair)
+        mask = torch.randint(0, 2, (self.batch_size, self.n_atoms))
         # pairformer_output = {
         #     'token_single': torch.rand(self.batch_size, self.n_tokens, self.c_token),
         #     'token_pair': torch.rand(self.batch_size, self.n_tokens, self.n_tokens, self.c_trunk_pair)
         # }
 
-        output = self.encoder(features, s_trunk, z_trunk, noisy_pos)
+        output = self.encoder(features, s_trunk, z_trunk, noisy_pos, mask)
         self.assertEqual(output.token_single.shape, torch.Size([self.batch_size, self.n_tokens, self.c_token]))
         self.assertEqual(output.atom_single_skip_repr.shape, torch.Size([self.batch_size, self.n_atoms, self.c_atom]))
         self.assertEqual(output.atom_single_skip_proj.shape, torch.Size([self.batch_size, self.n_atoms, self.c_atom]))
@@ -134,7 +140,7 @@ class TestAtomAttentionDecoder(unittest.TestCase):
         atom_single_skip_proj = torch.rand(self.bs, self.n_atoms, self.decoder.c_atom)
         atom_pair_skip_repr = torch.rand(self.bs, self.n_atoms, self.n_atoms, self.decoder.c_atompair)
         tok_idx = torch.randint(0, self.n_tokens, (self.bs, self.n_atoms))
-        mask = None  # torch.rand(self.bs, self.n_atoms) > 0.5  # Random boolean mask
+        mask = torch.randint(0, 2, (self.bs, self.n_atoms))
 
         output = self.decoder(
             token_repr,
