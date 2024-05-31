@@ -57,8 +57,9 @@ class TestRelativePositionEncoding(unittest.TestCase):
             "entity_id": torch.randint(0, self.n_tokens, (self.batch_size, self.n_tokens)),
             "sym_id": torch.randint(0, self.n_tokens, (self.batch_size, self.n_tokens)),
         }
+        mask = torch.randint(0, 2, (self.batch_size, self.n_tokens))
 
-        output = self.module(features)
+        output = self.module(features, mask=mask)
         self.assertEqual(output.shape, (self.batch_size, self.n_tokens, self.n_tokens, self.c_pair))
         self.assertTrue(torch.is_tensor(output))
 
@@ -87,6 +88,8 @@ class TestDiffusionConditioning(unittest.TestCase):
         s_trunk = torch.randn(self.batch_size, self.n_tokens, self.c_token)
         z_trunk = torch.randn(self.batch_size, self.n_tokens, self.n_tokens, self.c_pair)
         sd_data = 16.0  # torch.randn(self.batch_size, 1)  # standard dev of data (bs, 1)
+
+        mask = torch.randint(0, 2, (self.batch_size, self.n_tokens))
 
         output = self.module(t, features, s_inputs, s_trunk, z_trunk, sd_data)
         self.assertEqual(output[0].shape, (self.batch_size, self.n_tokens, self.c_token))

@@ -100,7 +100,9 @@ class DiffusionModule(torch.nn.Module):
             s_inputs: torch.Tensor,  # (bs, n_tokens, c_token)
             s_trunk: torch.Tensor,  # (bs, n_tokens, c_token)
             z_trunk: torch.Tensor,  # (bs, n_tokens, n_tokens, c_pair)
-            sd_data: float = 16.0
+            sd_data: float = 16.0,
+            token_mask: torch.Tensor = None,  # (bs, n_tokens)
+            atom_mask: torch.Tensor = None  # (bs, n_atoms)
     ) -> Vec3Array:
         """Diffusion module that denoises atomic coordinates based on conditioning.
         Args:
@@ -146,8 +148,7 @@ class DiffusionModule(torch.nn.Module):
                     "sym_id":
                         [*, N_tokens] Unique integer within chains of this sequence. E.g. if chains
                         A, B and C share a sequence but D does not, their sym_ids would be [0, 1, 2, 0]
-                    "token_mask":
-                        [*, N_tokens] binary mask for tokens, whether token exists
+
             s_inputs:
                 [*, n_tokens, c_token] Single conditioning input
             s_trunk:
@@ -156,9 +157,18 @@ class DiffusionModule(torch.nn.Module):
                 [*, n_tokens, n_tokens, c_pair] Pair conditioning from Pairformer trunk
             sd_data:
                 Scaling factor for the timesteps before fourier embedding
+            token_mask:
+                [*, N_tokens] binary mask for tokens, whether token exists
+            atom_mask:
+
         """
         # Conditioning
-        token_repr, pair_repr = self.diffusion_conditioning(timesteps, features, s_inputs, s_trunk, z_trunk)
+        token_repr, pair_repr = self.diffusion_conditioning(timesteps=timesteps,
+                                                            features=features,
+                                                            s_inputs=s_inputs,
+                                                            s_trunk=s_trunk,
+                                                            z_trunk=z_trunk,
+                                                            mask=token_mask)
 
         # Scale positions to dimensionless vectors with approximately unit variance
         scale_factor = torch.reciprocal((torch.sqrt(torch.add(timesteps ** 2, sd_data ** 2))))

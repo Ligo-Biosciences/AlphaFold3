@@ -50,7 +50,7 @@ class RelativePositionEncoding(nn.Module):
         input_dim = 2 * r_max + 2 + 2 * r_max + 2 + 2 * s_max + 2 + 1  # (relpos, rel_token, rel_chain, same_entity)
         self.linear_proj = Linear(input_dim, c_pair, bias=False)
 
-    def forward(self, features: Dict[str, torch.Tensor]) -> torch.Tensor:
+    def forward(self, features: Dict[str, torch.Tensor], mask=None) -> torch.Tensor:
         """Computes relative position encoding. AlphaFold3 Supplement Algorithm 3.
         Args:
             features:
@@ -66,9 +66,12 @@ class RelativePositionEncoding(nn.Module):
                     "sym_id":
                         [*, n_tokens] Unique integer within chains of this sequence. e.g. if chains A, B and C
                         share a sequence but D does not, their sym_ids would be [0, 1, 2, 0]
+            mask:
+                [*, n_tokens] mask tensor
         Returns:
-            relative position encoding tensor
+            [*, n_tokens, n_tokens, c_pair] relative position encoding tensor
         """
+
         # Same chain mask (bs, n_tokens, n_tokens)
         b_same_chain = features["asym_id"][:, :, None] == features["asym_id"][:, None, :]  # (bs, n_tokens, n_tokens)
 
@@ -89,6 +92,11 @@ class RelativePositionEncoding(nn.Module):
         rel_chain = RelativePositionEncoding.encode(features["asym_id"], b_same_chain, clamp_max=self.s_max)
 
         p_ij = self.linear_proj(torch.cat([rel_pos, rel_token, b_same_entity, rel_chain], dim=-1).float())
+
+        # Mask the output
+        if mask is not None:
+            mask = (mask[:, :, None] & mask[:, None, :]).unsqueeze(-1).float()  # (bs, n_tokens, n_tokens, 1)
+            p_ij = mask * p_ij
         return p_ij
 
     @staticmethod
@@ -145,6 +153,7 @@ class DiffusionConditioning(nn.Module):
             s_trunk: torch.Tensor,  # (bs, n_tokens, c_token)
             z_trunk: torch.Tensor,  # (bs, n_tokens, n_tokens, c_pair)
             sd_data: float = 16.0,
+            mask: torch.Tensor = None,  # (bs, n_tokens)
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Diffusion conditioning.
         Args:
@@ -171,9 +180,11 @@ class DiffusionConditioning(nn.Module):
                 [*, n_tokens, n_tokens, c_pair] Pair conditioning from Pairformer trunk
             sd_data:
                 Scaling factor for the timesteps before fourier embedding
+            mask:
+                [*, n_tokens] token mask
         """
         # Pair conditioning
-        pair_repr = torch.cat([z_trunk, self.relative_position_encoding(features)], dim=-1)
+        pair_repr = torch.cat([z_trunk, self.relative_position_encoding(features, mask)], dim=-1)
         pair_repr = self.linear_pair(self.pair_layer_norm(pair_repr))
         for transition in self.pair_transitions:
             pair_repr = pair_repr + transition(pair_repr)
@@ -186,5 +197,11 @@ class DiffusionConditioning(nn.Module):
         token_repr = token_repr + fourier_repr.unsqueeze(1)
         for transition in self.single_transitions:
             token_repr = token_repr + transition(token_repr)
+
+        # Mask outputs
+        if mask is not None:
+            token_repr = mask.unsqueeze(-1) * token_repr
+            pair_mask = (mask[:, :, None] & mask[:, None, :]).unsqueeze(-1).float()  # (bs, n_tokens, n_tokens, 1)
+            pair_repr = pair_mask * pair_repr
 
         return token_repr, pair_repr
