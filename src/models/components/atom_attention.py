@@ -524,6 +524,10 @@ class AtomAttentionEncoder(nn.Module):
                         [*, N_atom, 4, 64] One-hot encoding of the unique atom names in the reference
                         conformer. Each character is encoded as ord(c - 32), and names are padded to
                         length 4.
+                    "ref_space_uid":
+                        [*, N_atoms] Numerical encoding of the chain id and residue index associated
+                        with this reference conformer. Each (chain id, residue index) tuple is assigned
+                        an integer on first appearance.
                     "atom_to_token":
                         [*, N_atoms] Token index for each atom in the flat atom representation.
             s_trunk:
@@ -558,7 +562,7 @@ class AtomAttentionEncoder(nn.Module):
 
         # Embed offsets between atom reference positions
         offsets = features['ref_pos'][:, :, None, :] - features['ref_pos'][:, None, :, :]  # (bs, n_atoms, n_atoms, 3)
-        valid_mask = features['ref_mask'][:, :, None] == features['ref_mask'][:, None, :]  # (bs, n_atoms, n_atoms)
+        valid_mask = features['ref_space_uid'][:, :, None] == features['ref_space_uid'][:, None, :]
         valid_mask = valid_mask.unsqueeze(-1).float()  # convert boolean to binary where 1.0 is True, 0.0 is False
         atom_pair = self.linear_atom_offsets(offsets) * valid_mask
 

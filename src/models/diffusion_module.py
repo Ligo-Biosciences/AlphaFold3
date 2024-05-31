@@ -102,7 +102,61 @@ class DiffusionModule(torch.nn.Module):
             z_trunk: torch.Tensor,  # (bs, n_tokens, n_tokens, c_pair)
             sd_data: float = 16.0
     ) -> Vec3Array:
-        """Diffusion module that denoises atomic coordinates based on conditioning"""
+        """Diffusion module that denoises atomic coordinates based on conditioning.
+        Args:
+            noisy_atoms:
+                vector of noisy atom positions (bs, n_atoms)
+            timesteps:
+                tensor of timesteps (bs, 1)
+            features:
+                input feature dictionary containing the tensors:
+                    "ref_pos":
+                        [*, N_atoms, 3] atom positions in the reference conformers, with
+                        a random rotation and translation applied. Atom positions in Angstroms.
+                    "ref_charge":
+                        [*, N_atoms] Charge for each atom in the reference conformer.
+                    "ref_mask":
+                        [*, N_atoms] Mask indicating which atom slots are used in the reference
+                        conformer.
+                    "ref_element":
+                        [*, N_atoms, 128] One-hot encoding of the element atomic number for each atom
+                        in the reference conformer, up to atomic number 128.
+                    "ref_atom_name_chars":
+                        [*, N_atom, 4, 64] One-hot encoding of the unique atom names in the reference
+                        conformer. Each character is encoded as ord(c - 32), and names are padded to
+                        length 4.
+                    "ref_space_uid":
+                        [*, N_atoms] Numerical encoding of the chain id and residue index associated
+                        with this reference conformer. Each (chain id, residue index) tuple is assigned
+                        an integer on first appearance.
+                    "atom_to_token":
+                        [*, N_atoms] Token index for each atom in the flat atom representation.
+                    "atom_mask":
+                        [*, N_atoms] binary mask for atoms, whether atom exists
+
+                    "residue_index":
+                        [*, N_tokens] Residue number in the token’s original input chain.
+                    "token_index":
+                        [*, N_tokens] Token number. Increases monotonically; does not restart at 1
+                        for new chains.
+                    "asym_id":
+                        [*, N_tokens] Unique integer for each distinct chain.
+                    "entity_id":
+                        [*, N_tokens] Unique integer for each distinct sequence.
+                    "sym_id":
+                        [*, N_tokens] Unique integer within chains of this sequence. E.g. if chains
+                        A, B and C share a sequence but D does not, their sym_ids would be [0, 1, 2, 0]
+                    "token_mask":
+                        [*, N_tokens] binary mask for tokens, whether token exists
+            s_inputs:
+                [*, n_tokens, c_token] Single conditioning input
+            s_trunk:
+                [*, n_tokens, c_token] Single conditioning from Pairformer trunk
+            z_trunk:
+                [*, n_tokens, n_tokens, c_pair] Pair conditioning from Pairformer trunk
+            sd_data:
+                Scaling factor for the timesteps before fourier embedding
+        """
         # Conditioning
         token_repr, pair_repr = self.diffusion_conditioning(timesteps, features, s_inputs, s_trunk, z_trunk)
 

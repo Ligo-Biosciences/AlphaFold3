@@ -80,6 +80,7 @@ class TestAtomAttentionEncoder(unittest.TestCase):
             'ref_mask': torch.ones(self.batch_size, self.n_atoms),
             'ref_element': torch.rand(self.batch_size, self.n_atoms, 128),
             'ref_atom_name_chars': torch.randint(0, 2, (self.batch_size, self.n_atoms, 4, 64)),
+            'ref_space_uid': torch.randint(0, self.n_atoms, (self.batch_size, self.n_atoms)),
             'atom_to_token': torch.randint(0, self.n_tokens, (self.batch_size, self.n_atoms)),
         }
         noisy_pos = Vec3Array.from_array(torch.rand(self.batch_size, self.n_atoms, 3))
