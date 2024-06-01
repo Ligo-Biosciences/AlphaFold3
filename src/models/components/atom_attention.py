@@ -9,7 +9,7 @@ import torch
 from torch import nn
 import numpy as np
 from torch.nn import functional as F
-from src.models.components.primitives import AdaLN, Linear
+from src.models.components.primitives import AdaLN, Linear, compute_pair_attention_mask
 from src.models.components.transition import ConditionedTransitionBlock
 from src.utils.tensor_utils import partition_tensor
 from src.utils.geometry.vector import Vec3Array
@@ -102,17 +102,6 @@ def extract_local_biases(bias_tensor, partition_increment=32, partition_length=1
     output_tensor = torch.stack(partitions, dim=1)
 
     return output_tensor
-
-
-def _compute_pair_attention_mask(mask, large_number=-1e6):
-    # Compute boolean pair mask
-    pair_mask = (mask[:, :, None] & mask[:, None, :]).unsqueeze(-1).float()  # (bs, n, n, 1)
-
-    # Invert such that 0.0 indicates attention, 1.0 indicates no attention
-    pair_mask_inv = torch.add(1, -pair_mask)
-
-    # Multiply with large number such that 0.0 indicates attention, -large_number no attention
-    return torch.mul(large_number, pair_mask_inv)
 
 
 class AtomAttentionPairBias(nn.Module):
@@ -217,7 +206,7 @@ class AtomAttentionPairBias(nn.Module):
         # Local pair biases (bs, n_atoms // 32, 32, 128, n_heads)
         local_pair_biases = extract_local_biases(pair_bias, self.n_queries, self.n_keys)
         if mask is not None:
-            pair_mask = _compute_pair_attention_mask(mask).expand(pair_bias.shape)
+            pair_mask = compute_pair_attention_mask(mask).expand(pair_bias.shape)
             local_pair_biases += extract_local_biases(pair_mask, self.n_queries, self.n_keys)  # apply mask
         local_pair_biases = local_pair_biases.permute(0, 4, 1, 2, 3)  # move n_heads to second dimension
 

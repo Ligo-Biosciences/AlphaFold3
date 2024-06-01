@@ -393,12 +393,23 @@ def _attention_chunked_trainable(
     return o
 
 
+def compute_pair_attention_mask(mask, large_number=-1e6):
+    # Compute boolean pair mask
+    pair_mask = (mask[:, :, None] & mask[:, None, :]).unsqueeze(-1).float()  # (bs, n, n, 1)
+
+    # Invert such that 0.0 indicates attention, 1.0 indicates no attention
+    pair_mask_inv = torch.add(1, -pair_mask)
+
+    # Multiply with large number such that 0.0 indicates attention, -large_number no attention
+    return torch.mul(large_number, pair_mask_inv)
+
+
 class AttentionPairBias(nn.Module):
     """Full self-attention with pair bias."""
 
     def __init__(
             self,
-            embed_dim,
+            dim,
             c_pair: int = 16,
             num_heads=8,
             dropout=0.0,
@@ -407,7 +418,7 @@ class AttentionPairBias(nn.Module):
     ):
         """Initialize the AttentionPairBias module.
         Args:
-            embed_dim:
+            dim:
                 Total dimension of the model.
             c_pair:
                 The number of channels for the pair representation. Defaults to 16.
@@ -418,23 +429,27 @@ class AttentionPairBias(nn.Module):
                 Dropout probability on attn_output_weights. Default: 0.0 (no dropout).
         """
         super().__init__()
-        self.embed_dim = embed_dim
+        self.dim = dim
         self.c_pair = c_pair
         self.num_heads = num_heads
         self.dropout = dropout
         self.device = device
         self.dtype = dtype
 
+        # Perform check for dimensionality
+        assert dim % num_heads == 0, f"the model dimensionality ({dim}) should be divisible by the " \
+                                     f"number of heads ({num_heads}) "
+
         # Projections
-        self.ada_ln = AdaLN(embed_dim)
-        self.output_proj_linear = Linear(embed_dim, embed_dim, init='gating')
-        self.output_proj_linear.bias = nn.Parameter(torch.ones(embed_dim) * -2.0)  # gate values will be ~0.11
+        self.ada_ln = AdaLN(dim)
+        self.output_proj_linear = Linear(dim, dim, init='gating')
+        self.output_proj_linear.bias = nn.Parameter(torch.ones(dim) * -2.0)  # gate values will be ~0.11
 
         # QKV projections and MHA
-        self.q_linear = Linear(embed_dim, embed_dim, init='glorot')
-        self.k_linear = Linear(embed_dim, embed_dim, init='glorot', bias=False)
-        self.v_linear = Linear(embed_dim, embed_dim, init='glorot', bias=False)
-        self.mha = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout, batch_first=True,
+        self.q_linear = Linear(dim, dim, init='glorot')
+        self.k_linear = Linear(dim, dim, init='glorot', bias=False)
+        self.v_linear = Linear(dim, dim, init='glorot', bias=False)
+        self.mha = nn.MultiheadAttention(dim, num_heads, dropout=dropout, batch_first=True,
                                          device=device, dtype=dtype)
 
         # Pair bias
@@ -442,8 +457,8 @@ class AttentionPairBias(nn.Module):
         self.linear_pair = Linear(self.c_pair, self.num_heads, init='default', bias=False)
 
         # Gating
-        self.gating_linear = Linear(embed_dim, embed_dim, init='gating', bias=False)
-        self.attention_proj = Linear(embed_dim, embed_dim, init='default', bias=False)
+        self.gating_linear = Linear(dim, dim, init='gating', bias=False)
+        self.attention_proj = Linear(dim, dim, init='default', bias=False)
 
     def forward(self, single_repr, single_proj, pair_repr, mask=None):
         """Full self-attention at the token-level with pair bias."""
@@ -458,10 +473,12 @@ class AttentionPairBias(nn.Module):
 
         # Pair bias
         pair_bias = self.linear_pair(self.layer_norm_pair(pair_repr))  # (bs, n_tokens, n_tokens, n_heads)
+        if mask is not None:
+            pair_bias += compute_pair_attention_mask(mask)  # pair attention mask
         pair_bias = pair_bias.permute(0, 3, 1, 2).reshape(batch_size * self.num_heads, n_tokens, n_tokens)
 
         # Multi-head attention
-        attn_output = self.mha(q, k, v, attn_mask=pair_bias, need_weights=False)[0]  # (bs, n_tokens, c_atom)
+        attn_output, _ = self.mha(q, k, v, attn_mask=pair_bias, need_weights=False)  # (bs, n_tokens, c_atom)
 
         # Gating
         gated_output = F.sigmoid(self.gating_linear(attn_output)) * attn_output

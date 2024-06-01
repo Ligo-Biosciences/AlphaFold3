@@ -41,16 +41,17 @@ class TestAttentionPairBias(unittest.TestCase):
         self.c_pair = 16
 
         # Initialize the module
-        self.module = AttentionPairBias(embed_dim=self.embed_dim, num_heads=self.num_heads, c_pair=self.c_pair)
+        self.module = AttentionPairBias(dim=self.embed_dim, num_heads=self.num_heads, c_pair=self.c_pair)
 
         # Example input tensors
         self.single_repr = torch.randn(self.batch_size, self.n_tokens, self.embed_dim)
         self.single_proj = torch.randn(self.batch_size, self.n_tokens, self.embed_dim)
         self.pair_repr = torch.randn(self.batch_size, self.n_tokens, self.n_tokens, self.c_pair)
+        self.mask = torch.randint(0, 2, (self.batch_size, self.n_tokens))
 
     def test_module_output_shape(self):
         """Test output shapes from the forward pass."""
-        output = self.module(self.single_repr, self.single_proj, self.pair_repr)
+        output = self.module(self.single_repr, self.single_proj, self.pair_repr, self.mask)
         expected_shape = (self.batch_size, self.n_tokens, self.embed_dim)
         self.assertEqual(output.shape, expected_shape, "Output shape should match expected shape.")
 
