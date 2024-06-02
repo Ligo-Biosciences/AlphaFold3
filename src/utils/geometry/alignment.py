@@ -30,8 +30,8 @@ def weighted_rigid_align(
     # Mean-centre positions
     mu = (x * weights).mean(dim=1, keepdim=True) / weights.mean(dim=1, keepdim=True)
     mu_gt = (x_gt * weights).mean(dim=1, keepdim=True) / weights.mean(dim=1, keepdim=True)
-    x = x - mu  # Vec3Array of shape (bs, n_atoms)
-    x_gt = x_gt - mu_gt
+    x -= mu  # Vec3Array of shape (bs, n_atoms)
+    x_gt -= mu_gt
 
     # Mask atoms before computing covariance matrix
     if mask is not None:
