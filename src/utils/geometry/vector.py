@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 import dataclasses
-from typing import Union, List
+from typing import Union, List, Optional
 
 import torch
 
@@ -175,10 +175,26 @@ class Vec3Array:
         )
 
 
+def dot(vector1: Vec3Array, vector2: Vec3Array) -> torch.Tensor:
+    return vector1.dot(vector2)
+
+
+def cross(vector1: Vec3Array, vector2: Vec3Array) -> Vec3Array:
+    return vector1.cross(vector2)
+
+
+def norm(vector: Vec3Array, epsilon: float = 1e-6) -> torch.Tensor:
+    return vector.norm(epsilon)
+
+
+def normalized(vector: Vec3Array, epsilon: float = 1e-6) -> Vec3Array:
+    return vector.normalized(epsilon)
+
+
 def square_euclidean_distance(
         vec1: Vec3Array,
         vec2: Vec3Array,
-        epsilon: float = 1e-6
+        epsilon: Optional[float] = 1e-6
 ) -> torch.Tensor:
     """Computes square of euclidean distance between 'vec1' and 'vec2'.
 
@@ -199,26 +215,10 @@ def square_euclidean_distance(
     return distance
 
 
-def dot(vector1: Vec3Array, vector2: Vec3Array) -> torch.Tensor:
-    return vector1.dot(vector2)
-
-
-def cross(vector1: Vec3Array, vector2: Vec3Array) -> Vec3Array:
-    return vector1.cross(vector2)
-
-
-def norm(vector: Vec3Array, epsilon: float = 1e-6) -> torch.Tensor:
-    return vector.norm(epsilon)
-
-
-def normalized(vector: Vec3Array, epsilon: float = 1e-6) -> Vec3Array:
-    return vector.normalized(epsilon)
-
-
 def euclidean_distance(
         vec1: Vec3Array,
         vec2: Vec3Array,
-        epsilon: float = 1e-6
+        epsilon: Optional[float] = 1e-6
 ) -> Float:
     """Computes euclidean distance between 'vec1' and 'vec2'.
 
