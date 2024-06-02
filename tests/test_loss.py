@@ -1,6 +1,6 @@
 import unittest
 import torch
-from src.diffusion.loss import mean_squared_error
+from src.diffusion.loss import mean_squared_error, smooth_lddt_loss
 from src.utils.geometry.vector import Vec3Array
 
 
@@ -42,6 +42,51 @@ class TestMeanSquaredError(unittest.TestCase):
         expected_mse = torch.tensor([0.0])  # No error should be considered from the second atom
         mse = mean_squared_error(pred_atoms, gt_atoms, weights, mask)
         self.assertTrue(torch.allclose(mse, expected_mse), f"Expected MSE {expected_mse}, got {mse}")
+
+
+class TestSmoothLDDTLoss(unittest.TestCase):
+
+    def test_basic_functionality(self):
+        # Create a simple scenario where pred_atoms and gt_atoms are the same, no nucleotide-specific settings.
+        bs, n_atoms = 1, 4
+        pred_atoms = Vec3Array.from_array(torch.tensor([[[0., 0., 0.], [1., 0., 0.], [2., 0., 0.], [3., 0., 0.]]]))
+        gt_atoms = Vec3Array.from_array(torch.tensor([[[0., 0., 0.], [1., 0., 0.], [2., 0., 0.], [3., 0., 0.]]]))
+        atom_is_rna = torch.zeros((bs, n_atoms))
+        atom_is_dna = torch.zeros((bs, n_atoms))
+        mask = None
+
+        # Expected loss is 0 since pred_atoms == gt_atoms
+        loss_when_identical = smooth_lddt_loss(pred_atoms, gt_atoms, atom_is_rna, atom_is_dna, mask)
+
+        # Add noise and compare
+        noisy_pred_atoms = pred_atoms + 0.1 * Vec3Array.from_array(torch.randn((bs, n_atoms, 3)))
+        noisier_pred_atoms = pred_atoms + 1.0 * Vec3Array.from_array(torch.randn((bs, n_atoms, 3)))
+
+        loss_when_noisy = smooth_lddt_loss(noisy_pred_atoms, gt_atoms, atom_is_rna, atom_is_dna, mask)
+        loss_when_noisier = smooth_lddt_loss(noisier_pred_atoms, gt_atoms, atom_is_rna, atom_is_dna, mask)
+
+        self.assertTrue(torch.all((loss_when_identical < loss_when_noisy) & (loss_when_noisy < loss_when_noisier)))
+
+    def test_mask(self):
+        # Create a simple scenario where pred_atoms and gt_atoms are the same, no nucleotide-specific settings.
+        bs, n_atoms = 1, 4
+        pred_atoms = Vec3Array.from_array(torch.tensor([[[0., 0., 0.], [1., 0., 0.], [2., 0., 0.], [3., 0., 0.]]]))
+        gt_atoms = Vec3Array.from_array(torch.tensor([[[0., 0., 0.], [1., 0., 0.], [2., 0., 0.], [3., 0., 0.]]]))
+        atom_is_rna = torch.randint(0, 2, (bs, n_atoms))
+        atom_is_dna = torch.zeros((bs, n_atoms))
+        mask = torch.ones((bs, n_atoms))
+
+        # Expected loss is 0 since pred_atoms == gt_atoms
+        loss_when_identical = smooth_lddt_loss(pred_atoms, gt_atoms, atom_is_rna, atom_is_dna, mask)
+
+        # Add noise and compare
+        noisy_pred_atoms = pred_atoms + 5.0 * Vec3Array.from_array(torch.randn((bs, n_atoms, 3)))
+        noisier_pred_atoms = pred_atoms + 10.0 * Vec3Array.from_array(torch.randn((bs, n_atoms, 3)))
+
+        loss_when_noisy = smooth_lddt_loss(noisy_pred_atoms, gt_atoms, atom_is_rna, atom_is_dna, mask)
+        loss_when_noisier = smooth_lddt_loss(noisier_pred_atoms, gt_atoms, atom_is_rna, atom_is_dna, mask)
+
+        self.assertTrue(torch.all((loss_when_identical < loss_when_noisy) & (loss_when_noisy < loss_when_noisier)))
 
 
 if __name__ == '__main__':
