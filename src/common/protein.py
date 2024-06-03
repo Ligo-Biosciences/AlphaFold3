@@ -217,6 +217,29 @@ def from_mmcif_string(
         return _from_bio_structure(structure, chain_id)
 
 
+def from_dict(
+        prot_dict: dict
+) -> Protein:
+    """Takes a dict with the corresponding keys and constructs a 'Protein' object.
+    Args:
+        prot_dict: Dict containing the entries for the Protein dataclass.
+    Returns:
+        A new 'Protein' constructed from the dict contents.
+    """
+    assert 'atom_positions' in prot_dict.keys(), "prot_dict needs to have key 'atom_positions'"
+    assert 'aatype' in prot_dict.keys(), "prot_dict needs to have key 'aatype'"
+    assert 'residue_index' in prot_dict.keys(), "prot_dict needs to have key 'residue_index'"
+    assert 'atom_mask' in prot_dict.keys(), "prot_dict needs to have key 'atom_mask'"
+    assert 'chain_index' in prot_dict.keys(), "prot_dict needs to have key 'chain_index'"
+    assert 'b_factors' in prot_dict.keys(), "prot_dict needs to have key 'b_factors'"
+    return Protein(atom_positions=prot_dict['atom_positions'],
+                   aatype=prot_dict['aatype'],
+                   residue_index=prot_dict['residue_index'],
+                   atom_mask=prot_dict['atom_mask'],
+                   chain_index=prot_dict['chain_index'],
+                   b_factors=prot_dict['b_factors'])
+
+
 def _chain_end(atom_index, end_resname, chain_name, residue_index) -> str:
     chain_end = 'TER'
     return (f'{chain_end:<6}{atom_index:>5}      {end_resname:>3} '

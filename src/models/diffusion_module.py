@@ -133,9 +133,8 @@ class DiffusionModule(torch.nn.Module):
                         an integer on first appearance.
                     "atom_to_token":
                         [*, N_atoms] Token index for each atom in the flat atom representation.
-                    "atom_mask":
-                        [*, N_atoms] binary mask for atoms, whether atom exists
-
+                    "atom_exists":
+                        [*, N_atoms] binary mask for atoms, whether atom exists, used for loss masking
                     "residue_index":
                         [*, N_tokens] Residue number in the token’s original input chain.
                     "token_index":
@@ -158,8 +157,10 @@ class DiffusionModule(torch.nn.Module):
             sd_data:
                 Scaling factor for the timesteps before fourier embedding
             token_mask:
-                [*, N_tokens] binary mask for tokens, whether token exists
+                [*, N_tokens] binary mask for tokens, whether token is present (not padding)
             atom_mask:
+                [*, N_atoms] binary mask for atoms, whether atom is present (will still be 1.0 if
+                atom is missing from the crystal structure, only 0.0 for padding)
 
         """
         # Conditioning
@@ -184,7 +185,7 @@ class DiffusionModule(torch.nn.Module):
         token_single = self.diffusion_transformer(single_repr=token_single,
                                                   single_proj=token_repr,
                                                   pair_repr=pair_repr,
-                                                  mask=None)
+                                                  mask=token_mask)
         token_single = self.token_post_layer_norm(token_single)
 
         # Broadcast token activations to atoms and run sequence-local atom attention
@@ -194,7 +195,7 @@ class DiffusionModule(torch.nn.Module):
             atom_single_skip_proj=atom_encoder_output.atom_single_skip_proj,  # (bs, n_atoms, c_atom)
             atom_pair_skip_repr=atom_encoder_output.atom_pair_skip_repr,  # (bs, n_atoms, n_atoms, c_atom)
             tok_idx=features["atom_to_token"],  # (bs, n_atoms)
-            mask=None  # (bs, n_atoms)
+            mask=atom_mask  # (bs, n_atoms)
         )
 
         # Rescale updates to positions and combine with input positions

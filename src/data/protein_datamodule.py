@@ -2,6 +2,8 @@ from typing import Any, Dict, Optional, Tuple, List, Callable
 
 import os
 import torch
+from torch import nn
+from torch.nn import functional as F
 from lightning import LightningDataModule
 from torch.utils.data import ConcatDataset, DataLoader, Dataset
 import proteinflow
@@ -28,7 +30,7 @@ class TransformDataset(torch.utils.data.Dataset):
         return self.dataset.__len__()
 
 
-class Reorder(torch.nn.Module):
+class Reorder(nn.Module):
     """A transformation that reorders the 3D coordinates of backbone atoms
     from N, C, Ca, O -> N, Ca, C, O."""
     def forward(self, protein_dict):
@@ -38,7 +40,7 @@ class Reorder(torch.nn.Module):
         return protein_dict
 
 
-class Cropper(torch.nn.Module):
+class Cropper(nn.Module):
     """A transformation that crops the protein elements."""
 
     def __init__(self, crop_size: int = 384):
@@ -48,27 +50,154 @@ class Cropper(torch.nn.Module):
     def forward(self, protein_dict: dict):
         """Crop the protein
         :param protein_dict: the protein dictionary with the elements
-         - `'X'`: 3D coordinates of N, C, Ca, O, `(total_L, 4, 3)`,
-         - `'S'`: sequence indices (shape `(total_L)`),
-         - `'mask'`: residue mask (0 where coordinates are missing, 1 otherwise; with interpolation 0s are
-                     replaced with 1s), `(total_L)`,
-         - `'mask_original'`: residue mask (0 where coordinates are missing, 1 otherwise; not changed with
+         - 'X': 3D coordinates of N, C, Ca, O, `(total_L, 4, 3)`,
+         - 'S': sequence indices (shape `(total_L)`),
+         - 'mask': residue mask (0 where coordinates are missing, 1 otherwise; with interpolation 0s are replaced
+                   with 1s), (total_L),
+         - 'mask_original': residue mask (0 where coordinates are missing, 1 otherwise; not changed with
                               interpolation), `(total_L)`,
-         - `'residue_idx'`: residue indices (from 0 to length of sequence, +100 where chains change),
+         - 'residue_idx': residue indices (from 0 to length of sequence, +100 where chains change),
                             `(total_L)`,
-         - `'chain_encoding_all'`: chain indices, `(total_L)`,
-         - `'chain_id`': a sampled chain index,
-         - `'chain_dict'`: a dictionary of chain ids (keys are chain ids, e.g. `'A'`, values are the indices
+         - 'chain_encoding_all': chain indices, `(total_L)`,
+         - 'chain_id': a sampled chain index,
+         - 'chain_dict': a dictionary of chain ids (keys are chain ids, e.g. `'A'`, values are the indices
                            used in `'chain_id'` and `'chain_encoding_all'` objects)
+        TODO: implement spatial cropping
         """
         n_res = protein_dict['residue_idx'].shape[0]
         n = max(n_res - self.crop_size, 1)
         crop_start = torch.randint(low=0, high=n, size=())
+        token_mask = torch.ones_like(protein_dict['mask'], dtype=torch.float32)
         for key, value in protein_dict.items():
             if key == "chain_id" or key == "chain_dict":  # these are not Tensors, so skip
                 continue  # omit these from the new dict
-            protein_dict[key] = value[crop_start:crop_start + self.crop_size]
+            if key == "pdb_id":
+                protein_dict[key] = value
+                continue  # do not change the pdb_id
+
+            if n_res < self.crop_size:
+                padding = torch.zeros((self.crop_size - n_res,) + value.shape[1:], dtype=value.dtype)
+                new_value = torch.cat([value, padding], dim=0)
+            else:
+                new_value = value[crop_start:crop_start + self.crop_size]
+            protein_dict[key] = new_value
+
+        # Add token mask
+        if n_res < self.crop_size:
+            padding = torch.zeros((self.crop_size - n_res,), dtype=torch.float32)
+            token_mask = torch.cat([token_mask, padding], dim=0)
+        else:
+            token_mask = token_mask[crop_start:crop_start + self.crop_size]
+        protein_dict['token_mask'] = token_mask
         return protein_dict
+
+
+class AF3Featurizer(nn.Module):
+    """A transformation that featurizes the protein elements to AlphaFold3 features."""
+    def __init__(self):
+        super().__init__()
+
+    def forward(
+            self,
+            protein_dict: Dict[str, torch.Tensor]
+    ) -> Dict[str, torch.Tensor]:
+        """Featurize the protein elements to AlphaFold3 features.
+        Args:
+            protein_dict: the protein dictionary that includes the following elements:
+                "X":
+                    3D coordinates of N, Ca, C, O, `(total_L, 4, 3)`,
+                "S":
+                    sequence indices (shape (total_L)),
+                "mask":
+                    residue mask (0 where coordinates are missing, 1 otherwise; with interpolation 0s are replaced
+                    with 1s), (total_L),
+                "mask_original":
+                    residue mask (0 where coordinates are missing, 1 otherwise; not changed with interpolation),
+                    (total_L),
+                "residue_idx":
+                    residue indices (from 0 to length of sequence, +100 where chains change), (total_L),
+                "chain_encoding_all":
+                    chain indices, (total_L),
+                "chain_id":
+                    a sampled chain index,
+                "chain_dict":
+                    a dictionary of chain ids (keys are chain ids, e.g. 'A', values are the indices
+                    used in 'chain_id' and 'chain_encoding_all' objects)
+        Returns:
+            a dictionary containing the features of AlphaFold3 containing the following elements:
+                "residue_index":
+                    [n_tokens] Residue number in the token’s original input chain.
+                "token_index":
+                    [n_tokens] Token number. Increases monotonically; does not restart at 1 for new chains.
+                "asym_id":
+                    [n_tokens] Unique integer for each distinct chain.
+                "entity_id":
+                    [n_tokens] Unique integer for each distinct entity.
+                "sym_id":
+                    [N_tokens] Unique integer within chains of this sequence. E.g. if chains
+                    A, B and C share a sequence but D does not, their sym_ids would be [0, 1, 2, 0]
+                "ref_pos":
+                    [N_atoms, 3] atom positions in the reference conformers, with
+                    a random rotation and translation applied. Atom positions in Angstroms.
+                "ref_mask":
+                    [N_atoms] Mask indicating which atom slots are used in the reference
+                    conformer.
+                "ref_element":
+                    [N_atoms, 128] One-hot encoding of the element atomic number for each atom
+                    in the reference conformer, up to atomic number 128.
+                "ref_charge":
+                    [N_atoms] Charge for each atom in the reference conformer.
+                "ref_atom_name_chars":
+                    [N_atom, 4, 64] One-hot encoding of the unique atom names in the reference
+                    conformer. Each character is encoded as ord(c - 32), and names are padded to
+                    length 4.
+                "ref_space_uid":
+                    [N_atoms] Numerical encoding of the chain id and residue index associated
+                    with this reference conformer. Each (chain id, residue index) tuple is assigned
+                    an integer on first appearance.
+                "atom_to_token":
+                    [N_atoms] Token index for each atom in the flat atom representation.
+                "atom_exists":
+                    [N_atoms] binary mask for atoms, whether atom exists, used for loss masking
+                "token_mask":
+                    [n_tokens] Mask indicating which tokens are non-padding tokens
+                "atom_mask":
+                    [N_atoms] Mask indicating which atoms are non-padding atoms
+        """
+        total_L = protein_dict["residue_idx"].shape[0]  # crop_size
+        masks = {
+            # Masks
+            "token_mask": protein_dict["token_mask"],  # (n_tokens,)
+            "atom_mask": protein_dict["token_mask"].unsqueeze(-1).expand(total_L, 4).reshape(total_L * 4)
+        }
+        af3_features = {
+            "residue_index": protein_dict["residue_idx"],
+            "token_index": torch.arange(total_L, dtype=torch.float32),
+            "asym_id": torch.zeros((total_L,), dtype=torch.float32),
+            "entity_id": torch.zeros((total_L,), dtype=torch.float32),
+            "sym_id": torch.zeros((total_L,), dtype=torch.float32),
+            "ref_pos": protein_dict["X"].reshape(total_L * 4, 3),
+            "ref_mask": torch.ones((total_L * 4,), dtype=torch.float32),
+            "ref_element": F.one_hot(torch.tensor([7, 6, 6, 8]).unsqueeze(0).expand(total_L, 4).reshape(total_L * 4),
+                                     num_classes=128),  # N, C, C, O  atoms repeating in 4s for each residue
+            "ref_charge": torch.zeros((total_L * 4,), dtype=torch.float32),
+            "ref_atom_name_chars": AF3Featurizer.compute_atom_name_chars(
+                ["N", "CA", "C", "O"]).unsqueeze(0).expand(total_L, 4, 4, 64).reshape(total_L * 4, 4, 64),
+            "ref_space_uid": protein_dict["residue_idx"].unsqueeze(-1).expand(total_L, 4).reshape(total_L * 4),
+            "atom_to_token": torch.arange(total_L).unsqueeze(-1).expand(total_L, 4).reshape(total_L * 4),
+            "atom_exists": protein_dict["mask"].unsqueeze(-1).expand(total_L, 4).reshape(total_L * 4) * masks["atom_mask"],
+        }
+        return af3_features | masks
+
+    @staticmethod
+    def compute_atom_name_chars(atom_names: List[str]) -> torch.Tensor:
+        """Compute the one-hot encoding of the unique atom names in the reference conformer.
+        Each character is encoded as ord(c) - 32 and names are padded to length 4."""
+        atom_name_chars = torch.zeros((len(atom_names), 4, 64), dtype=torch.float32)
+        for i, atom_name in enumerate(atom_names):
+            for j, char in enumerate(atom_name):
+                atom_name_chars[i, j, ord(char) - 32] = 1
+        return atom_name_chars
 
 
 class ProteinDataModule(LightningDataModule):
@@ -166,7 +295,7 @@ class ProteinDataModule(LightningDataModule):
 
         # data transformations
         self.transforms = transforms.Compose(
-            [Cropper(crop_size=crop_size), Reorder()]  # crop and reorder
+            [Cropper(crop_size=crop_size), Reorder(), AF3Featurizer()]  # crop and reorder
         )
 
         self.data_train: Optional[Dataset] = None
@@ -189,7 +318,7 @@ class ProteinDataModule(LightningDataModule):
             # This is a dataset with min_res=3.5A, min_len=30, max_len=10_000, min_seq_id=0.3, train/val/test=90/5/5
             os.system("proteinflow download --tag 20230102_stable")
 
-    def setup(self, stage: Optional[str] = None) -> None:
+    def setup(self, stage: str = "test") -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
 
         This method is called by Lightning before `trainer.fit()`, `trainer.validate()`, `trainer.test()`, and
@@ -261,32 +390,48 @@ class ProteinDataModule(LightningDataModule):
         """Create and return the train dataloader.
         :return: The train dataloader.
         """
-        return proteinflow.ProteinLoader(self.data_train,
-                                         batch_size=self.batch_size_per_device,
-                                         num_workers=self.hparams.num_workers,
-                                         pin_memory=self.hparams.pin_memory)
+        """proteinflow.ProteinLoader(self.data_train,
+                                             batch_size=self.batch_size_per_device,
+                                             num_workers=self.hparams.num_workers,
+                                             pin_memory=self.hparams.pin_memory)"""
+        return DataLoader(self.data_train,
+                          batch_size=self.batch_size_per_device,
+                          num_workers=self.hparams.num_workers,
+                          pin_memory=self.hparams.pin_memory)
 
     def val_dataloader(self) -> DataLoader[Any]:
         """Create and return the validation dataloader.
 
         :return: The validation dataloader.
         """
-        return proteinflow.ProteinLoader(self.data_val,
+        """
+        proteinflow.ProteinLoader(self.data_val,
                                          shuffle_batches=False,
                                          batch_size=self.batch_size_per_device,
                                          num_workers=self.hparams.num_workers,
                                          pin_memory=self.hparams.pin_memory)
+        """
+        return DataLoader(self.data_val,
+                          shuffle=False,
+                          batch_size=self.batch_size_per_device,
+                          num_workers=self.hparams.num_workers,
+                          pin_memory=self.hparams.pin_memory)
 
     def test_dataloader(self) -> DataLoader[Any]:
         """Create and return the test dataloader.
 
         :return: The test dataloader.
         """
-        return proteinflow.ProteinLoader(self.data_test,
+        """proteinflow.ProteinLoader(self.data_test,
                                          shuffle_batches=False,
                                          batch_size=self.batch_size_per_device,
                                          num_workers=self.hparams.num_workers,
-                                         pin_memory=self.hparams.pin_memory)
+                                         pin_memory=self.hparams.pin_memory)"""
+        return DataLoader(self.data_test,
+                          shuffle=False,
+                          batch_size=self.batch_size_per_device,
+                          num_workers=self.hparams.num_workers,
+                          pin_memory=self.hparams.pin_memory)
 
     def teardown(self, stage: Optional[str] = None) -> None:
         """Lightning hook for cleaning up after `trainer.fit()`, `trainer.validate()`,
