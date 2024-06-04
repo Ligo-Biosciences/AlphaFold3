@@ -3,6 +3,7 @@
 import torch
 from src.utils.geometry.vector import Vec3Array, square_euclidean_distance, euclidean_distance
 from torch.nn import functional as F
+from typing import Optional
 
 
 def smooth_lddt_loss(
@@ -59,3 +60,23 @@ def mean_squared_error(
     # Weighted mean
     mse = torch.mean(atom_mse * weights, dim=1)
     return torch.div(mse, 3.0)
+
+
+def diffusion_loss(
+        pred_atoms: Vec3Array,  # (bs, n_atoms)
+        gt_atoms: Vec3Array,  # (bs, n_atoms)
+        timesteps: torch.Tensor,  # (bs, 1)
+        atom_is_rna: torch.Tensor,  # (bs, n_atoms)
+        atom_is_dna: torch.Tensor,  # (bs, n_atoms)
+        weights: torch.Tensor,  # (bs, n_atoms)
+        mask: Optional[torch.Tensor] = None,  # (bs, n_atoms)
+        sd_data: float = 16.0,  # Standard deviation of the data
+) -> torch.Tensor:  # (bs,)
+    """Diffusion loss that scales the MSE and LDDT losses by the noise level (timestep)."""
+    mse = mean_squared_error(pred_atoms, gt_atoms, weights, mask)
+    lddt_loss = smooth_lddt_loss(pred_atoms, gt_atoms, atom_is_rna, atom_is_dna, mask)
+
+    # Scale by (t**2 + σ**2) / (t + σ)**2
+    scaling_factor = torch.add(timesteps ** 2, sd_data ** 2) / (torch.add(timesteps, sd_data) ** 2)
+    loss_diffusion = scaling_factor * mse + lddt_loss
+    return loss_diffusion

@@ -1,6 +1,7 @@
 import unittest
 import torch
-from src.diffusion.loss import mean_squared_error, smooth_lddt_loss
+from src.diffusion.loss import mean_squared_error, smooth_lddt_loss, diffusion_loss
+from src.diffusion.sample import sample_noise_level, noise_positions
 from src.utils.geometry.vector import Vec3Array
 
 
@@ -86,6 +87,31 @@ class TestSmoothLDDTLoss(unittest.TestCase):
         loss_when_noisy = smooth_lddt_loss(noisy_pred_atoms, gt_atoms, atom_is_rna, atom_is_dna, mask)
         loss_when_noisier = smooth_lddt_loss(noisier_pred_atoms, gt_atoms, atom_is_rna, atom_is_dna, mask)
 
+        self.assertTrue(torch.all((loss_when_identical < loss_when_noisy) & (loss_when_noisy < loss_when_noisier)))
+
+
+class TestDiffusionLoss(unittest.TestCase):
+    def test_basic_functionality(self):
+        # Create a simple scenario where pred_atoms and gt_atoms are the same, no nucleotide-specific settings.
+        bs, n_atoms = 1, 4
+        pred_atoms = Vec3Array.from_array(torch.tensor([[[0., 0., 0.], [1., 0., 0.], [2., 0., 0.], [3., 0., 0.]]]))
+        gt_atoms = Vec3Array.from_array(torch.tensor([[[0., 0., 0.], [1., 0., 0.], [2., 0., 0.], [3., 0., 0.]]]))
+        atom_is_rna = torch.zeros((bs, n_atoms))
+        atom_is_dna = torch.zeros((bs, n_atoms))
+        timesteps = sample_noise_level(torch.randn(bs, 1))
+        weights = torch.ones((bs, n_atoms))
+        mask = None
+
+        loss_when_identical = diffusion_loss(pred_atoms, gt_atoms, timesteps, atom_is_rna, atom_is_dna, weights, mask)
+
+        # Add noise and compare
+        noisy_pred_atoms = noise_positions(pred_atoms, timesteps)
+        noisier_pred_atoms = noise_positions(noisy_pred_atoms, timesteps)
+
+        loss_when_noisy = diffusion_loss(noisy_pred_atoms, gt_atoms, timesteps, atom_is_rna, atom_is_dna, weights, mask)
+        loss_when_noisier = diffusion_loss(noisier_pred_atoms, gt_atoms, timesteps, atom_is_rna, atom_is_dna, weights, mask)
+
+        self.assertTrue(isinstance(loss_when_identical, torch.Tensor))
         self.assertTrue(torch.all((loss_when_identical < loss_when_noisy) & (loss_when_noisy < loss_when_noisier)))
 
 
