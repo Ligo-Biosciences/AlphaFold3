@@ -14,6 +14,7 @@ from src.models.components.transition import ConditionedTransitionBlock
 from src.utils.tensor_utils import partition_tensor
 from src.utils.geometry.vector import Vec3Array
 from typing import Dict, Tuple, NamedTuple
+from torch.utils.checkpoint import checkpoint
 
 
 def _split_heads(x, n_heads):
@@ -290,8 +291,9 @@ class AtomTransformer(nn.Module):
     def forward(self, atom_single_repr, atom_single_proj, atom_pair_repr, mask=None):
         """Forward pass of the AtomTransformer module. Algorithm 23 in AlphaFold3 supplement."""
         for i in range(self.num_blocks):
-            b = self.attention_blocks[i](atom_single_repr, atom_single_proj, atom_pair_repr, mask)
+            b = self.attention_blocks[i](atom_single_repr, atom_single_proj, atom_pair_repr, mask)  # checkpoint()
             atom_single_repr = b + self.conditioned_transition_blocks[i](atom_single_repr, atom_single_proj)
+            # checkpoint(
         return atom_single_repr
 
 
@@ -372,7 +374,7 @@ def aggregate_atom_to_token(
     bs, n_atoms, c_atom = atom_representation.shape
 
     # Initialize the token representation tensor with zeros
-    token_representation = torch.zeros(bs, n_tokens, c_atom,
+    token_representation = torch.zeros((bs, n_tokens, c_atom),
                                        device=atom_representation.device,
                                        dtype=atom_representation.dtype)
 
@@ -680,7 +682,7 @@ class AtomAttentionDecoder(nn.Module):
         )
 
         self.linear_atom = Linear(c_token, c_atom, init='default', bias=False)
-        self.linear_update = Linear(c_atom, 3, init='default', bias=False)
+        self.linear_update = Linear(c_atom, 3, init='final', bias=False)
         self.layer_norm = nn.LayerNorm(c_atom)
 
     def forward(

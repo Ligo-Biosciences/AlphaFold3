@@ -16,10 +16,10 @@ precision: '32-true' # 'transformer-engine', 'transformer-engine-float16', '16-t
 check_val_every_n_epoch: 1
 
 # frequency of logging
-log_every_n_steps: 100
+log_every_n_steps: 10
 
 # gradient clipping
-gradient_clip_val: null
+gradient_clip_val: 10.0  # gradient clipping if global norm is greater than 10
 
 # How much of training/test/validation dataset to check.
 # Useful when debugging or testing something that happens at the end of an epoch

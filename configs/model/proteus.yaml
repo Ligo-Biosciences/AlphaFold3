@@ -1,0 +1,49 @@
+_target_: src.models.proteus_module.ProteusLitModule
+
+optimizer:
+  _target_: torch.optim.Adam
+  _partial_: true
+  lr: 0.00018  # 1.8 * 1e-3  # 0.00018
+  # betas: (0.9, 0.95)  # TODO: problem here!
+  eps: 1e-08
+  weight_decay: 0.0
+  fused: false
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.StepLR
+  _partial_: true
+  step_size: 5 * 1e4
+  gamma: 0.95
+
+diffusion_module:
+  _target_: src.models.diffusion_module.DiffusionModule
+  c_atom: 128
+  c_atompair: 16
+  c_token: 128  # original: 384
+  c_tokenpair: 128
+  n_tokens: 384
+  atom_encoder_blocks: 3
+  atom_encoder_heads: 16
+  dropout: 0.0
+  atom_attention_n_queries: 32
+  atom_attention_n_keys: 128
+  atom_decoder_blocks: 3
+  atom_decoder_heads: 16
+  token_transformer_blocks: 12  # original: 24
+  token_transformer_heads: 16
+
+feature_embedder:
+  _target_: src.models.input_feature_embedder.ProteusFeatureEmbedder
+  n_tokens: 384
+  c_token: 128  # original: 384
+  c_atom: 128
+  c_atompair: 16
+  c_trunk_pair: 128
+  num_blocks: 3
+  num_heads: 4
+  dropout: 0.0
+  n_queries: 32
+  n_keys: 128
+
+# compile model for faster training with pytorch 2.0
+compile: false

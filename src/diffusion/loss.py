@@ -1,4 +1,4 @@
-"""Diffusion losses"""
+"""Diffusion losses."""
 
 import torch
 from src.utils.geometry.vector import Vec3Array, square_euclidean_distance, euclidean_distance
@@ -26,7 +26,7 @@ def smooth_lddt_loss(
                             F.sigmoid(torch.sub(2.0, delta_lm)) + F.sigmoid(torch.sub(4.0, delta_lm))), 4.0)
 
     # Restrict to bespoke inclusion radius
-    atom_is_nucleotide = atom_is_dna + atom_is_rna
+    atom_is_nucleotide = (atom_is_dna + atom_is_rna).unsqueeze(-1).expand_as(delta_x_gt_lm)
     atom_not_nucleotide = torch.add(torch.neg(atom_is_nucleotide), 1.0)  # (1 - atom_is_nucleotide)
     c_lm = (delta_x_gt_lm < 30.0).float() * atom_is_nucleotide + (delta_x_gt_lm < 15.0).float() * atom_not_nucleotide
 

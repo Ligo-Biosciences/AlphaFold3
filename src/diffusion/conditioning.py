@@ -7,25 +7,28 @@ from src.models.components.primitives import Linear
 from src.models.components.transition import Transition
 from typing import Dict, Tuple
 from torch.nn import functional as F
+from src.utils.tensor_utils import one_hot
 
 
 class FourierEmbedding(nn.Module):
     """Fourier embedding for diffusion conditioning."""
+
     def __init__(self, embed_dim):
         super(FourierEmbedding, self).__init__()
         self.embed_dim = embed_dim
         # Randomly generate weight/bias once before training
         self.weight = nn.Parameter(torch.randn((1, embed_dim)))
-        self.bias = nn.Parameter(torch.randn((1, embed_dim,)))
+        self.bias = nn.Parameter(torch.randn((1, embed_dim)))
 
     def forward(self, t):
         """Compute embeddings"""
-        two_pi = torch.tensor(2 * math.pi, device=t.device)
+        two_pi = torch.tensor(2 * 3.1415, device=t.device, dtype=t.dtype)
         return torch.cos(two_pi * (t * self.weight + self.bias))
 
 
 class RelativePositionEncoding(nn.Module):
     """Relative position encoding for diffusion conditioning."""
+
     def __init__(
             self,
             c_pair: int,
@@ -95,7 +98,7 @@ class RelativePositionEncoding(nn.Module):
 
         # Mask the output
         if mask is not None:
-            mask = (mask[:, :, None] & mask[:, None, :]).unsqueeze(-1).float()  # (bs, n_tokens, n_tokens, 1)
+            mask = (mask[:, :, None] * mask[:, None, :]).unsqueeze(-1)  # (bs, n_tokens, n_tokens, 1)
             p_ij = mask * p_ij
         return p_ij
 
@@ -107,14 +110,18 @@ class RelativePositionEncoding(nn.Module):
         relative_dists = feature_tensor[:, None, :] - feature_tensor[:, :, None]
         d_ij = torch.where(
             condition_tensor,
-            torch.clamp(torch.add(relative_dists, clamp_max), min=0, max=2*clamp_max),
-            torch.full_like(relative_dists, 2*clamp_max + 1)
+            torch.clamp(torch.add(relative_dists, clamp_max), min=0, max=2 * clamp_max),
+            torch.full_like(relative_dists, 2 * clamp_max + 1)
         )
-        return F.one_hot(d_ij, num_classes=2 * clamp_max + 2)  # (bs, n_tokens, n_tokens, 2 * clamp_max + 2)
+        a_ij = one_hot(d_ij, v_bins=torch.arange(0, (2 * clamp_max + 2),
+                                                 device=feature_tensor.device,
+                                                 dtype=feature_tensor.dtype))
+        return a_ij  # (bs, n_tokens, n_tokens, 2 * clamp_max + 2)
 
 
 class DiffusionConditioning(nn.Module):
     """Diffusion conditioning module."""
+
     def __init__(
             self,
             c_token: int = 384,
@@ -133,13 +140,13 @@ class DiffusionConditioning(nn.Module):
 
         # Pair conditioning
         self.relative_position_encoding = RelativePositionEncoding(c_pair)
-        self.pair_layer_norm = nn.LayerNorm(2*c_pair)  # z_trunk + relative_position_encoding
-        self.linear_pair = Linear(2*c_pair, c_pair, bias=False)
+        self.pair_layer_norm = nn.LayerNorm(2 * c_pair)  # z_trunk + relative_position_encoding
+        self.linear_pair = Linear(2 * c_pair, c_pair, bias=False)
         self.pair_transitions = nn.ModuleList([Transition(input_dim=c_pair, n=2) for _ in range(2)])
 
         # Single conditioning
-        self.single_layer_norm = nn.LayerNorm(2*c_token)  # s_trunk + s_inputs
-        self.linear_single = Linear(2*c_token, c_token, bias=False)
+        self.single_layer_norm = nn.LayerNorm(2 * c_token)  # s_trunk + s_inputs
+        self.linear_single = Linear(2 * c_token, c_token, bias=False)
         self.fourier_embedding = FourierEmbedding(embed_dim=256)  # 256 is the default value in the paper
         self.fourier_layer_norm = nn.LayerNorm(256)
         self.linear_fourier = Linear(256, c_token, bias=False)
@@ -201,7 +208,7 @@ class DiffusionConditioning(nn.Module):
         # Mask outputs
         if mask is not None:
             token_repr = mask.unsqueeze(-1) * token_repr
-            pair_mask = (mask[:, :, None] & mask[:, None, :]).unsqueeze(-1).float()  # (bs, n_tokens, n_tokens, 1)
+            pair_mask = (mask[:, :, None] * mask[:, None, :]).unsqueeze(-1)  # (bs, n_tokens, n_tokens, 1)
             pair_repr = pair_mask * pair_repr
 
         return token_repr, pair_repr

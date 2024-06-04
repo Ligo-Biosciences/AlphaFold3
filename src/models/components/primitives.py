@@ -395,7 +395,7 @@ def _attention_chunked_trainable(
 
 def compute_pair_attention_mask(mask, large_number=-1e6):
     # Compute boolean pair mask
-    pair_mask = (mask[:, :, None] & mask[:, None, :]).unsqueeze(-1).float()  # (bs, n, n, 1)
+    pair_mask = (mask[:, :, None] * mask[:, None, :]).unsqueeze(-1)  # (bs, n, n, 1)
 
     # Invert such that 0.0 indicates attention, 1.0 indicates no attention
     pair_mask_inv = torch.add(1, -pair_mask)

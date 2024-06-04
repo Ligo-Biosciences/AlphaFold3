@@ -6,7 +6,7 @@ defaults:
   - _self_
   - callbacks: default
   - data: protein
-  - model: kestrel
+  - model: proteus
 
   - logger: wandb  # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
   - trainer: gpu

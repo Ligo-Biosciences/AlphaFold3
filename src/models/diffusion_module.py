@@ -22,7 +22,7 @@ class DiffusionModule(torch.nn.Module):
     def __init__(
             self,
             c_atom: int = 128,
-            c_atompair=16,
+            c_atompair: int = 16,
             c_token: int = 768,
             c_tokenpair: int = 128,
             n_tokens: int = 384,
@@ -133,8 +133,6 @@ class DiffusionModule(torch.nn.Module):
                         an integer on first appearance.
                     "atom_to_token":
                         [*, N_atoms] Token index for each atom in the flat atom representation.
-                    "atom_exists":
-                        [*, N_atoms] binary mask for atoms, whether atom exists, used for loss masking
                     "residue_index":
                         [*, N_tokens] Residue number in the token’s original input chain.
                     "token_index":
