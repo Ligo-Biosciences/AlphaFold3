@@ -9,6 +9,9 @@ from torch.utils.data import ConcatDataset, DataLoader, Dataset
 import proteinflow
 from torchvision import transforms
 from src.data.components.protein_dataset import ProteinDataset
+from src.common import residue_constants
+from src.utils.geometry.vector import Vec3Array
+from src.utils.geometry.rotation_matrix import Rot3Array
 
 
 class TransformDataset(torch.utils.data.Dataset):
@@ -33,6 +36,7 @@ class TransformDataset(torch.utils.data.Dataset):
 class Reorder(nn.Module):
     """A transformation that reorders the 3D coordinates of backbone atoms
     from N, C, Ca, O -> N, Ca, C, O."""
+
     def forward(self, protein_dict):
         # Switch to N, Ca, C, ordering.
         reordered_X = protein_dict['X'].index_select(1, torch.tensor([0, 2, 1, 3]))
@@ -94,6 +98,7 @@ class Cropper(nn.Module):
 
 class AF3Featurizer(nn.Module):
     """A transformation that featurizes the protein elements to AlphaFold3 features."""
+
     def __init__(self):
         super().__init__()
 
@@ -176,7 +181,7 @@ class AF3Featurizer(nn.Module):
             "asym_id": torch.zeros((total_L,), dtype=torch.float32),
             "entity_id": torch.zeros((total_L,), dtype=torch.float32),
             "sym_id": torch.zeros((total_L,), dtype=torch.float32),
-            "ref_pos": protein_dict["X"].reshape(total_L * 4, 3),
+            "ref_pos": AF3Featurizer.compute_ref_residue_conformers('ALA', n_res=total_L),
             "ref_mask": torch.ones((total_L * 4,), dtype=torch.float32),
             "ref_element": F.one_hot(torch.tensor([7, 6, 6, 8]).unsqueeze(0).expand(total_L, 4).reshape(total_L * 4),
                                      num_classes=128),  # N, C, C, O  atoms repeating in 4s for each residue
@@ -185,7 +190,11 @@ class AF3Featurizer(nn.Module):
                 ["N", "CA", "C", "O"]).unsqueeze(0).expand(total_L, 4, 4, 64).reshape(total_L * 4, 4, 64),
             "ref_space_uid": protein_dict["residue_idx"].unsqueeze(-1).expand(total_L, 4).reshape(total_L * 4),
             "atom_to_token": torch.arange(total_L).unsqueeze(-1).expand(total_L, 4).reshape(total_L * 4),
-            "atom_exists": protein_dict["mask"].unsqueeze(-1).expand(total_L, 4).reshape(total_L * 4) * masks["atom_mask"],
+            "atom_exists": protein_dict["mask"].unsqueeze(-1).expand(total_L, 4).reshape(total_L * 4) * masks[
+                "atom_mask"],
+
+            # Actual positions
+            "atom_positions": protein_dict["X"].reshape(total_L * 4, 3),
         }
         return af3_features | masks
 
@@ -198,6 +207,27 @@ class AF3Featurizer(nn.Module):
             for j, char in enumerate(atom_name):
                 atom_name_chars[i, j, ord(char) - 32] = 1
         return atom_name_chars
+
+    @staticmethod
+    def compute_ref_residue_conformers(residue_name: str, n_res: int) -> torch.Tensor:
+        """Gathers the literature position of a given residue and returns residue conformers
+        a random rotation and translation applied to each conformer."""
+        positions = residue_constants.rigid_group_atom_positions[residue_name]
+        N, CA, C, O = positions[0][2], positions[1][2], positions[2][2], positions[3][2]  # extract coordinates
+        local_coordinates = torch.stack([torch.tensor(N),
+                                         torch.tensor(CA),
+                                         torch.tensor(C),
+                                         torch.tensor(O)], dim=0)  # local_coordinates.shape == (4, 3)
+
+        res_conformers = Vec3Array.from_array(local_coordinates.unsqueeze(0).expand(n_res, 4, 3))  # (n_res, 4)
+
+        # Apply random rotation and translation
+        rots = Rot3Array.uniform_random((n_res, 1))
+        trans = Vec3Array.randn((n_res, 1))
+        res_conformers = rots.apply_to_point(res_conformers) + trans
+
+        # Reshape to (n_atoms, 3) and return
+        return res_conformers.to_tensor().reshape(n_res * 4, 3)
 
 
 class ProteinDataModule(LightningDataModule):
