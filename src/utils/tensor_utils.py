@@ -77,8 +77,8 @@ def one_hot(x, v_bins):
     return nn.functional.one_hot(am, num_classes=len(v_bins)).float()
 
 
-def partition_tensor(input_tensor, partition_increment=32, partition_length=128):
-    """Partition a tensor along the second dimension. Used for sequence-local atom attention.
+def _partition_tensor(input_tensor, partition_increment=32, partition_length=128):
+    """DEPRECATED. Partition a tensor along the second dimension. Used for sequence-local atom attention.
     Args:
         input_tensor:
             A tensor of shape [batch_size, N_atoms, channels].
@@ -88,6 +88,8 @@ def partition_tensor(input_tensor, partition_increment=32, partition_length=128)
             The length of the partitions.
     Returns:
         A tensor of shape [batch_size, N_atoms // partition_increment, partition_length, channels].
+    TODO: make this more memory efficient!! Likely creating terrible memory problems due to
+     allocation of intermediate tensors.
     """
     batch_size, N_atoms, channels = input_tensor.shape
     half_length = partition_length // 2

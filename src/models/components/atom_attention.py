@@ -11,7 +11,6 @@ import numpy as np
 from torch.nn import functional as F
 from src.models.components.primitives import AdaLN, Linear, compute_pair_attention_mask
 from src.models.components.transition import ConditionedTransitionBlock
-from src.utils.tensor_utils import partition_tensor
 from src.utils.geometry.vector import Vec3Array
 from typing import Dict, Tuple, NamedTuple
 from torch.utils.checkpoint import checkpoint
@@ -47,6 +46,24 @@ def _concatenate_heads(x):
     new_shape = (bs, seq_length, tokens, n_heads * head_dim)
     x = x.reshape(new_shape)
     return x
+
+
+def partition_tensor(
+        x: torch.Tensor,  # (batch_size, n_atoms, c)
+        n_queries: int = 32,
+        n_keys: int = 128
+) -> torch.Tensor:
+    """Partitions the input flat atom tensor into windows of n_keys with a slide stride of n_queries.
+    The input tensor is padded to make the centers of the partitions align with the subset centers in AlphaFold3.
+    Subset centers = (15.5, 47.5, 79.5, ...)
+    """
+    # Pad
+    pad = n_keys // 2 - n_queries // 2
+    x = pad_column(x, (pad, pad))
+
+    # Sliding window along n_atoms dimension
+    windows = x.unfold(dimension=1, size=n_keys, step=n_queries)
+    return windows.transpose(-1, -2)  # unfold reverses channel dimension, undo this
 
 
 def pad_column(x, pad, mode='constant', value=None) -> torch.Tensor:
@@ -194,8 +211,6 @@ class AtomAttentionPairBias(nn.Module):
         v = self.v_linear(a)
 
         # Sequence-local atom attention
-        # TODO: there is a big bug here, the q vector should be of the same size as k and v
-        #  (bs, n_atoms // 32, 128, c_atom),
         q = partition_tensor(q, self.n_queries, self.n_queries)  # (bs, n_atoms // 32, 32, c_atom)
         k = partition_tensor(k, self.n_queries, self.n_keys)  # (bs, n_atoms // 32, 128, c_atom)
         v = partition_tensor(v, self.n_queries, self.n_keys)  # (bs, n_atoms // 32, 128, c_atom)
