@@ -49,60 +49,62 @@ def _concatenate_heads(x):
     return x
 
 
-def extract_local_biases(bias_tensor, partition_increment=32, partition_length=128):
-    """Extracts biases that are local in the sequence space
-    Args:
-        bias_tensor:
-            A tensor of shape [batch_size, N_atoms, N_atoms, channels].
-        partition_increment:
-            The increment between the centers of the partitions.
-        partition_length:
-            The length of the partitions.
-    Returns:
-        A tensor of shape [batch_size, N_atoms // partition_increment, partition_length, channels].
-    TODO: make this more memory efficient! likely can use advanced indexing to avoid the loop
-     and the intermediate tensors
+def pad_column(x, pad, mode='constant', value=None) -> torch.Tensor:
+    """Applies padding to the second to last dimension of a tensor."""
+    return F.pad(x.transpose(-1, -2), pad, mode=mode, value=value).transpose(-1, -2)
+
+
+def extract_local_biases(bias_tensor: torch.Tensor, n_queries: int = 32, n_keys: int = 128) -> torch.Tensor:
+    """Extracts biases that are local in the sequence space. Also pads the local biases with large negative values
+    to mask the gaps during attention computation.
+        Args:
+            bias_tensor:
+                A tensor of shape [batch_size, N_atoms, N_atoms, channels].
+            n_queries:
+                The increment between the centers of the partitions.
+            n_keys:
+                The length of the partitions.
+        Returns:
+            A tensor of shape [batch_size, N_atoms // partition_increment, partition_length, channels].
     """
-    batch_size, N_atoms, N_atoms, channels = bias_tensor.shape
-    half_length = partition_length // 2
-    assert N_atoms > partition_length, "Number of atoms must be greater than partition length."
-    assert N_atoms % partition_increment == 0, "Number of atoms must be divisible by partition increment."
+    batch_size, n_atoms, _, channels = bias_tensor.shape
+    # Pad bias tensor column-wise by n_keys // 2 - n_queries // 2 on each side
+    pad = n_keys // 2 - n_queries // 2
 
-    # Calculate centers starting from 15.5 with an increment of 32
-    centers = np.arange(partition_increment / 2, N_atoms, step=partition_increment, dtype='float32')
+    # Compute the number of blocks along the first dimension
+    num_blocks = n_atoms // n_queries
 
-    # Initialize a list to hold the partitions
-    partitions = []
+    # Initialize a tensor to store the result, resulting tensor shape will be (num_blocks, n_queries, n_keys)
+    local_biases = torch.empty((batch_size, num_blocks, n_queries, n_keys, channels),
+                               dtype=bias_tensor.dtype,
+                               device=bias_tensor.device)
 
-    for i, center in enumerate(centers):
-        # Calculate start and end indices
-        start_column_index = int(center - half_length)
-        end_column_index = int(center + half_length)
-        start_row_index = i * partition_increment
-        end_row_index = (i + 1) * partition_increment
+    # Extract blocks and populate the result tensor
+    for i in range(num_blocks):
+        start_row = i * n_queries
+        end_row = start_row + n_queries
+        # We can stride along columns by n_keys to achieve overlaps
+        start_col = i * n_queries - pad
+        end_col = start_col + n_keys
+        b_dim = torch.arange(batch_size)  # advanced indexing to handle the batch dimension
 
-        # Apply padding if necessary and extract the slice
-        if start_column_index < 0:
-            # Pad at the beginning
-            pre_padding = torch.zeros((batch_size, partition_increment, -start_column_index, channels),
-                                      device=bias_tensor.device)
-            valid_part = bias_tensor[:, start_row_index:end_row_index, :end_column_index, :]
-            partition = torch.cat([pre_padding, valid_part], dim=2)
-        elif end_column_index > N_atoms:
-            # Pad at the end
-            post_padding = torch.zeros((batch_size, partition_increment, end_column_index - N_atoms, channels),
-                                       device=bias_tensor.device)
-            valid_part = bias_tensor[:, start_row_index:end_row_index, start_column_index:N_atoms, :]
-            partition = torch.cat([valid_part, post_padding], dim=2)
+        # Padding is performed here and not to the main bias_tensor to avoid creating large intermediate tensors
+        if start_col < 0:
+            # pre-padding
+            custom_pad_size = -start_col  # absolute value of start_col
+            pre_col_missing = bias_tensor[b_dim, start_row:end_row, 0:end_col, :]
+            pre_padded_local = pad_column(pre_col_missing, (custom_pad_size, 0), mode='constant', value=-1e4)
+            local_biases[b_dim, i] = pre_padded_local
+        elif end_col > n_atoms:
+            # post-padding
+            custom_pad_size = end_col - n_atoms
+            post_col_missing = bias_tensor[b_dim, start_row:end_row, start_col:, :]
+            post_padded_local = pad_column(post_col_missing, (0, custom_pad_size), mode='constant', value=-1e4)
+            local_biases[b_dim, i] = post_padded_local
         else:
-            # No padding needed
-            partition = bias_tensor[:, start_row_index:end_row_index, start_column_index:end_column_index, :]
-        partitions.append(partition)
+            local_biases[b_dim, i] = bias_tensor[b_dim, start_row:end_row, start_col:end_col, :]
 
-    # Stack all the partitions along a new dimension
-    output_tensor = torch.stack(partitions, dim=1)
-
-    return output_tensor
+    return local_biases
 
 
 class AtomAttentionPairBias(nn.Module):
@@ -192,6 +194,8 @@ class AtomAttentionPairBias(nn.Module):
         v = self.v_linear(a)
 
         # Sequence-local atom attention
+        # TODO: there is a big bug here, the q vector should be of the same size as k and v
+        #  (bs, n_atoms // 32, 128, c_atom),
         q = partition_tensor(q, self.n_queries, self.n_queries)  # (bs, n_atoms // 32, 32, c_atom)
         k = partition_tensor(k, self.n_queries, self.n_keys)  # (bs, n_atoms // 32, 128, c_atom)
         v = partition_tensor(v, self.n_queries, self.n_keys)  # (bs, n_atoms // 32, 128, c_atom)
@@ -293,7 +297,6 @@ class AtomTransformer(nn.Module):
         for i in range(self.num_blocks):
             b = self.attention_blocks[i](atom_single_repr, atom_single_proj, atom_pair_repr, mask)  # checkpoint()
             atom_single_repr = b + self.conditioned_transition_blocks[i](atom_single_repr, atom_single_proj)
-            # checkpoint(
         return atom_single_repr
 
 
@@ -322,6 +325,7 @@ def gather_token_repr(token_repr, tok_idx):
     return gathered_embeddings
 
 
+@torch.compile
 def map_token_pairs_to_atom_pairs(
         token_pairs: torch.Tensor,  # (bs, n_tokens, c_pair)
         tok_idx: torch.Tensor  # (bs, n_atoms)
@@ -351,6 +355,7 @@ def map_token_pairs_to_atom_pairs(
     return atom_pairs
 
 
+@torch.compile
 def aggregate_atom_to_token(
         atom_representation,  # (bs, n_atoms, c_atom)
         tok_idx: torch.Tensor,  # (bs, n_atoms)
@@ -719,4 +724,4 @@ class AtomAttentionDecoder(nn.Module):
 
         # Map to positions update
         r_atom_update = self.linear_update(self.layer_norm(atom_single_repr))
-        return Vec3Array.from_array(r_atom_update)
+        return Vec3Array.from_array(r_atom_update)  # TODO: move this to diffusion module and compile this module
