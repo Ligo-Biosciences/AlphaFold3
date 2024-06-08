@@ -474,7 +474,7 @@ class AttentionPairBias(nn.Module):
         # Pair bias
         pair_bias = self.linear_pair(self.layer_norm_pair(pair_repr))  # (bs, n_tokens, n_tokens, n_heads)
         if mask is not None:
-            pair_bias += compute_pair_attention_mask(mask)  # pair attention mask
+            pair_bias = pair_bias + compute_pair_attention_mask(mask)  # pair attention mask
         pair_bias = pair_bias.permute(0, 3, 1, 2).reshape(batch_size * self.num_heads, n_tokens, n_tokens)
 
         # Multi-head attention

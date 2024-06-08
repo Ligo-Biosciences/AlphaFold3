@@ -11,11 +11,11 @@ but with several modifications to make it more amenable to the task. The main ch
 import torch
 from torch import nn
 from typing import Dict, Tuple
-from src.utils.geometry.vector import Vec3Array
 from src.diffusion.conditioning import DiffusionConditioning
 from src.diffusion.attention import DiffusionTransformer
 from src.models.components.atom_attention import AtomAttentionEncoder, AtomAttentionDecoder
 from src.models.components.primitives import Linear
+from torch.utils.checkpoint import checkpoint
 
 
 class DiffusionModule(torch.nn.Module):
@@ -35,6 +35,7 @@ class DiffusionModule(torch.nn.Module):
             atom_decoder_heads: int = 16,
             token_transformer_blocks: int = 24,
             token_transformer_heads: int = 16,
+            compile_models: bool = True
     ):
         super(DiffusionModule, self).__init__()
         self.c_atom = c_atom
@@ -92,9 +93,16 @@ class DiffusionModule(torch.nn.Module):
             n_keys=atom_attention_n_keys,
         )
 
+        if compile_models:
+            # self.diffusion_conditioning = torch.compile(self.diffusion_conditioning)
+            # self.atom_attention_encoder = torch.compile(self.atom_attention_encoder)
+            # self.diffusion_transformer = torch.compile(self.diffusion_transformer)
+            # self.atom_attention_decoder = torch.compile(self.atom_attention_decoder)
+            pass
+
     def forward(
             self,
-            noisy_atoms: Vec3Array,  # (bs, n_atoms)
+            noisy_atoms: torch.Tensor,  # (bs, n_atoms, 3)
             timesteps: torch.Tensor,  # (bs, 1)
             features: Dict[str, torch.Tensor],  # input feature dict
             s_inputs: torch.Tensor,  # (bs, n_tokens, c_token)
@@ -103,11 +111,11 @@ class DiffusionModule(torch.nn.Module):
             sd_data: float = 16.0,
             token_mask: torch.Tensor = None,  # (bs, n_tokens)
             atom_mask: torch.Tensor = None  # (bs, n_atoms)
-    ) -> Vec3Array:
+    ) -> torch.Tensor:
         """Diffusion module that denoises atomic coordinates based on conditioning.
         Args:
             noisy_atoms:
-                vector of noisy atom positions (bs, n_atoms)
+                tensor of noisy atom positions (bs, n_atoms, 3)
             timesteps:
                 tensor of timesteps (bs, 1)
             features:
@@ -162,16 +170,18 @@ class DiffusionModule(torch.nn.Module):
 
         """
         # Conditioning
-        token_repr, pair_repr = self.diffusion_conditioning(timesteps=timesteps,
-                                                            features=features,
-                                                            s_inputs=s_inputs,
-                                                            s_trunk=s_trunk,
-                                                            z_trunk=z_trunk,
-                                                            mask=token_mask)
+        token_repr, pair_repr = self.diffusion_conditioning(
+            timesteps=timesteps,
+            features=features,
+            s_inputs=s_inputs,
+            s_trunk=s_trunk,
+            z_trunk=z_trunk,
+            mask=token_mask
+        )
 
         # Scale positions to dimensionless vectors with approximately unit variance
-        scale_factor = torch.reciprocal((torch.sqrt(torch.add(timesteps ** 2, sd_data ** 2))))
-        r_noisy = noisy_atoms / scale_factor
+        scale_factor = torch.reciprocal((torch.sqrt(torch.add(timesteps ** 2, sd_data ** 2))))  # (bs, 1)
+        r_noisy = noisy_atoms / scale_factor.unsqueeze(-1)  # (bs, n_atoms, 1)
 
         # Sequence local atom attention and aggregation to coarse-grained tokens
         atom_encoder_output = self.atom_attention_encoder(features, s_trunk, z_trunk, r_noisy)
@@ -180,10 +190,12 @@ class DiffusionModule(torch.nn.Module):
         token_single = atom_encoder_output.token_single + self.linear_token_residual(
             self.token_residual_layer_norm(token_repr)
         )
-        token_single = self.diffusion_transformer(single_repr=token_single,
-                                                  single_proj=token_repr,
-                                                  pair_repr=pair_repr,
-                                                  mask=token_mask)
+        token_single = self.diffusion_transformer(
+            single_repr=token_single,
+            single_proj=token_repr,
+            pair_repr=pair_repr,
+            mask=token_mask)
+
         token_single = self.token_post_layer_norm(token_single)
 
         # Broadcast token activations to atoms and run sequence-local atom attention
@@ -193,12 +205,12 @@ class DiffusionModule(torch.nn.Module):
             atom_single_skip_proj=atom_encoder_output.atom_single_skip_proj,  # (bs, n_atoms, c_atom)
             atom_pair_skip_repr=atom_encoder_output.atom_pair_skip_repr,  # (bs, n_atoms, n_atoms, c_atom)
             tok_idx=features["atom_to_token"],  # (bs, n_atoms)
-            mask=atom_mask  # (bs, n_atoms)
-        )
+            mask=atom_mask,  # (bs, n_atoms)
+        )  # (bs, n_atoms, 3)
 
         # Rescale updates to positions and combine with input positions
         common = torch.add(timesteps ** 2, sd_data ** 2)
-        noisy_pos_scale = torch.div(sd_data ** 2, common)  # (bs, 1)
-        atom_pos_update_scale = torch.div(torch.mul(sd_data, timesteps), torch.sqrt(common))
+        noisy_pos_scale = torch.div(sd_data ** 2, common).unsqueeze(-1)  # (bs, 1, 1)
+        atom_pos_update_scale = torch.div(torch.mul(sd_data, timesteps), torch.sqrt(common)).unsqueeze(-1)  # (bs, 1, 1)
         output_pos = noisy_atoms * noisy_pos_scale + atom_pos_updates * atom_pos_update_scale
         return output_pos

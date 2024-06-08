@@ -8,4 +8,4 @@ precision: 'bf16' # 'transformer-engine', 'transformer-engine-float16', '16-true
 # 'bf16-mixed', '32-true',
 
 # Gradient accumulation
-accumulate_grad_batches: 4
+accumulate_grad_batches: 8

@@ -99,7 +99,7 @@ class RelativePositionEncoding(nn.Module):
         # Mask the output
         if mask is not None:
             mask = (mask[:, :, None] * mask[:, None, :]).unsqueeze(-1)  # (bs, n_tokens, n_tokens, 1)
-            p_ij = mask * p_ij
+            p_ij = p_ij * mask
         return p_ij
 
     @staticmethod
@@ -209,6 +209,6 @@ class DiffusionConditioning(nn.Module):
         if mask is not None:
             token_repr = mask.unsqueeze(-1) * token_repr
             pair_mask = (mask[:, :, None] * mask[:, None, :]).unsqueeze(-1)  # (bs, n_tokens, n_tokens, 1)
-            pair_repr = pair_mask * pair_repr
+            pair_repr = pair_repr * pair_mask
 
         return token_repr, pair_repr

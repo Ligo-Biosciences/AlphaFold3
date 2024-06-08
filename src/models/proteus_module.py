@@ -110,9 +110,9 @@ class ProteusLitModule(LightningModule):
         # Initial Features
         init_features = self.feature_embedder(features, atom_mask=atom_mask, token_mask=token_mask)
 
-        # Evoformer Block
+        # Diffusion module
         denoised_atoms = self.diffusion_module(
-            noisy_atoms=noisy_atoms,
+            noisy_atoms=noisy_atoms.to_tensor(),
             timesteps=timesteps,
             features=features,
             s_inputs=init_features.s_inputs,
@@ -123,7 +123,7 @@ class ProteusLitModule(LightningModule):
             atom_mask=atom_mask
         )
 
-        return denoised_atoms
+        return Vec3Array.from_array(denoised_atoms)
 
     def on_train_start(self) -> None:
         """Lightning hook that is called when training begins."""
