@@ -9,7 +9,7 @@ wandb:
   anonymous: null # enable anonymous logging
   project: "lightning-hydra-template"
   entity: "ligo-technologies"
-  log_model: False # upload lightning ckpts
+  log_model: True # upload lightning checkpoints to wandb
   prefix: "" # a string to put at the beginning of metric keys
   # entity: "" # set to name of your wandb team
   group: ""

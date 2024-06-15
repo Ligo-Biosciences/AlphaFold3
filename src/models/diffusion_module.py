@@ -15,7 +15,6 @@ from src.diffusion.conditioning import DiffusionConditioning
 from src.diffusion.attention import DiffusionTransformer
 from src.models.components.atom_attention import AtomAttentionEncoder, AtomAttentionDecoder
 from src.models.components.primitives import Linear
-from torch.utils.checkpoint import checkpoint
 
 
 class DiffusionModule(torch.nn.Module):
@@ -35,7 +34,7 @@ class DiffusionModule(torch.nn.Module):
             atom_decoder_heads: int = 16,
             token_transformer_blocks: int = 24,
             token_transformer_heads: int = 16,
-            compile_models: bool = True
+            compile_model: bool = True,
     ):
         super(DiffusionModule, self).__init__()
         self.c_atom = c_atom
@@ -93,12 +92,9 @@ class DiffusionModule(torch.nn.Module):
             n_keys=atom_attention_n_keys,
         )
 
-        if compile_models:
-            # self.diffusion_conditioning = torch.compile(self.diffusion_conditioning)
-            # self.atom_attention_encoder = torch.compile(self.atom_attention_encoder)
-            # self.diffusion_transformer = torch.compile(self.diffusion_transformer)
-            # self.atom_attention_decoder = torch.compile(self.atom_attention_decoder)
-            pass
+        if compile_model:
+            self.atom_attention_encoder = torch.compile(self.atom_attention_encoder)
+            self.atom_attention_decoder = torch.compile(self.atom_attention_decoder)
 
     def forward(
             self,
@@ -181,7 +177,7 @@ class DiffusionModule(torch.nn.Module):
 
         # Scale positions to dimensionless vectors with approximately unit variance
         scale_factor = torch.reciprocal((torch.sqrt(torch.add(timesteps ** 2, sd_data ** 2))))  # (bs, 1)
-        r_noisy = noisy_atoms / scale_factor.unsqueeze(-1)  # (bs, n_atoms, 1)
+        r_noisy = noisy_atoms / scale_factor.unsqueeze(-1)  # (bs, n_atoms, 3)
 
         # Sequence local atom attention and aggregation to coarse-grained tokens
         atom_encoder_output = self.atom_attention_encoder(features, s_trunk, z_trunk, r_noisy)
@@ -194,7 +190,8 @@ class DiffusionModule(torch.nn.Module):
             single_repr=token_single,
             single_proj=token_repr,
             pair_repr=pair_repr,
-            mask=token_mask)
+            mask=token_mask
+        )
 
         token_single = self.token_post_layer_norm(token_single)
 

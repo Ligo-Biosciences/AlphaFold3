@@ -8,6 +8,7 @@ from src.utils.geometry.vector import Vec3Array
 from src.diffusion.sample import noise_positions, sample_noise_level
 from src.diffusion.augmentation import centre_random_augmentation
 from src.diffusion.loss import diffusion_loss
+import deepspeed
 from torch.utils.checkpoint import checkpoint
 
 
@@ -49,6 +50,7 @@ class ProteusLitModule(LightningModule):
             optimizer: torch.optim.Optimizer,
             scheduler: torch.optim.lr_scheduler,
             compile: bool,
+            matmul_precision: str = "high"
     ) -> None:
         """Initialize a KestrelLitModule
         Args:
@@ -62,12 +64,15 @@ class ProteusLitModule(LightningModule):
                 The learning rate scheduler to use for training.
             compile:
                 whether to compile the models
+            matmul_precision:
+                Sets the internal precision of float32 matrix multiplications with
+                torch.set_float32_matmul_precision. Choose from "highest", "high" or "medium"
         """
         super().__init__()
 
         # this line allows access to init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
-        self.save_hyperparameters(logger=False, ignore=["feature_embedder", "diffusion_module"])
+        self.save_hyperparameters(logger=False)  # ignore=["feature_embedder", "diffusion_module"]
 
         # Simplest diffusion model possible for testing
         self.feature_embedder = feature_embedder
@@ -77,6 +82,9 @@ class ProteusLitModule(LightningModule):
         self.train_loss = MeanMetric()
         self.val_loss = MeanMetric()
         self.test_loss = MeanMetric()
+
+        # Set matmul precision
+        torch.set_float32_matmul_precision(matmul_precision)
 
     def forward(
             self,
@@ -120,7 +128,7 @@ class ProteusLitModule(LightningModule):
             z_trunk=init_features.z_trunk,
             sd_data=sd_data,
             token_mask=token_mask,
-            atom_mask=atom_mask
+            atom_mask=atom_mask,
         )
 
         return Vec3Array.from_array(denoised_atoms)

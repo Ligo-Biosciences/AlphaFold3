@@ -8,7 +8,7 @@ lightning
 torchmetrics
 
 # --------- deepspeed --------- #
-# deepspeed  # fails in Mac, works in Colab
+deepspeed  # works in Colab
 
 # --------- hydra --------- #
 hydra-core

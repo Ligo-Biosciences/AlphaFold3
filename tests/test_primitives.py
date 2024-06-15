@@ -57,7 +57,7 @@ class TestAttentionPairBias(unittest.TestCase):
 
     def test_module_initialization(self):
         """Test proper initialization of the module."""
-        self.assertEqual(self.module.embed_dim, 128, "Embedding dimension should match initialization.")
+        self.assertEqual(self.module.dim, 128, "Embedding dimension should match initialization.")
         self.assertEqual(self.module.num_heads, 8, "Number of heads should match initialization.")
 
     def test_parameter_initialization_values(self):

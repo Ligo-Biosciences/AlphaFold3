@@ -5,7 +5,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from src.models.components.transition import ConditionedTransitionBlock
 from src.models.components.primitives import AttentionPairBias
-from torch.utils.checkpoint import checkpoint
 
 
 class DiffusionTransformerBlock(nn.Module):
@@ -47,7 +46,7 @@ class DiffusionTransformerBlock(nn.Module):
         self.conditioned_transition_block = ConditionedTransitionBlock(c_token)
 
     def forward(self, single_repr, single_proj, pair_repr, mask=None):
-        """Forward pass of the AtomTransformerBlock module. Algorithm 23 in AlphaFold3 supplement."""
+        """Forward pass of the DiffusionTransformerBlock module. Algorithm 23 in AlphaFold3 supplement."""
         b = self.attention_block(single_repr, single_proj, pair_repr, mask)
         single_repr = b + self.conditioned_transition_block(single_repr, single_proj)
         return single_repr

@@ -103,7 +103,7 @@ class InputFeatureEmbedder(nn.Module):
 
 
 class ProteusFeatures(NamedTuple):
-    """Structured output class for AtomAttentionEncoder."""
+    """Structured output class for Proteus features."""
     s_inputs: torch.Tensor  # (bs, n_tokens, c_token)
     s_trunk: torch.Tensor  # (bs, n_tokens, c_token)
     z_trunk: torch.Tensor  # (bs, n_tokens, n_tokens, c_token)

@@ -9,7 +9,7 @@ import torch
 from torch import nn
 import numpy as np
 from torch.nn import functional as F
-from src.models.components.primitives import AdaLN, Linear, compute_pair_attention_mask
+from src.models.components.primitives import AdaLN, Linear, Attention, compute_pair_attention_mask
 from src.models.components.transition import ConditionedTransitionBlock
 from typing import Dict, Tuple, NamedTuple
 from torch.utils.checkpoint import checkpoint
@@ -68,62 +68,6 @@ def partition_tensor(
 def pad_column(x, pad, mode='constant', value=None) -> torch.Tensor:
     """Applies padding to the second to last dimension of a tensor."""
     return F.pad(x.transpose(-1, -2), pad, mode=mode, value=value).transpose(-1, -2)
-
-
-def extract_local_biases_ineff(bias_tensor, partition_increment=32, partition_length=128):
-    """Extracts biases that are local in the sequence space (inefficient implementation).
-    Args:
-        bias_tensor:
-            A tensor of shape [batch_size, N_atoms, N_atoms, channels].
-        partition_increment:
-            The increment between the centers of the partitions.
-        partition_length:
-            The length of the partitions.
-    Returns:
-        A tensor of shape [batch_size, N_atoms // partition_increment, partition_length, channels].
-    TODO: make this more memory efficient! likely can use advanced indexing to avoid the loop
-     and the intermediate tensors
-    """
-    batch_size, N_atoms, N_atoms, channels = bias_tensor.shape
-    half_length = partition_length // 2
-    assert N_atoms > partition_length, "Number of atoms must be greater than partition length."
-    assert N_atoms % partition_increment == 0, "Number of atoms must be divisible by partition increment."
-
-    # Calculate centers starting from 15.5 with an increment of 32
-    centers = np.arange(partition_increment / 2, N_atoms, step=partition_increment, dtype='float32')
-
-    # Initialize a list to hold the partitions
-    partitions = []
-
-    for i, center in enumerate(centers):
-        # Calculate start and end indices
-        start_column_index = int(center - half_length)
-        end_column_index = int(center + half_length)
-        start_row_index = i * partition_increment
-        end_row_index = (i + 1) * partition_increment
-
-        # Apply padding if necessary and extract the slice
-        if start_column_index < 0:
-            # Pad at the beginning
-            pre_padding = torch.zeros((batch_size, partition_increment, -start_column_index, channels),
-                                      device=bias_tensor.device)
-            valid_part = bias_tensor[:, start_row_index:end_row_index, :end_column_index, :]
-            partition = torch.cat([pre_padding, valid_part], dim=2)
-        elif end_column_index > N_atoms:
-            # Pad at the end
-            post_padding = torch.zeros((batch_size, partition_increment, end_column_index - N_atoms, channels),
-                                       device=bias_tensor.device)
-            valid_part = bias_tensor[:, start_row_index:end_row_index, start_column_index:N_atoms, :]
-            partition = torch.cat([valid_part, post_padding], dim=2)
-        else:
-            # No padding needed
-            partition = bias_tensor[:, start_row_index:end_row_index, start_column_index:end_column_index, :]
-        partitions.append(partition)
-
-    # Stack all the partitions along a new dimension
-    output_tensor = torch.stack(partitions, dim=1)
-
-    return output_tensor
 
 
 def extract_local_biases(bias_tensor: torch.Tensor, n_queries: int = 32, n_keys: int = 128) -> torch.Tensor:
@@ -212,20 +156,27 @@ class AtomAttentionPairBias(nn.Module):
         self.output_proj_linear = Linear(c_atom, c_atom, init='gating')
         self.output_proj_linear.bias = nn.Parameter(torch.ones(c_atom) * -2.0)  # gate values will be ~0.11
 
-        # QKV projections
-        self.q_linear = Linear(c_atom, c_atom, init='glorot')
-        self.k_linear = Linear(c_atom, c_atom, init='glorot', bias=False)
-        self.v_linear = Linear(c_atom, c_atom, init='glorot', bias=False)
+        # Attention
+        self.attention = Attention(
+            c_q=c_atom,
+            c_k=c_atom,
+            c_v=c_atom,
+            c_hidden=c_atom // num_heads,
+            no_heads=num_heads,
+            gating=True
+        )
 
         # Pair bias
         self.layer_norm_pair = nn.LayerNorm(self.c_atompair)
         self.linear_pair = Linear(self.c_atompair, self.num_heads, init='default', bias=False)
 
-        # Gating
-        self.gating_linear = Linear(c_atom, c_atom, init='gating', bias=False)
-        self.attention_proj = Linear(c_atom, c_atom, init='default', bias=False)
-
-    def forward(self, atom_single_repr, atom_single_proj, atom_pair_repr, mask=None):
+    def forward(
+            self,
+            atom_single_repr: torch.Tensor,  # (bs, n_atoms, c_atom)
+            atom_single_proj: torch.Tensor,  # (bs, n_atoms, c_atom)
+            atom_pair_repr: torch.Tensor,  # (bs, n_atoms, n_atoms, c_atompair)
+            mask=None
+    ) -> torch.Tensor:
         """
         Attention mechanism for sequence-local atom attention.
         Args:
@@ -243,21 +194,6 @@ class AtomAttentionPairBias(nn.Module):
         # Input projections
         a = self.ada_ln(atom_single_repr, atom_single_proj)  # AdaLN(a, s)
 
-        # Project query, key and value vectors
-        q = self.q_linear(a)  # (bs, n_atoms, c_atom)
-        k = self.k_linear(a)
-        v = self.v_linear(a)
-
-        # Sequence-local atom attention
-        q = partition_tensor(q, self.n_queries, self.n_queries)  # (bs, n_atoms // 32, 32, c_atom)
-        k = partition_tensor(k, self.n_queries, self.n_keys)  # (bs, n_atoms // 32, 128, c_atom)
-        v = partition_tensor(v, self.n_queries, self.n_keys)  # (bs, n_atoms // 32, 128, c_atom)
-
-        # Split heads and rearrange
-        q = _split_heads(q, self.num_heads)  # (bs, n_heads, n_atoms // 32, 128, c_atom // n_heads)
-        k = _split_heads(k, self.num_heads)  # (bs, n_heads, n_atoms // 32, 128, c_atom // n_heads)
-        v = _split_heads(v, self.num_heads)  # (bs, n_heads, n_atoms // 32, 128, c_atom // n_heads)
-
         # Compute attention pair biases
         pair_bias = self.linear_pair(self.layer_norm_pair(atom_pair_repr))  # (bs, n_atoms, n_atoms, n_heads)
 
@@ -265,16 +201,17 @@ class AtomAttentionPairBias(nn.Module):
         local_pair_biases = extract_local_biases(pair_bias, self.n_queries, self.n_keys)
         if mask is not None:
             pair_mask = compute_pair_attention_mask(mask).expand(pair_bias.shape)
-            local_pair_biases = local_pair_biases + extract_local_biases(pair_mask, self.n_queries, self.n_keys)  # apply mask
-        local_pair_biases = local_pair_biases.permute(0, 4, 1, 2, 3)  # move n_heads to second dimension
+            local_pair_biases = local_pair_biases + extract_local_biases(pair_mask, self.n_queries, self.n_keys)
+        local_pair_biases = local_pair_biases.permute(0, 1, 4, 2, 3)  # move n_heads to third dimension
 
-        # Attention  (bs, n_heads, n_atoms // 32, 32, c_atom // n_heads)
-        attention_output = F.scaled_dot_product_attention(q, k, v, attn_mask=local_pair_biases, dropout_p=self.dropout)
-        attention_output = _concatenate_heads(attention_output).reshape(atom_single_repr.shape)  # concat and flatten
+        # Compute query and key-value tensors
+        atom_qx = partition_tensor(a, self.n_queries, self.n_queries)  # (bs, n_atoms // 32, 32, c_atom)
+        atom_kvx = partition_tensor(a, self.n_queries, self.n_keys)  # (bs, n_atoms // 32, 128, c_atom)
 
-        # Gating
-        gated_output = F.sigmoid(self.gating_linear(attention_output)) * attention_output
-        output = self.attention_proj(gated_output)  # (bs, n_atoms, c_atom)
+        # Attention & flatten
+        output = self.attention(q_x=atom_qx,
+                                kv_x=atom_kvx,
+                                biases=[local_pair_biases]).reshape(atom_single_repr.shape)
 
         # Output projection (from adaLN-Zero)
         output = F.sigmoid(self.output_proj_linear(output)) * output
@@ -394,12 +331,15 @@ class AtomTransformer(nn.Module):
     def forward(self, atom_single_repr, atom_single_proj, atom_pair_repr, mask=None):
         """Forward pass of the AtomTransformer module. Algorithm 23 in AlphaFold3 supplement."""
         for i in range(self.num_blocks):
-            # Run the block with gradient checkpointing
+            # TODO: Run the block with gradient checkpointing
             atom_single_repr = self.blocks[i](atom_single_repr, atom_single_proj, atom_pair_repr, mask)
         return atom_single_repr
 
 
-def gather_token_repr(token_repr, tok_idx):
+def gather_token_repr(
+        token_repr: torch.Tensor,  # (bs, n_tokens, c_token)
+        tok_idx: torch.Tensor  # (bs, n_atoms)
+) -> torch.Tensor:
     """
     Gather token representations based on indices from tok_idx.
 
@@ -689,13 +629,13 @@ class AtomAttentionEncoder(nn.Module):
 
         # If provided, add trunk embeddings and noisy positions
         if self.trunk_conditioning:
-            atom_single = atom_single + self.linear_trunk_single(
-                self.trunk_single_layer_norm(gather_token_repr(s_trunk, features['atom_to_token']))
+            atom_single = atom_single + gather_token_repr(
+                self.linear_trunk_single(self.trunk_single_layer_norm(s_trunk)),
+                features['atom_to_token']
             )
-            atom_pair = atom_pair + self.linear_trunk_pair(
-                self.trunk_pair_layer_norm(map_token_pairs_to_atom_pairs(
-                    z_trunk, features['atom_to_token'])
-                )
+            atom_pair = atom_pair + map_token_pairs_to_atom_pairs(
+                self.linear_trunk_pair(self.trunk_pair_layer_norm(z_trunk)),
+                features['atom_to_token']
             )
             # Add the noisy positions
             atom_single_conditioning = atom_single_conditioning + self.linear_noisy_pos(noisy_pos)

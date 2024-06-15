@@ -2,7 +2,6 @@
 
 import torch
 from torch import nn
-import math
 from src.models.components.primitives import Linear
 from src.models.components.transition import Transition
 from typing import Dict, Tuple

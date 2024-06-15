@@ -23,6 +23,7 @@ import torch.nn.functional as F
 from scipy.stats import truncnorm
 from src.utils.checkpointing import get_checkpoint_fn
 # from src.utils.chunk_utils import _chunk_slice
+# from src.utils.kernel.attention_core import attention_core
 from src.utils.precision_utils import is_fp16_enabled
 from src.utils.tensor_utils import (
     permute_final_dims,
@@ -36,6 +37,11 @@ if deepspeed_is_installed:
 
 if ds4s_is_installed:
     from deepspeed.ops.deepspeed4science import DS4Sci_EvoformerAttention
+
+fa_is_installed = importlib.util.find_spec("flash_attn") is not None
+if fa_is_installed:
+    from flash_attn.bert_padding import unpad_input
+    from flash_attn.flash_attn_interface import flash_attn_varlen_kvpacked_func
 
 DEFAULT_LMA_Q_CHUNK_SIZE = 1024
 DEFAULT_LMA_KV_CHUNK_SIZE = 4096
@@ -107,43 +113,6 @@ def ipa_point_weights_init_(weights):
     with torch.no_grad():
         softplus_inverse_1 = 0.541324854612918
         weights.fill_(softplus_inverse_1)
-
-
-def generate_sinusoidal_encodings(indices, c_s, max_pos=10_000):
-    """
-    Generates a sinusoidal encoding for a given tensor of residue indices.
-
-    Args:
-        indices (torch.Tensor): A tensor of residue indices with shape [*, n_res].
-        c_s (int): The size of the channel dimension for the sinusoidal encoding.
-        max_pos (int, optional): The maximum possible residue index. Default is 10000.
-
-    Returns:
-        torch.Tensor: A tensor with sinusoidal encodings of shape [*, n_res, c_s].
-    TODO: delete this
-    """
-    # Create a position array of shape [max_pos, 1]
-    position = torch.arange(max_pos, dtype=torch.float).unsqueeze(1)
-
-    # Compute the div term
-    div_term = torch.exp(torch.arange(0, c_s, 2).float() * -(math.log(10000.0) / c_s))
-
-    # Initialize sinusoidal encoding matrix
-    sinusoid_table = torch.zeros(max_pos, c_s).to(indices)
-
-    # Apply sin to even indices in the array; 2i
-    sinusoid_table[:, 0::2] = torch.sin(position * div_term)
-
-    # Move sinusoid table to the same device as the indices
-    sinusoid_table = sinusoid_table.to(indices.device)
-
-    # Apply cos to odd indices in the array; 2i+1
-    sinusoid_table[:, 1::2] = torch.cos(position * div_term)
-
-    # Apply the encoding to each index in the input tensor
-    encoded_indices = sinusoid_table[indices.long()]
-
-    return encoded_indices
 
 
 class Linear(nn.Linear):
@@ -276,7 +245,7 @@ class LayerNorm(nn.Module):
 
 class AdaLN(nn.Module):
     """Adaptive Layer Normalization."""
-    def __init__(self, normalized_shape):
+    def __init__(self, normalized_shape: int):
         super(AdaLN, self).__init__()
         # Layer norms
         self.a_layer_norm = nn.LayerNorm(normalized_shape,  # equivalent to scale=False, offset=False in Haiku
@@ -321,6 +290,7 @@ def softmax_no_cast(t: torch.Tensor, dim: int = -1) -> torch.Tensor:
 
 # @torch.jit.script
 def _attention(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, biases: List[torch.Tensor]) -> torch.Tensor:
+    """A stock PyTorch attention implementation with optional biases."""
     # [*, H, C_hidden, K]
     key = permute_final_dims(key, (1, 0))
 
@@ -342,6 +312,8 @@ def _attention(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, bias
 def _attention_chunked_trainable(
         query, key, value, biases, chunk_size, chunk_dim, checkpoint,
 ):
+    """Attention with training-time chunking of the softmax computation.
+    Probably obviated by the fused attention kernel, which is now used by default."""
     if checkpoint and len(biases) > 2:
         raise ValueError(
             "Checkpointed version permits only permits two bias terms"
@@ -393,6 +365,7 @@ def _attention_chunked_trainable(
     return o
 
 
+# TODO: delete AttentionPairBias, migrate to efficient attention implementations
 def compute_pair_attention_mask(mask, large_number=-1e6):
     # Compute boolean pair mask
     pair_mask = (mask[:, :, None] * mask[:, None, :]).unsqueeze(-1)  # (bs, n, n, 1)
@@ -409,10 +382,10 @@ class AttentionPairBias(nn.Module):
 
     def __init__(
             self,
-            dim,
+            dim: int,
             c_pair: int = 16,
-            num_heads=8,
-            dropout=0.0,
+            num_heads: int = 8,
+            dropout: float = 0.0,
             device=None,
             dtype=None,
     ):
@@ -445,44 +418,55 @@ class AttentionPairBias(nn.Module):
         self.output_proj_linear = Linear(dim, dim, init='gating')
         self.output_proj_linear.bias = nn.Parameter(torch.ones(dim) * -2.0)  # gate values will be ~0.11
 
-        # QKV projections and MHA
-        self.q_linear = Linear(dim, dim, init='glorot')
-        self.k_linear = Linear(dim, dim, init='glorot', bias=False)
-        self.v_linear = Linear(dim, dim, init='glorot', bias=False)
-        self.mha = nn.MultiheadAttention(dim, num_heads, dropout=dropout, batch_first=True,
-                                         device=device, dtype=dtype)
+        # Attention
+        self.attention = Attention(
+            c_q=dim,
+            c_k=dim,
+            c_v=dim,
+            c_hidden=dim//num_heads,
+            no_heads=num_heads,
+            gating=True
+        )
 
         # Pair bias
         self.layer_norm_pair = nn.LayerNorm(self.c_pair)
         self.linear_pair = Linear(self.c_pair, self.num_heads, init='default', bias=False)
 
-        # Gating
-        self.gating_linear = Linear(dim, dim, init='gating', bias=False)
-        self.attention_proj = Linear(dim, dim, init='default', bias=False)
-
-    def forward(self, single_repr, single_proj, pair_repr, mask=None):
+    def forward(
+            self,
+            single_repr: torch.Tensor,  # (bs, n_tokens, c_atom)
+            single_proj: torch.Tensor,  # (bs, n_tokens, c_atom)
+            pair_repr: torch.Tensor,  # (bs, n_tokens, n_tokens, c_pair)
+            mask=None,  # (bs, n_tokens)
+    ) -> torch.Tensor:
         """Full self-attention at the token-level with pair bias."""
-        batch_size, n_tokens, embed_dim = single_repr.shape
-        # Input projections
+
+        # Input projection
         a = self.ada_ln(single_repr, single_proj)  # AdaLN(a, s)  shape: (bs, n_tokens, c_atom)
 
-        # Project query, key, value vectors
-        q = self.q_linear(a)  # (bs, n_tokens, c_atom)
-        k = self.k_linear(a)
-        v = self.v_linear(a)
-
-        # Pair bias
+        # Biases for Evo attention: Mask & Pair bias
+        mask_bias = None
         pair_bias = self.linear_pair(self.layer_norm_pair(pair_repr))  # (bs, n_tokens, n_tokens, n_heads)
         if mask is not None:
-            pair_bias = pair_bias + compute_pair_attention_mask(mask)  # pair attention mask
-        pair_bias = pair_bias.permute(0, 3, 1, 2).reshape(batch_size * self.num_heads, n_tokens, n_tokens)
+            mask_bias = mask.unsqueeze(1).unsqueeze(1).unsqueeze(1)  # (bs, 1, 1, 1, n_tokens)
+            pair_mask_inv = torch.add(1, -mask_bias)  # invert
+            mask_bias = torch.mul(pair_mask_inv, -1e6)  # 0.0 indicates attention, -large_number no attention
+            # mask_bias = mask_bias.to(dtype=a.dtype)
 
-        # Multi-head attention
-        attn_output, _ = self.mha(q, k, v, attn_mask=pair_bias, need_weights=False)  # (bs, n_tokens, c_atom)
+        # Shape wrangling before Evo attention
+        pair_bias = pair_bias.permute(0, 3, 1, 2).unsqueeze(1)  # (bs, 1, n_heads, n_tokens, n_tokens)
+        a = a.unsqueeze(1)  # (bs, 1, n_tokens, c_atom)
 
-        # Gating
-        gated_output = F.sigmoid(self.gating_linear(attn_output)) * attn_output
-        output = self.attention_proj(gated_output)  # (bs, n_atoms, c_atom)
+        # Attention
+        output = self.attention(
+            q_x=a,
+            kv_x=a,
+            biases=[mask_bias, pair_bias],
+            use_deepspeed_evo_attention=True
+        )  # (bs, 1, n_tokens, c_atom)
+
+        # Remove the extra dimension
+        output = output.squeeze(1)
 
         # Output projection (from adaLN-Zero)
         output = F.sigmoid(self.output_proj_linear(output)) * output
@@ -603,10 +587,13 @@ class Attention(nn.Module):
             q_x: torch.Tensor,
             kv_x: torch.Tensor,
             biases: Optional[List[torch.Tensor]] = None,
+            use_memory_efficient_kernel: bool = False,
             use_deepspeed_evo_attention: bool = False,
             use_lma: bool = False,
             lma_q_chunk_size: int = DEFAULT_LMA_Q_CHUNK_SIZE,
             lma_kv_chunk_size: int = DEFAULT_LMA_KV_CHUNK_SIZE,
+            use_flash: bool = False,
+            flash_mask: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         """
         Args:
@@ -616,19 +603,29 @@ class Attention(nn.Module):
                 [*, K, C_k] key data
             biases:
                 List of biases that broadcast to [*, H, Q, K]
+            use_memory_efficient_kernel:
+                Whether to use a custom memory-efficient attention kernel.
+                This should be the default choice for most. If none of the
+                "use_<...>" flags are True, a stock PyTorch implementation
+                is used instead
             use_deepspeed_evo_attention:
                 Whether to use DeepSpeed memory-efficient attention kernel.
                 If none of the "use_<...>" flags are True, a stock PyTorch
                 implementation is used instead
             use_lma:
-                Whether to use low-memory attention (Staats & Rabe 2021). It is
-                advantageous during inference with extremely long sequences.
-                If none of the "use_<...>" flags are True, a stock PyTorch
+                Whether to use low-memory attention (Staats & Rabe 2021). If
+                none of the "use_<...>" flags are True, a stock PyTorch
+                implementation is used instead
+            use_flash:
+                Whether to use the Flash Attention kernel. If
+                none of the "use_<...>" flags are True, a stock PyTorch
                 implementation is used instead
             lma_q_chunk_size:
                 Query chunk size (for LMA)
             lma_kv_chunk_size:
                 Key/Value chunk size (for LMA)
+            flash_mask:
+                Mask for Flash Attention
         Returns
             [*, Q, C_q] attention update
         """
@@ -638,7 +635,13 @@ class Attention(nn.Module):
                 "lma_kv_chunk_size must be provided"
             )
 
-        attn_options = [use_deepspeed_evo_attention, use_lma]
+        if use_flash and biases is not None:
+            raise ValueError(
+                "use_flash is incompatible with the bias option. For masking, "
+                "use flash_mask instead"
+            )
+
+        attn_options = [use_memory_efficient_kernel, use_deepspeed_evo_attention, use_lma, use_flash]
         if sum(attn_options) > 1:
             raise ValueError(
                 "Choose at most one alternative attention algorithm"
@@ -651,7 +654,22 @@ class Attention(nn.Module):
         q, k, v = self._prep_qkv(q_x, kv_x,
                                  apply_scale=not use_deepspeed_evo_attention)
 
-        if use_deepspeed_evo_attention:
+        if is_fp16_enabled():
+            use_memory_efficient_kernel = False
+
+        if use_memory_efficient_kernel:
+            if len(biases) > 2:
+                raise ValueError(
+                    "If use_memory_efficient_kernel is True, you may only "
+                    "provide up to two bias terms"
+                )
+            raise NotImplementedError("Memory-efficient kernel from OpenFold not implemented."
+                                      "The installation of Custom CUDA Attention Kernels introduces"
+                                      "unnecessary complexity and would be obsolete if deepspeed "
+                                      "Evo attention is used.")
+            # o = attention_core(q, k, v, *((biases + [None] * 2)[:2]))
+            # o = o.transpose(-2, -3)
+        elif use_deepspeed_evo_attention:
             if len(biases) > 2:
                 raise ValueError(
                     "If use_deepspeed_evo_attention is True, you may only "
@@ -665,6 +683,8 @@ class Attention(nn.Module):
             ]
             o = _lma(q, k, v, biases, lma_q_chunk_size, lma_kv_chunk_size)
             o = o.transpose(-2, -3)
+        elif use_flash:
+            o = _flash_attn(q, k, v, flash_mask)
         else:
             o = _attention(q, k, v, biases)
             o = o.transpose(-2, -3)
@@ -814,16 +834,15 @@ def _deepspeed_evo_attn(
 
     # DeepSpeed attn. kernel requires inputs to be type bf16 or fp16
     # Cast to bf16 so kernel can be used during inference
-    orig_dtype = q.dtype
-    if orig_dtype not in [torch.bfloat16, torch.float16]:
-        o = DS4Sci_EvoformerAttention(q.to(dtype=torch.bfloat16),
-                                      k.to(dtype=torch.bfloat16),
-                                      v.to(dtype=torch.bfloat16),
-                                      [b.to(dtype=torch.bfloat16) for b in biases])
-
-        o = o.to(dtype=orig_dtype)
-    else:
-        o = DS4Sci_EvoformerAttention(q, k, v, biases)
+    # orig_dtype = q.dtype
+    # if orig_dtype not in [torch.bfloat16, torch.float16]:
+    o = DS4Sci_EvoformerAttention(q.to(dtype=torch.bfloat16),
+                                  k.to(dtype=torch.bfloat16),
+                                  v.to(dtype=torch.bfloat16),
+                                  [b.to(dtype=torch.bfloat16) for b in biases])
+    #    o = o.to(dtype=orig_dtype)
+    # else:
+    #    o = DS4Sci_EvoformerAttention(q, k, v, biases)
 
     o = o.reshape(orig_shape)
     return o
@@ -889,3 +908,69 @@ def _lma(
         o[..., q_s: q_s + q_chunk_size, :] = q_chunk_out
 
     return o
+
+
+@torch.jit.ignore
+def _flash_attn(q, k, v, kv_mask):
+    if not fa_is_installed:
+        raise ValueError(
+            "_flash_attn requires that FlashAttention be installed"
+        )
+
+    batch_dims = q.shape[:-3]
+    no_heads, n, c = q.shape[-3:]
+    dtype = q.dtype
+
+    q = q.half()
+    k = k.half()
+    v = v.half()
+    kv_mask = kv_mask.half()
+
+    # [*, B, N, H, C]
+    q = q.transpose(-2, -3)
+    k = k.transpose(-2, -3)
+    v = v.transpose(-2, -3)
+
+    # [B_flat, N, H, C]
+    q = q.reshape(-1, *q.shape[-3:])
+    k = k.reshape(-1, *k.shape[-3:])
+    v = v.reshape(-1, *v.shape[-3:])
+
+    # Flattened batch size
+    batch_size = q.shape[0]
+
+    # [B_flat * N, H, C]
+    q = q.reshape(-1, *q.shape[-2:])
+
+    q_max_s = n
+    q_cu_seqlens = torch.arange(
+        0, (batch_size + 1) * n, step=n, dtype=torch.int32, device=q.device
+    )
+
+    # [B_flat, N, 2, H, C]
+    kv = torch.stack([k, v], dim=-3)
+    kv_shape = kv.shape
+
+    # [B_flat, N, 2 * H * C]
+    kv = kv.reshape(*kv.shape[:-3], -1)
+
+    kv_unpad, _, kv_cu_seqlens, kv_max_s = unpad_input(kv, kv_mask)
+    kv_unpad = kv_unpad.reshape(-1, *kv_shape[-3:])
+
+    out = flash_attn_varlen_kvpacked_func(
+        q,
+        kv_unpad,
+        q_cu_seqlens,
+        kv_cu_seqlens,
+        q_max_s,
+        kv_max_s,
+        dropout_p=0.,
+        softmax_scale=1.,  # q has been scaled already
+    )
+
+    # [*, B, N, H, C]
+    out = out.reshape(*batch_dims, n, no_heads, c)
+
+    out = out.to(dtype=dtype)
+
+    return out
