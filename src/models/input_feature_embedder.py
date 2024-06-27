@@ -3,8 +3,8 @@ import torch
 from torch import nn
 from src.models.components.atom_attention import AtomAttentionEncoder
 from typing import Dict, NamedTuple
-from src.models.components.primitives import Linear
-from src.diffusion.conditioning import RelativePositionEncoding
+from src.models.components.primitives import LinearNoBias
+from src.models.components.relative_position_encoding import RelativePositionEncoding
 
 
 class InputFeatureEmbedder(nn.Module):
@@ -57,8 +57,6 @@ class InputFeatureEmbedder(nn.Module):
             n_queries=self.n_queries,
             n_keys=self.n_keys,
             trunk_conditioning=False,  # no trunk conditioning for the input feature embedder
-            device=self.device,
-            dtype=self.dtype,
         )
 
     def forward(
@@ -154,9 +152,9 @@ class ProteusFeatureEmbedder(nn.Module):
             device=device,
             dtype=dtype
         )
-        self.linear_s_init = Linear(c_token, c_token, bias=False)
-        self.linear_z_col = Linear(c_token, c_trunk_pair, bias=False)
-        self.linear_z_row = Linear(c_token, c_trunk_pair, bias=False)
+        self.linear_s_init = LinearNoBias(c_token, c_token)
+        self.linear_z_col = LinearNoBias(c_token, c_trunk_pair)
+        self.linear_z_row = LinearNoBias(c_token, c_trunk_pair)
         self.relative_pos_encoder = RelativePositionEncoding(c_trunk_pair)
 
     def forward(
@@ -191,4 +189,3 @@ class ProteusFeatureEmbedder(nn.Module):
         return ProteusFeatures(s_inputs=per_token_features,
                                s_trunk=s_trunk,
                                z_trunk=z_trunk)
-

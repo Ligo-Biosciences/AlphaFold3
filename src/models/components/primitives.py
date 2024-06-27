@@ -16,6 +16,7 @@ from functools import partial
 import importlib
 import math
 from typing import Optional, Callable, List, Tuple, Sequence
+from functools import partialmethod
 import numpy as np
 import torch
 import torch.nn as nn
@@ -206,7 +207,15 @@ class Linear(nn.Linear):
         return nn.functional.linear(input, self.weight, self.bias)
 
 
+class LinearNoBias(Linear):
+    """
+        Convenience class for readability.
+    """
+    __init__ = partialmethod(Linear.__init__, bias=False)
+
+
 class LayerNorm(nn.Module):
+    # TODO: add elementwise_affine and bias option
     def __init__(self, c_in, eps=1e-5):
         super(LayerNorm, self).__init__()
 
@@ -258,7 +267,7 @@ class AdaLN(nn.Module):
         # Linear layers for gating and the skip connection
         dim = normalized_shape if isinstance(normalized_shape, int) else normalized_shape[-1]
         self.gating_linear = Linear(dim, dim, init='gating')
-        self.skip_linear = Linear(dim, dim, bias=False, init='final')
+        self.skip_linear = LinearNoBias(dim, dim, init='final')
 
     def forward(self, a, s):
         a = self.a_layer_norm(a)
@@ -287,18 +296,23 @@ def softmax_no_cast(t: torch.Tensor, dim: int = -1) -> torch.Tensor:
 
     return s
 
+# TODO: write AtomAttentionPairBias in a way that uses Deepspeed Evo Attention but
+#  with automatic batching with vmap to make everything more efficient
+#  That will save me a lot of grief I think, and gradients will flow through the biases.
+
 
 # @torch.jit.script
 def _attention(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, biases: List[torch.Tensor]) -> torch.Tensor:
     """A stock PyTorch attention implementation with optional biases."""
+    assert len(biases) == 1, "Only one bias term is supported for stock PyTorch attention"
     # [*, H, C_hidden, K]
     key = permute_final_dims(key, (1, 0))
 
     # [*, H, Q, K]
     a = torch.matmul(query, key)
 
-    for b in biases:
-        a += b
+    # Add bias, not inplace to ensure gradients flow through the biases
+    a = a + biases[0]
 
     a = softmax_no_cast(a, -1)
 
@@ -384,10 +398,10 @@ class AttentionPairBias(nn.Module):
             self,
             dim: int,
             c_pair: int = 16,
-            num_heads: int = 8,
+            no_heads: int = 8,
             dropout: float = 0.0,
-            device=None,
-            dtype=None,
+            input_gating: bool = True,
+            inf: float = 1e8,
     ):
         """Initialize the AttentionPairBias module.
         Args:
@@ -395,26 +409,33 @@ class AttentionPairBias(nn.Module):
                 Total dimension of the model.
             c_pair:
                 The number of channels for the pair representation. Defaults to 16.
-            num_heads:
-                Number of parallel attention heads. Note that c_atom will be split across num_heads
-                (i.e. each head will have dimension c_atom // num_heads).
+            no_heads:
+                Number of parallel attention heads. Note that c_atom will be split across no_heads
+                (i.e. each head will have dimension c_atom // no_heads).
             dropout:
                 Dropout probability on attn_output_weights. Default: 0.0 (no dropout).
+            input_gating:
+                Whether the single representation should be gated with another single-like representation using
+                adaptive layer normalization. Default: True.
         """
         super().__init__()
         self.dim = dim
         self.c_pair = c_pair
-        self.num_heads = num_heads
+        self.num_heads = no_heads
         self.dropout = dropout
-        self.device = device
-        self.dtype = dtype
+        self.input_gating = input_gating
+        self.inf = inf
 
         # Perform check for dimensionality
-        assert dim % num_heads == 0, f"the model dimensionality ({dim}) should be divisible by the " \
-                                     f"number of heads ({num_heads}) "
+        assert dim % no_heads == 0, f"the model dimensionality ({dim}) should be divisible by the " \
+                                     f"number of heads ({no_heads}) "
 
         # Projections
-        self.ada_ln = AdaLN(dim)
+        self.input_proj = None
+        if input_gating:
+            self.input_proj = AdaLN(dim)
+        else:
+            self.input_proj = LayerNorm(dim)
         self.output_proj_linear = Linear(dim, dim, init='gating')
         self.output_proj_linear.bias = nn.Parameter(torch.ones(dim) * -2.0)  # gate values will be ~0.11
 
@@ -423,35 +444,39 @@ class AttentionPairBias(nn.Module):
             c_q=dim,
             c_k=dim,
             c_v=dim,
-            c_hidden=dim//num_heads,
-            no_heads=num_heads,
+            c_hidden=dim // no_heads,
+            no_heads=no_heads,
             gating=True
         )
 
         # Pair bias
-        self.layer_norm_pair = nn.LayerNorm(self.c_pair)
-        self.linear_pair = Linear(self.c_pair, self.num_heads, init='default', bias=False)
+        self.layer_norm_pair = LayerNorm(self.c_pair)
+        self.linear_pair = LinearNoBias(self.c_pair, self.num_heads, init='default')
 
     def forward(
             self,
             single_repr: torch.Tensor,  # (bs, n_tokens, c_atom)
-            single_proj: torch.Tensor,  # (bs, n_tokens, c_atom)
+            single_proj: Optional[torch.Tensor],  # (bs, n_tokens, c_atom)
             pair_repr: torch.Tensor,  # (bs, n_tokens, n_tokens, c_pair)
             mask=None,  # (bs, n_tokens)
     ) -> torch.Tensor:
         """Full self-attention at the token-level with pair bias."""
 
         # Input projection
-        a = self.ada_ln(single_repr, single_proj)  # AdaLN(a, s)  shape: (bs, n_tokens, c_atom)
+        if self.input_gating:
+            a = self.input_proj(single_repr, single_proj)  # AdaLN(a, s)  shape: (bs, n_tokens, c_atom)
+        else:
+            a = self.input_proj(single_repr)
 
-        # Biases for Evo attention: Mask & Pair bias
+        # Mask bias for Evo attention, do not attend to padding tokens
         mask_bias = None
-        pair_bias = self.linear_pair(self.layer_norm_pair(pair_repr))  # (bs, n_tokens, n_tokens, n_heads)
         if mask is not None:
             mask_bias = mask.unsqueeze(1).unsqueeze(1).unsqueeze(1)  # (bs, 1, 1, 1, n_tokens)
             pair_mask_inv = torch.add(1, -mask_bias)  # invert
-            mask_bias = torch.mul(pair_mask_inv, -1e6)  # 0.0 indicates attention, -large_number no attention
-            # mask_bias = mask_bias.to(dtype=a.dtype)
+            mask_bias = torch.mul(pair_mask_inv, -self.inf)  # 0.0 indicates attention, -inf no attention
+
+        # Project pair biases per head from pair representation
+        pair_bias = self.linear_pair(self.layer_norm_pair(pair_repr))  # (bs, n_tokens, n_tokens, n_heads)
 
         # Shape wrangling before Evo attention
         pair_bias = pair_bias.permute(0, 3, 1, 2).unsqueeze(1)  # (bs, 1, n_heads, n_tokens, n_tokens)
@@ -515,14 +540,14 @@ class Attention(nn.Module):
         # DISCREPANCY: c_hidden is not the per-head channel dimension, as
         # stated in the supplement, but the overall channel dimension.
 
-        self.linear_q = Linear(
-            self.c_q, self.c_hidden * self.no_heads, bias=False, init="glorot"
+        self.linear_q = LinearNoBias(
+            self.c_q, self.c_hidden * self.no_heads, init="glorot"
         )
-        self.linear_k = Linear(
-            self.c_k, self.c_hidden * self.no_heads, bias=False, init="glorot"
+        self.linear_k = LinearNoBias(
+            self.c_k, self.c_hidden * self.no_heads, init="glorot"
         )
-        self.linear_v = Linear(
-            self.c_v, self.c_hidden * self.no_heads, bias=False, init="glorot"
+        self.linear_v = LinearNoBias(
+            self.c_v, self.c_hidden * self.no_heads, init="glorot"
         )
         self.linear_o = Linear(
             self.c_hidden * self.no_heads, self.c_q, init="final"
@@ -704,15 +729,15 @@ class GlobalAttention(nn.Module):
         self.inf = inf
         self.eps = eps
 
-        self.linear_q = Linear(
-            c_in, c_hidden * no_heads, bias=False, init="glorot"
+        self.linear_q = LinearNoBias(
+            c_in, c_hidden * no_heads, init="glorot"
         )
 
-        self.linear_k = Linear(
-            c_in, c_hidden, bias=False, init="glorot",
+        self.linear_k = LinearNoBias(
+            c_in, c_hidden, init="glorot",
         )
-        self.linear_v = Linear(
-            c_in, c_hidden, bias=False, init="glorot",
+        self.linear_v = LinearNoBias(
+            c_in, c_hidden, init="glorot",
         )
         self.linear_g = Linear(c_in, c_hidden * no_heads, init="gating")
         self.linear_o = Linear(c_hidden * no_heads, c_in, init="final")
@@ -834,15 +859,15 @@ def _deepspeed_evo_attn(
 
     # DeepSpeed attn. kernel requires inputs to be type bf16 or fp16
     # Cast to bf16 so kernel can be used during inference
-    # orig_dtype = q.dtype
-    # if orig_dtype not in [torch.bfloat16, torch.float16]:
-    o = DS4Sci_EvoformerAttention(q.to(dtype=torch.bfloat16),
-                                  k.to(dtype=torch.bfloat16),
-                                  v.to(dtype=torch.bfloat16),
-                                  [b.to(dtype=torch.bfloat16) for b in biases])
-    #    o = o.to(dtype=orig_dtype)
-    # else:
-    #    o = DS4Sci_EvoformerAttention(q, k, v, biases)
+    orig_dtype = q.dtype
+    if orig_dtype not in [torch.bfloat16, torch.float16]:
+        o = DS4Sci_EvoformerAttention(q.to(dtype=torch.bfloat16),
+                                      k.to(dtype=torch.bfloat16),
+                                      v.to(dtype=torch.bfloat16),
+                                      [b.to(dtype=torch.bfloat16) for b in biases])
+        o = o.to(dtype=orig_dtype)
+    else:
+        o = DS4Sci_EvoformerAttention(q, k, v, biases)
 
     o = o.reshape(orig_shape)
     return o

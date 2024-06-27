@@ -88,7 +88,7 @@ class TestAtomAttentionEncoder(unittest.TestCase):
             'ref_space_uid': torch.randint(0, self.n_atoms, (self.batch_size, self.n_atoms)),
             'atom_to_token': torch.randint(0, self.n_tokens, (self.batch_size, self.n_atoms)),
         }
-        noisy_pos = Vec3Array.from_array(torch.rand(self.batch_size, self.n_atoms, 3))
+        noisy_pos = torch.rand(self.batch_size, self.n_atoms, 3)
 
         # Pairformer outputs (adjust as per actual module expectations)
         s_trunk = torch.rand(self.batch_size, self.n_tokens, self.c_token)
@@ -151,9 +151,7 @@ class TestAtomAttentionDecoder(unittest.TestCase):
             mask
         )
 
-        self.assertEqual(output.shape, (self.bs, self.n_atoms))
-        self.assertEqual(output.to_tensor().shape, (self.bs, self.n_atoms, 3))
-        self.assertIsInstance(output, Vec3Array)
+        self.assertEqual(output.shape, (self.bs, self.n_atoms, 3))
 
 
 # Run the tests

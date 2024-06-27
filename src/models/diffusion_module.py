@@ -10,11 +10,11 @@ but with several modifications to make it more amenable to the task. The main ch
 """
 import torch
 from torch import nn
-from typing import Dict, Tuple
-from src.diffusion.conditioning import DiffusionConditioning
-from src.diffusion.attention import DiffusionTransformer
+from typing import Dict
+from src.models.diffusion_conditioning import DiffusionConditioning
+from src.models.diffusion_transformer import DiffusionTransformer
 from src.models.components.atom_attention import AtomAttentionEncoder, AtomAttentionDecoder
-from src.models.components.primitives import Linear
+from src.models.components.primitives import LinearNoBias
 
 
 class DiffusionModule(torch.nn.Module):
@@ -34,7 +34,7 @@ class DiffusionModule(torch.nn.Module):
             atom_decoder_heads: int = 16,
             token_transformer_blocks: int = 24,
             token_transformer_heads: int = 16,
-            compile_model: bool = True,
+            clear_cache_between_blocks: bool = False,
     ):
         super(DiffusionModule, self).__init__()
         self.c_atom = c_atom
@@ -49,6 +49,7 @@ class DiffusionModule(torch.nn.Module):
         self.atom_attention_n_keys = atom_attention_n_keys
         self.token_transformer_blocks = token_transformer_blocks
         self.token_transformer_heads = token_transformer_heads
+        self.clear_cache_between_blocks = clear_cache_between_blocks
 
         # Conditioning
         self.diffusion_conditioning = DiffusionConditioning(c_token=c_token, c_pair=c_tokenpair)
@@ -65,11 +66,12 @@ class DiffusionModule(torch.nn.Module):
             dropout=dropout,
             n_queries=atom_attention_n_queries,
             n_keys=atom_attention_n_keys,
-            trunk_conditioning=True
+            trunk_conditioning=True,
+            clear_cache_between_blocks=clear_cache_between_blocks
         )
 
         # Full self-attention on token level
-        self.linear_token_residual = Linear(c_token, c_token, bias=False, init='final')
+        self.linear_token_residual = LinearNoBias(c_token, c_token, init='final')
         self.token_residual_layer_norm = nn.LayerNorm(c_token)
         self.diffusion_transformer = DiffusionTransformer(
             c_token=c_token,
@@ -77,6 +79,7 @@ class DiffusionModule(torch.nn.Module):
             num_blocks=token_transformer_blocks,
             num_heads=token_transformer_heads,
             dropout=dropout,
+            clear_cache_between_blocks=clear_cache_between_blocks
         )
         self.token_post_layer_norm = nn.LayerNorm(c_token)
 
@@ -91,10 +94,6 @@ class DiffusionModule(torch.nn.Module):
             n_queries=atom_attention_n_queries,
             n_keys=atom_attention_n_keys,
         )
-
-        if compile_model:
-            self.atom_attention_encoder = torch.compile(self.atom_attention_encoder)
-            self.atom_attention_decoder = torch.compile(self.atom_attention_decoder)
 
     def forward(
             self,

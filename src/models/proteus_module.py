@@ -1,90 +1,38 @@
 from typing import Any, Dict
 
 import torch
+from torch import nn
 from lightning import LightningModule
 from lightning.pytorch.utilities import grad_norm
 from torchmetrics import MeanMetric
-from src.utils.geometry.vector import Vec3Array
 from src.diffusion.sample import noise_positions, sample_noise_level
 from src.diffusion.augmentation import centre_random_augmentation
 from src.diffusion.loss import diffusion_loss
-import deepspeed
-from torch.utils.checkpoint import checkpoint
+from src.utils.geometry.vector import Vec3Array
+from src.utils.exponential_moving_average import ExponentialMovingAverage
+from src.utils.tensor_utils import tensor_tree_map
+from src.utils.checkpointing import get_checkpoint_fn
+checkpoint = get_checkpoint_fn()
 
 
-class ProteusLitModule(LightningModule):
-    """A regression-based module that is meant for smaller subtasks.
-    It will be used to test the training of model components.
-
-    A `LightningModule` implements 8 key methods:
-
-    ```python
-    def __init__(self):
-    # Define initialization code here.
-
-    def setup(self, stage):
-    # Things to setup before each stage, 'fit', 'validate', 'test', 'predict'.
-    # This hook is called on every process when using DDP.
-
-    def training_step(self, batch, batch_idx):
-    # The complete training step.
-
-    def validation_step(self, batch, batch_idx):
-    # The complete validation step.
-
-    def test_step(self, batch, batch_idx):
-    # The complete test step.
-
-    def predict_step(self, batch, batch_idx):
-    # The complete predict step.
-
-    def configure_optimizers(self):
-    # Define and configure optimizers and LR schedulers.
-    ```
-    """
+class Proteus(nn.Module):
+    """Convenience class that consists of a simple feature embedder and diffusion module.
+    This is used to make the ProteusLitModule receiving a single nn.Module as input."""
 
     def __init__(
             self,
             feature_embedder: torch.nn.Module,
-            diffusion_module: torch.nn.Module,
-            optimizer: torch.optim.Optimizer,
-            scheduler: torch.optim.lr_scheduler,
-            compile: bool,
-            matmul_precision: str = "high"
+            diffusion_module: torch.nn.Module
     ) -> None:
-        """Initialize a KestrelLitModule
+        """
         Args:
             feature_embedder:
                 InputFeatureEmbedder to use embed the initial features.
             diffusion_module:
-                DiffusionModule to use denoise the noisy atoms.
-            optimizer:
-                The optimizer to use for training.
-            scheduler:
-                The learning rate scheduler to use for training.
-            compile:
-                whether to compile the models
-            matmul_precision:
-                Sets the internal precision of float32 matrix multiplications with
-                torch.set_float32_matmul_precision. Choose from "highest", "high" or "medium"
-        """
+                DiffusionModule to use denoise the noisy atoms."""
         super().__init__()
-
-        # this line allows access to init params with 'self.hparams' attribute
-        # also ensures init params will be stored in ckpt
-        self.save_hyperparameters(logger=False)  # ignore=["feature_embedder", "diffusion_module"]
-
-        # Simplest diffusion model possible for testing
         self.feature_embedder = feature_embedder
         self.diffusion_module = diffusion_module
-
-        # for averaging loss across batches
-        self.train_loss = MeanMetric()
-        self.val_loss = MeanMetric()
-        self.test_loss = MeanMetric()
-
-        # Set matmul precision
-        torch.set_float32_matmul_precision(matmul_precision)
 
     def forward(
             self,
@@ -114,6 +62,11 @@ class ProteusLitModule(LightningModule):
         Returns:
             [*, n_atoms] The denoised positions of the atoms
         """
+        # This needs to be done manually for DeepSpeed's sake  TODO: delete ths, done higher up
+        dtype = next(self.parameters()).dtype
+        for k in features:
+            if features[k].dtype == torch.float32:
+                features[k] = features[k].to(dtype=dtype)
 
         # Initial Features
         init_features = self.feature_embedder(features, atom_mask=atom_mask, token_mask=token_mask)
@@ -133,6 +86,52 @@ class ProteusLitModule(LightningModule):
 
         return Vec3Array.from_array(denoised_atoms)
 
+
+class ProteusLitModule(LightningModule):
+    """A small unconditional backbone generation module that is meant as a test fire for AlphaFold3 components."""
+
+    def __init__(
+            self,
+            model: nn.Module,
+            optimizer: torch.optim.Optimizer,
+            scheduler: torch.optim.lr_scheduler,
+            matmul_precision: str = "medium",
+            compile: bool = False,
+            ema_decay: float = 0.999,
+    ) -> None:
+        """Initialize a ProteusLitModule
+        Args:
+            optimizer:
+                The optimizer to use for training.
+            scheduler:
+                The learning rate scheduler to use for training.
+        """
+        super().__init__()
+
+        # Simplest diffusion model possible for testing
+        self.model = model
+
+        # Maintain an EMA of model parameters
+        # self.ema = ExponentialMovingAverage(
+        #    model=self.model, decay=ema_decay
+        # )
+
+        self.cached_weights = None
+        self.last_lr_step = -1
+
+        self.save_hyperparameters(logger=False)  # ignore=["feature_embedder", "diffusion_module"]
+
+        # for averaging loss across batches  TODO: remove these to reduce clutter
+        self.train_loss = MeanMetric()
+        self.val_loss = MeanMetric()
+        self.test_loss = MeanMetric()
+
+        # Set matmul precision
+        torch.set_float32_matmul_precision(matmul_precision)
+
+    def forward(self, *args: Any, **kwargs: Any) -> Vec3Array:
+        return self.model(*args, **kwargs)
+
     def on_train_start(self) -> None:
         """Lightning hook that is called when training begins."""
         # by default lightning executes validation step sanity checks before training starts,
@@ -150,6 +149,14 @@ class ProteusLitModule(LightningModule):
         :return:
             loss tensor
         """
+        # This needs to be done manually for DeepSpeed's sake
+        dtype = next(self.parameters()).dtype
+        for k in batch:
+            if isinstance(batch[k], dict):
+                for j in batch[k]:
+                    batch[k][j] = batch[k][j].to(dtype=dtype)
+            elif batch[k].dtype == torch.float32:
+                batch[k] = batch[k].to(dtype=dtype)
 
         # Record shape and device
         coordinates = batch["atom_positions"]  # (bs, n_atoms, 3)
@@ -192,7 +199,7 @@ class ProteusLitModule(LightningModule):
         :param batch_idx: The index of the current batch.
         :return: A tensor of losses between model predictions and targets.
         """
-        loss = self.model_step(batch)  # model step with grad checkpointing
+        loss = self.model_step(batch)
 
         # update and log metrics
         self.train_loss(loss)
@@ -206,7 +213,13 @@ class ProteusLitModule(LightningModule):
         pass
 
     def on_before_zero_grad(self, optimizer: torch.optim.Optimizer) -> None:
-        """Keeps an eye on weight norms during training."""
+        """
+        1. Updates the EMA of the model parameters.
+        2. Keeps an eye on weight norms during training.
+        """
+       # self.ema.update(self.model)
+
+        # Log weight norms
         weight_norms = {}
         for name, param in self.named_parameters():
             weight_norms[f"{name}_abs_mean"] = param.abs().mean().item()
@@ -214,7 +227,7 @@ class ProteusLitModule(LightningModule):
 
     def on_before_optimizer_step(self, optimizer):
         """Keeps an eye on gradient norms during training."""
-        norms = grad_norm(self.diffusion_module, norm_type=2)
+        norms = grad_norm(self.model, norm_type=2)
         self.log_dict(norms)
 
     def validation_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
@@ -224,22 +237,25 @@ class ProteusLitModule(LightningModule):
             labels.
         :param batch_idx: The index of the current batch.
         """
+        # At the start of validation, load the EMA weights
+        # if self.cached_weights is None:
+        # model.state_dict() contains references to model weights rather
+        # than copies. Therefore, we need to clone them before calling
+        # load_state_dict().
+        #    clone_param = lambda t: t.detach().clone()
+        #    self.cached_weights = tensor_tree_map(clone_param, self.model.state_dict())
+        #    self.model.load_state_dict(self.ema.state_dict()["params"])
+
         loss = self.model_step(batch)
 
         # update and log metrics
         self.val_loss(loss)
         self.log("val/loss", self.val_loss, on_step=False, on_epoch=True, prog_bar=True)
 
-        # TODO: add RMSD metric for validation
-
-    def on_validation_epoch_end(self) -> None:
-        """Lightning hook that is called when a validation epoch ends."""
-        # acc = self.val_acc.compute()  # get current val acc
-        # self.val_acc_best(acc)  # update best so far val loss
-        # log `val_acc_best` as a value through `.compute()` method, instead of as a metric object
-        # otherwise metric would be reset by lightning after each epoch
-        # self.log("val/acc_best", self.val_acc_best.compute(), sync_dist=True, prog_bar=True)
-        # TODO: log best validation loss and RMSD metrics
+    def on_validation_epoch_end(self):
+        # Restore the model weights to normal
+        # self.model.load_state_dict(self.cached_weights)
+        # self.cached_weights = None
         pass
 
     def test_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
@@ -255,11 +271,8 @@ class ProteusLitModule(LightningModule):
         self.test_loss(loss)
         self.log("test/loss", self.test_loss, on_step=False, on_epoch=True, prog_bar=True)
 
-        # TODO: add RMSD metric for test
-
     def on_test_epoch_end(self) -> None:
         """Lightning hook that is called when a test epoch ends."""
-        # TODO: log best test loss and RMSD metrics
         pass
 
     def setup(self, stage: str) -> None:
@@ -272,8 +285,7 @@ class ProteusLitModule(LightningModule):
         :param stage: Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
         """
         if self.hparams.compile and stage == "fit":
-            self.diffusion_module = torch.compile(self.diffusion_module)
-            self.feature_embedder = torch.compile(self.feature_embedder)
+            self.model = torch.compile(self.model)
 
     def configure_optimizers(self) -> Dict[str, Any]:
         """Choose what optimizers and learning-rate schedulers to use in your optimization.
@@ -284,19 +296,30 @@ class ProteusLitModule(LightningModule):
 
         :return: A dict containing the configured optimizers and learning-rate schedulers to be used for training.
         """
-        optimizer = self.hparams.optimizer(params=self.trainer.model.parameters())
+        optimizer = self.hparams.optimizer(self.trainer.model.parameters())
         if self.hparams.scheduler is not None:
             scheduler = self.hparams.scheduler(optimizer=optimizer)
             return {
                 "optimizer": optimizer,
                 "lr_scheduler": {
                     "scheduler": scheduler,
-                    "monitor": "val/loss",
-                    "interval": "epoch",
-                    "frequency": 1,
+                    "interval": "step",
+                    "name": "AlphaFold3LRScheduler"
+                    # "frequency": 1,
                 },
             }
         return {"optimizer": optimizer}
+
+    def on_load_checkpoint(self, checkpoint: Dict[str, Any]):
+        """Lightning hook that is called when loading a checkpoint."""
+        # ema = checkpoint["ema"]
+        # self.ema.load_state_dict(ema)
+        pass
+
+    def on_save_checkpoint(self, checkpoint: Dict[str, Any]):
+        """Lightning hook that is called when saving a checkpoint."""
+        # checkpoint["ema"] = self.ema.state_dict()
+        pass
 
 
 if __name__ == "__main__":

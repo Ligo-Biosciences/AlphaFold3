@@ -15,13 +15,14 @@ import importlib
 from typing import Any, Tuple, List, Callable, Optional
 import torch
 import torch.utils.checkpoint
+from functools import partial
 
 deepspeed_is_installed = importlib.util.find_spec("deepspeed") is not None
 if deepspeed_is_installed:
     import deepspeed
 
 BLOCK_ARG = Any
-BLOCK_ARGS = List[BLOCK_ARG]
+BLOCK_ARGS = Tuple[BLOCK_ARG, ...]  # List[BLOCK_ARGS]
 
 
 def get_checkpoint_fn():
@@ -32,7 +33,7 @@ def get_checkpoint_fn():
     if deepspeed_is_configured:
         checkpoint = deepspeed.checkpointing.checkpoint
     else:
-        checkpoint = torch.utils.checkpoint.checkpoint
+        checkpoint = partial(torch.utils.checkpoint.checkpoint, use_reentrant=True)
 
     return checkpoint
 

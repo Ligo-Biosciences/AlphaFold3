@@ -1,7 +1,6 @@
 import unittest
 import torch
-from src.diffusion.conditioning import FourierEmbedding, RelativePositionEncoding, DiffusionConditioning
-from src.models.components.primitives import Linear
+from src.models.diffusion_conditioning import FourierEmbedding, RelativePositionEncoding, DiffusionConditioning
 
 
 class TestFourierEmbedding(unittest.TestCase):
