@@ -19,6 +19,7 @@ from typing import Optional, Callable, List, Tuple, Sequence
 from functools import partialmethod
 import numpy as np
 import torch
+from torch import vmap
 import torch.nn as nn
 import torch.nn.functional as F
 from scipy.stats import truncnorm
@@ -296,10 +297,6 @@ def softmax_no_cast(t: torch.Tensor, dim: int = -1) -> torch.Tensor:
 
     return s
 
-# TODO: write AtomAttentionPairBias in a way that uses Deepspeed Evo Attention but
-#  with automatic batching with vmap to make everything more efficient
-#  That will save me a lot of grief I think, and gradients will flow through the biases.
-
 
 # @torch.jit.script
 def _attention(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, biases: List[torch.Tensor]) -> torch.Tensor:
@@ -377,18 +374,6 @@ def _attention_chunked_trainable(
 
     o = torch.cat(o_chunks, dim=chunk_dim)
     return o
-
-
-# TODO: delete AttentionPairBias, migrate to efficient attention implementations
-def compute_pair_attention_mask(mask, large_number=-1e6):
-    # Compute boolean pair mask
-    pair_mask = (mask[:, :, None] * mask[:, None, :]).unsqueeze(-1)  # (bs, n, n, 1)
-
-    # Invert such that 0.0 indicates attention, 1.0 indicates no attention
-    pair_mask_inv = torch.add(1, -pair_mask)
-
-    # Multiply with large number such that 0.0 indicates attention, -large_number no attention
-    return torch.mul(large_number, pair_mask_inv)
 
 
 class AttentionPairBias(nn.Module):
@@ -472,8 +457,7 @@ class AttentionPairBias(nn.Module):
         mask_bias = None
         if mask is not None:
             mask_bias = mask.unsqueeze(1).unsqueeze(1).unsqueeze(1)  # (bs, 1, 1, 1, n_tokens)
-            pair_mask_inv = torch.add(1, -mask_bias)  # invert
-            mask_bias = torch.mul(pair_mask_inv, -self.inf)  # 0.0 indicates attention, -inf no attention
+            mask_bias = (mask_bias-1) * self.inf
 
         # Project pair biases per head from pair representation
         pair_bias = self.linear_pair(self.layer_norm_pair(pair_repr))  # (bs, n_tokens, n_tokens, n_heads)
@@ -700,7 +684,7 @@ class Attention(nn.Module):
                     "If use_deepspeed_evo_attention is True, you may only "
                     "provide up to two bias terms"
                 )
-            o = _deepspeed_evo_attn(q, k, v, biases)
+            o = _deepspeed_evo_attn(q, k, v, biases)  # _deepspeed_evo_attn(q, k, v, biases)
         elif use_lma:
             biases = [
                 b.expand(b.shape[:-2] + (q_x.shape[-2],) + (kv_x.shape[-2],))
@@ -717,95 +701,6 @@ class Attention(nn.Module):
         o = self._wrap_up(o, q_x)
 
         return o
-
-
-class GlobalAttention(nn.Module):
-    def __init__(self, c_in, c_hidden, no_heads, inf, eps):
-        super(GlobalAttention, self).__init__()
-
-        self.c_in = c_in
-        self.c_hidden = c_hidden
-        self.no_heads = no_heads
-        self.inf = inf
-        self.eps = eps
-
-        self.linear_q = LinearNoBias(
-            c_in, c_hidden * no_heads, init="glorot"
-        )
-
-        self.linear_k = LinearNoBias(
-            c_in, c_hidden, init="glorot",
-        )
-        self.linear_v = LinearNoBias(
-            c_in, c_hidden, init="glorot",
-        )
-        self.linear_g = Linear(c_in, c_hidden * no_heads, init="gating")
-        self.linear_o = Linear(c_hidden * no_heads, c_in, init="final")
-
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self,
-                m: torch.Tensor,
-                mask: torch.Tensor,
-                use_lma: bool = False,
-                ) -> torch.Tensor:
-        # [*, N_res, C_in]
-        q = torch.sum(m * mask.unsqueeze(-1), dim=-2) / (
-                torch.sum(mask, dim=-1)[..., None] + self.eps
-        )
-
-        # [*, N_res, H * C_hidden]
-        q = self.linear_q(q)
-        q *= (self.c_hidden ** (-0.5))
-
-        # [*, N_res, H, C_hidden]
-        q = q.view(q.shape[:-1] + (self.no_heads, -1))
-
-        # [*, N_res, N_seq, C_hidden]
-        k = self.linear_k(m)
-        v = self.linear_v(m)
-
-        bias = (self.inf * (mask - 1))[..., :, None, :]
-        if not use_lma:
-            # [*, N_res, H, N_seq]
-            a = torch.matmul(
-                q,
-                k.transpose(-1, -2),  # [*, N_res, C_hidden, N_seq]
-            )
-            a += bias
-            a = softmax_no_cast(a)
-
-            # [*, N_res, H, C_hidden]
-            o = torch.matmul(
-                a,
-                v,
-            )
-        else:
-            o = _lma(
-                q,
-                k,
-                v,
-                [bias],
-                DEFAULT_LMA_Q_CHUNK_SIZE,
-                DEFAULT_LMA_KV_CHUNK_SIZE
-            )
-
-        # [*, N_res, N_seq, C_hidden]
-        g = self.sigmoid(self.linear_g(m))
-
-        # [*, N_res, N_seq, H, C_hidden]
-        g = g.view(g.shape[:-1] + (self.no_heads, -1))
-
-        # [*, N_res, N_seq, H, C_hidden]
-        o = o.unsqueeze(-3) * g
-
-        # [*, N_res, N_seq, H * C_hidden]
-        o = o.reshape(o.shape[:-2] + (-1,))
-
-        # [*, N_res, N_seq, C_in]
-        m = self.linear_o(o)
-
-        return m
 
 
 @torch.jit.ignore
