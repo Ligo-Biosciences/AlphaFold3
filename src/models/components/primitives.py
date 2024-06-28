@@ -196,16 +196,16 @@ class Linear(nn.Linear):
         if self.precision is not None:
             with torch.cuda.amp.autocast(enabled=False):
                 bias = self.bias.to(dtype=self.precision) if self.bias is not None else None
-                return nn.functional.linear(input.to(dtype=self.precision),
+                return F.linear(input.to(dtype=self.precision),
                                             self.weight.to(dtype=self.precision),
                                             bias).to(dtype=d)
 
         if d is torch.bfloat16 and not deepspeed_is_initialized:
             with torch.cuda.amp.autocast(enabled=False):
                 bias = self.bias.to(dtype=d) if self.bias is not None else None
-                return nn.functional.linear(input, self.weight.to(dtype=d), bias)
+                return F.linear(input, self.weight.to(dtype=d), bias)
 
-        return nn.functional.linear(input, self.weight, self.bias)
+        return F.linear(input, self.weight, self.bias)
 
 
 class LinearNoBias(Linear):
@@ -234,7 +234,7 @@ class LayerNorm(nn.Module):
         )
         if d is torch.bfloat16 and not deepspeed_is_initialized:
             with torch.cuda.amp.autocast(enabled=False):
-                out = nn.functional.layer_norm(
+                out = F.layer_norm(
                     x,
                     self.c_in,
                     self.weight.to(dtype=d),
@@ -242,7 +242,7 @@ class LayerNorm(nn.Module):
                     self.eps
                 )
         else:
-            out = nn.functional.layer_norm(
+            out = F.layer_norm(
                 x,
                 self.c_in,
                 self.weight,
@@ -443,7 +443,7 @@ class AttentionPairBias(nn.Module):
             single_repr: torch.Tensor,  # (bs, n_tokens, c_atom)
             single_proj: Optional[torch.Tensor],  # (bs, n_tokens, c_atom)
             pair_repr: torch.Tensor,  # (bs, n_tokens, n_tokens, c_pair)
-            mask=None,  # (bs, n_tokens)
+            mask: Optional[torch.Tensor] = None,  # (bs, n_tokens)
     ) -> torch.Tensor:
         """Full self-attention at the token-level with pair bias."""
 

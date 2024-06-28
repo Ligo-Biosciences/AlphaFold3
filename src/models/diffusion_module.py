@@ -35,6 +35,7 @@ class DiffusionModule(torch.nn.Module):
             token_transformer_blocks: int = 24,
             token_transformer_heads: int = 16,
             clear_cache_between_blocks: bool = False,
+            compile_model: bool = False,
     ):
         super(DiffusionModule, self).__init__()
         self.c_atom = c_atom
@@ -94,6 +95,11 @@ class DiffusionModule(torch.nn.Module):
             n_queries=atom_attention_n_queries,
             n_keys=atom_attention_n_keys,
         )
+        if compile_model:
+            self.diffusion_conditioning = torch.compile(self.diffusion_conditioning)
+            self.atom_attention_encoder = torch.compile(self.atom_attention_encoder)
+            # diffusion_transformer = torch.compile(self.diffusion_transformer)
+            self.atom_attention_decoder = torch.compile(self.atom_attention_decoder)
 
     def forward(
             self,

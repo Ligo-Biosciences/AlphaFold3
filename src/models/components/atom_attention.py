@@ -405,7 +405,7 @@ def gather_token_repr(
     """
     batch_size, n_atoms = tok_idx.shape
     _, n_tokens, embed_dim = token_repr.shape
-    tok_idx = tok_idx.to(torch.int64)
+    # tok_idx = tok_idx.int()  # convert to int for indexing
 
     # Expand tok_idx to have the same number of dimensions as token_repr
     tok_idx_expanded = tok_idx.unsqueeze(-1).expand(batch_size, n_atoms, embed_dim)
@@ -414,36 +414,6 @@ def gather_token_repr(
     gathered_embeddings = torch.gather(token_repr, 1, tok_idx_expanded)
 
     return gathered_embeddings
-
-
-def map_token_pairs_to_atom_pairs(
-        token_pairs: Tensor,  # (bs, n_tokens, c_pair)
-        tok_idx: Tensor  # (bs, n_atoms)
-) -> Tensor:
-    """Given token pairs and token indices, map token pairs to atom pairs.
-    Args:
-        token_pairs (torch.Tensor):
-            Tensor of shape (bs, n_tokens, n_tokens, c_pair).
-        tok_idx (torch.Tensor):
-            Tensor of shape (bs, n_atoms) containing token indices per atom.
-    Returns:
-        torch.Tensor: Tensor of shape (bs, n_atoms, n_atoms, c_pair) containing atom pair embeddings
-        derived from token pair embeddings. For each atom pair (l, m), the corresponding token pair's
-        embeddings are extracted.
-    TODO: modify this to handle local biases instead of global mapping (likely the trickiest part)
-    """
-    bs, n_atoms = tok_idx.shape
-    _, n_tokens, _, c_pair = token_pairs.shape
-    tok_idx = tok_idx.to(torch.int64)
-
-    # Expand tok_idx for efficient gather operation
-    tok_idx_l = tok_idx.unsqueeze(2).expand(-1, -1, n_atoms)
-    tok_idx_m = tok_idx.unsqueeze(1).expand(-1, n_atoms, -1)
-    batch_index = torch.arange(bs, device=token_pairs.device).reshape(bs, 1, 1)
-
-    # Gather token pair embeddings using advanced indexing
-    atom_pairs = token_pairs[batch_index, tok_idx_l, tok_idx_m, :]
-    return atom_pairs
 
 
 def map_token_pairs_to_local_atom_pairs(token_pairs, tok_idx, n_queries=32, n_keys=128) -> Tensor:
@@ -463,14 +433,14 @@ def map_token_pairs_to_local_atom_pairs(token_pairs, tok_idx, n_queries=32, n_ke
         pair embeddings. For each atom pair (l, m), the corresponding token pair's embeddings are extracted."""
     bs, n_atoms = tok_idx.shape
     _, n_tokens, _, c_pair = token_pairs.shape
-    tok_idx = tok_idx.to(torch.int64)
+    # tok_idx = tok_idx.int()  # convert to int for indexing
 
     # Expand tok_idx for efficient gather operation
     tok_idx_l = tok_idx.unsqueeze(2).expand(-1, -1, n_atoms).unsqueeze(-1)
     tok_idx_m = tok_idx.unsqueeze(1).expand(-1, n_atoms, -1).unsqueeze(-1)
     batch_index = torch.arange(bs).reshape(bs, 1, 1, 1)
 
-    # Extract the local
+    # Extract the local indices
     local_tok_idx_l = extract_locals(tok_idx_l, n_queries=n_queries, n_keys=n_keys, pad_value=0).squeeze(-1)
     local_tok_idx_m = extract_locals(tok_idx_m, n_queries=n_queries, n_keys=n_keys, pad_value=0).squeeze(-1)
 
@@ -501,7 +471,7 @@ def aggregate_atom_to_token(
     masked_atom -> legitimate_token
     """
     bs, n_atoms, c_atom = atom_representation.shape
-    tok_idx = tok_idx.to(torch.int64)
+    # tok_idx = tok_idx.int()  # convert to int for indexing
 
     # Initialize the token representation tensor with zeros
     token_representation = torch.zeros((bs, n_tokens, c_atom),

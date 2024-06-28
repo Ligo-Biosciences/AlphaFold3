@@ -14,8 +14,7 @@ class RelativePositionEncoding(nn.Module):
             self,
             c_pair: int,
             r_max: int = 32,
-            s_max: int = 2,
-            dtype: torch.dtype = torch.bfloat16
+            s_max: int = 2
     ):
         """Initializes the relative position encoding.
         Args:
@@ -30,7 +29,6 @@ class RelativePositionEncoding(nn.Module):
         self.c_pair = c_pair
         self.r_max = r_max
         self.s_max = s_max
-        self.dtype = dtype
 
         # Compute total input dimensions for the linear projection
         input_dim = 2 * r_max + 2 + 2 * r_max + 2 + 2 * s_max + 2 + 1  # (relpos, rel_token, rel_chain, same_entity)
@@ -68,16 +66,17 @@ class RelativePositionEncoding(nn.Module):
         b_same_entity = b_same_entity.unsqueeze(-1)  # (bs, n_tokens, n_tokens, 1)
 
         # Compute relative residue position encoding
-        rel_pos = RelativePositionEncoding.encode(features["residue_index"], b_same_chain, clamp_max=self.r_max)
+        rel_pos = self.encode(features["residue_index"], b_same_chain, clamp_max=self.r_max)
 
         # Compute relative token position encoding
-        rel_token = RelativePositionEncoding.encode(features["token_index"], b_same_chain & b_same_residue,
-                                                    clamp_max=self.r_max)
+        rel_token = self.encode(features["token_index"], b_same_chain & b_same_residue, clamp_max=self.r_max)
 
         # Compute relative chain position encoding
-        rel_chain = RelativePositionEncoding.encode(features["asym_id"], b_same_chain, clamp_max=self.s_max)
+        rel_chain = self.encode(features["asym_id"], b_same_chain, clamp_max=self.s_max)
 
-        p_ij = self.linear_proj(torch.cat([rel_pos, rel_token, b_same_entity, rel_chain], dim=-1))
+        # Concatenate all features and project
+        concat_features = torch.cat([rel_pos, rel_token, b_same_entity, rel_chain], dim=-1)
+        p_ij = self.linear_proj(concat_features)
 
         # Mask the output
         if mask is not None:
@@ -85,8 +84,8 @@ class RelativePositionEncoding(nn.Module):
             p_ij = p_ij * mask
         return p_ij
 
-    @staticmethod
-    def encode(feature_tensor: torch.Tensor,
+    def encode(self,
+               feature_tensor: torch.Tensor,
                condition_tensor: torch.Tensor,
                clamp_max: int) -> torch.Tensor:
         """Computes relative position encoding of an arbitrary tensor."""
@@ -98,5 +97,5 @@ class RelativePositionEncoding(nn.Module):
         )
         a_ij = one_hot(d_ij, v_bins=torch.arange(0, (2 * clamp_max + 2),
                                                  device=feature_tensor.device,
-                                                 dtype=feature_tensor.dtype))
+                                                 dtype=self.linear_proj.weight.dtype))
         return a_ij  # (bs, n_tokens, n_tokens, 2 * clamp_max + 2)
