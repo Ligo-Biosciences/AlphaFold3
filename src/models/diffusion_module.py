@@ -56,7 +56,11 @@ class DiffusionModule(torch.nn.Module):
         self.clear_cache_between_blocks = clear_cache_between_blocks
 
         # Conditioning
-        self.diffusion_conditioning = DiffusionConditioning(c_token=c_token, c_pair=c_tokenpair)
+        self.diffusion_conditioning = DiffusionConditioning(
+            c_token=c_token,
+            c_pair=c_tokenpair,
+            sd_data=sd_data
+        )
 
         # Sequence-local atom attention and aggregation to coarse-grained tokens
         self.atom_attention_encoder = AtomAttentionEncoder(

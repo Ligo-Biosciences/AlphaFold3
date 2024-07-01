@@ -2,7 +2,8 @@
 
 import torch
 from torch import nn
-from src.models.components.primitives import Linear
+from torch import Tensor
+from src.models.components.primitives import LinearNoBias, LayerNorm
 from src.models.components.relative_position_encoding import RelativePositionEncoding
 from src.models.components.transition import Transition
 from typing import Dict, Tuple
@@ -32,6 +33,7 @@ class DiffusionConditioning(nn.Module):
             self,
             c_token: int = 384,
             c_pair: int = 128,
+            sd_data: float = 16.0
     ):
         """Initializes the diffusion conditioning module.
         Args:
@@ -43,31 +45,37 @@ class DiffusionConditioning(nn.Module):
         super(DiffusionConditioning, self).__init__()
         self.c_token = c_token
         self.c_pair = c_pair
+        self.sd_data = sd_data
 
         # Pair conditioning
         self.relative_position_encoding = RelativePositionEncoding(c_pair)
-        self.pair_layer_norm = nn.LayerNorm(2 * c_pair)  # z_trunk + relative_position_encoding
-        self.linear_pair = Linear(2 * c_pair, c_pair, bias=False)
+        self.proj_pair = nn.Sequential(
+            LayerNorm(2 * c_pair),  # z_trunk + relative_position_encoding
+            LinearNoBias(2 * c_pair, c_pair)
+        )
         self.pair_transitions = nn.ModuleList([Transition(input_dim=c_pair, n=2) for _ in range(2)])
 
         # Single conditioning
-        self.single_layer_norm = nn.LayerNorm(2 * c_token)  # s_trunk + s_inputs
-        self.linear_single = Linear(2 * c_token, c_token, bias=False)
+        self.proj_single = nn.Sequential(
+            LayerNorm(2 * c_token),  # s_trunk + s_inputs
+            LinearNoBias(2 * c_token, c_token)
+        )
         self.fourier_embedding = FourierEmbedding(embed_dim=256)  # 256 is the default value in the paper
-        self.fourier_layer_norm = nn.LayerNorm(256)
-        self.linear_fourier = Linear(256, c_token, bias=False)
+        self.proj_fourier = nn.Sequential(
+            LayerNorm(256),
+            LinearNoBias(256, c_token)
+        )
         self.single_transitions = nn.ModuleList([Transition(input_dim=c_token, n=2) for _ in range(2)])
 
     def _forward(
             self,
-            timesteps: torch.Tensor,  # timestep (bs, 1)
-            features: Dict[str, torch.Tensor],  # input feature dict
-            s_inputs: torch.Tensor,  # (bs, n_tokens, c_token)
-            s_trunk: torch.Tensor,  # (bs, n_tokens, c_token)
-            z_trunk: torch.Tensor,  # (bs, n_tokens, n_tokens, c_pair)
-            sd_data: float = 16.0,
-            mask: torch.Tensor = None,  # (bs, n_tokens)
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+            timesteps: Tensor,  # timestep (bs, 1)
+            features: Dict[str, Tensor],  # input feature dict
+            s_inputs: Tensor,  # (bs, n_tokens, c_token)
+            s_trunk: Tensor,  # (bs, n_tokens, c_token)
+            z_trunk: Tensor,  # (bs, n_tokens, n_tokens, c_pair)
+            mask: Tensor = None,  # (bs, n_tokens)
+    ) -> Tuple[Tensor, Tensor]:
         """Diffusion conditioning.
         Args:
             timesteps:
@@ -91,22 +99,25 @@ class DiffusionConditioning(nn.Module):
                 [*, n_tokens, c_token] Single conditioning from Pairformer trunk
             z_trunk:
                 [*, n_tokens, n_tokens, c_pair] Pair conditioning from Pairformer trunk
-            sd_data:
-                Scaling factor for the timesteps before fourier embedding
             mask:
                 [*, n_tokens] token mask
         """
         # Pair conditioning
         pair_repr = torch.cat([z_trunk, self.relative_position_encoding(features, mask)], dim=-1)
-        pair_repr = self.linear_pair(self.pair_layer_norm(pair_repr))
+        pair_repr = self.proj_pair(pair_repr)
         for transition in self.pair_transitions:
             pair_repr = pair_repr + transition(pair_repr)
 
         # Single conditioning
         token_repr = torch.cat([s_trunk, s_inputs], dim=-1)
-        token_repr = self.linear_single(self.single_layer_norm(token_repr))
-        fourier_repr = self.fourier_embedding(torch.log(torch.div(torch.div(timesteps, sd_data), 4.0)))
-        fourier_repr = self.linear_fourier(self.fourier_layer_norm(fourier_repr))
+        token_repr = self.proj_single(token_repr)
+        fourier_repr = self.fourier_embedding(
+            torch.div(
+                torch.log(torch.div(timesteps, self.sd_data)),
+                4.0
+            )
+        )
+        fourier_repr = self.proj_fourier(fourier_repr)
         token_repr = token_repr + fourier_repr.unsqueeze(1)
         for transition in self.single_transitions:
             token_repr = token_repr + transition(token_repr)
@@ -121,12 +132,11 @@ class DiffusionConditioning(nn.Module):
 
     def forward(
             self,
-            timesteps: torch.Tensor,  # timestep (bs, 1)
-            features: Dict[str, torch.Tensor],  # input feature dict
-            s_inputs: torch.Tensor,  # (bs, n_tokens, c_token)
-            s_trunk: torch.Tensor,  # (bs, n_tokens, c_token)
-            z_trunk: torch.Tensor,  # (bs, n_tokens, n_tokens, c_pair)
-            sd_data: float = 16.0,
-            mask: torch.Tensor = None,  # (bs, n_tokens)
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        return checkpoint(self._forward, timesteps, features, s_inputs, s_trunk, z_trunk, sd_data, mask)
+            timesteps: Tensor,  # timestep (bs, 1)
+            features: Dict[str, Tensor],  # input feature dict
+            s_inputs: Tensor,  # (bs, n_tokens, c_token)
+            s_trunk: Tensor,  # (bs, n_tokens, c_token)
+            z_trunk: Tensor,  # (bs, n_tokens, n_tokens, c_pair)
+            mask: Tensor = None,  # (bs, n_tokens)
+    ) -> Tuple[Tensor, Tensor]:
+        return checkpoint(self._forward, timesteps, features, s_inputs, s_trunk, z_trunk, mask)
