@@ -267,13 +267,16 @@ class AdaLN(nn.Module):
 
         # Linear layers for gating and the skip connection
         dim = normalized_shape if isinstance(normalized_shape, int) else normalized_shape[-1]
-        self.gating_linear = Linear(dim, dim, init='gating')
+        self.to_gamma = nn.Sequential(
+            Linear(dim, dim, init='gating'),
+            nn.Sigmoid()
+        )
         self.skip_linear = LinearNoBias(dim, dim, init='final')
 
     def forward(self, a, s):
         a = self.a_layer_norm(a)
         s = self.s_layer_norm(s)
-        a = F.sigmoid(self.gating_linear(s)) * a + self.skip_linear(s)
+        a = self.to_gamma(s) * a + self.skip_linear(s)
         return a
 
 
@@ -291,10 +294,9 @@ def softmax_no_cast(t: torch.Tensor, dim: int = -1) -> torch.Tensor:
     )
     if d is torch.bfloat16 and not deepspeed_is_initialized:
         with torch.cuda.amp.autocast(enabled=False):
-            s = torch.nn.functional.softmax(t, dim=dim)
+            s = F.softmax(t, dim=dim)
     else:
-        s = torch.nn.functional.softmax(t, dim=dim)
-
+        s = F.softmax(t, dim=dim)
     return s
 
 
@@ -521,29 +523,31 @@ class Attention(nn.Module):
         self.no_heads = no_heads
         self.gating = gating
 
-        # DISCREPANCY: c_hidden is not the per-head channel dimension, as
-        # stated in the supplement, but the overall channel dimension.
+        # The qkv linear layers project no_heads * c_hidden and then split the dimensions
+        self.linear_q = nn.Sequential(
+            LinearNoBias(self.c_q, self.c_hidden * self.no_heads, init="glorot"),
+            nn.Unflatten(dim=-1, unflattened_size=(self.no_heads, self.c_hidden))
+        )
 
-        self.linear_q = LinearNoBias(
-            self.c_q, self.c_hidden * self.no_heads, init="glorot"
+        self.linear_k = nn.Sequential(
+            LinearNoBias(self.c_k, self.c_hidden * self.no_heads, init="glorot"),
+            nn.Unflatten(dim=-1, unflattened_size=(self.no_heads, self.c_hidden))
         )
-        self.linear_k = LinearNoBias(
-            self.c_k, self.c_hidden * self.no_heads, init="glorot"
-        )
-        self.linear_v = LinearNoBias(
-            self.c_v, self.c_hidden * self.no_heads, init="glorot"
+        self.linear_v = nn.Sequential(
+            LinearNoBias(self.c_v, self.c_hidden * self.no_heads, init="glorot"),
+            nn.Unflatten(dim=-1, unflattened_size=(self.no_heads, self.c_hidden))
         )
         self.linear_o = Linear(
             self.c_hidden * self.no_heads, self.c_q, init="final"
         )
 
-        self.linear_g = None
+        self.to_gamma = None
         if self.gating:
-            self.linear_g = Linear(
-                self.c_q, self.c_hidden * self.no_heads, init="gating"
+            self.to_gamma = nn.Sequential(
+                Linear(self.c_q, self.c_hidden * self.no_heads, init="gating"),
+                nn.Unflatten(dim=-1, unflattened_size=(self.no_heads, self.c_hidden)),
+                nn.Sigmoid()
             )
-
-        self.sigmoid = nn.Sigmoid()
 
     def _prep_qkv(self,
                   q_x: torch.Tensor,
@@ -552,15 +556,10 @@ class Attention(nn.Module):
                   ) -> Tuple[
         torch.Tensor, torch.Tensor, torch.Tensor
     ]:
-        # [*, Q/K/V, H * C_hidden]
+        # [*, Q/K/V, H, C_hidden]
         q = self.linear_q(q_x)
         k = self.linear_k(kv_x)
         v = self.linear_v(kv_x)
-
-        # [*, Q/K, H, C_hidden]
-        q = q.view(q.shape[:-1] + (self.no_heads, -1))
-        k = k.view(k.shape[:-1] + (self.no_heads, -1))
-        v = v.view(v.shape[:-1] + (self.no_heads, -1))
 
         # [*, H, Q/K, C_hidden]
         q = q.transpose(-2, -3)
@@ -572,15 +571,15 @@ class Attention(nn.Module):
 
         return q, k, v
 
-    def _wrap_up(self,
-                 o: torch.Tensor,
-                 q_x: torch.Tensor
-                 ) -> torch.Tensor:
-        if self.linear_g is not None:
-            g = self.sigmoid(self.linear_g(q_x))
+    def _wrap_up(
+            self,
+            o: torch.Tensor,
+            q_x: torch.Tensor
+    ) -> torch.Tensor:
+        if self.to_gamma is not None:
+            g = self.to_gamma(q_x)
 
             # [*, Q, H, C_hidden]
-            g = g.view(g.shape[:-1] + (self.no_heads, -1))
             o = o * g
 
         # [*, Q, H * C_hidden]

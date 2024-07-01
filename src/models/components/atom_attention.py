@@ -6,10 +6,10 @@ rules about local atom constellations, independently of the coarse-grained token
 is represented with a single token only."""
 
 import torch
-from torch import Tensor
+from torch import Tensor, LongTensor
 from torch import nn
 from torch.nn import functional as F
-from src.models.components.primitives import AdaLN, Linear, LinearNoBias, Attention
+from src.models.components.primitives import AdaLN, Linear, LinearNoBias, Attention, LayerNorm
 from src.models.components.transition import ConditionedTransitionBlock
 from typing import Dict, NamedTuple, Optional, Tuple
 from functools import partial
@@ -159,7 +159,7 @@ class AtomAttentionPairBias(nn.Module):
         )
 
         # Pair bias
-        self.layer_norm_pair = nn.LayerNorm(self.c_atompair)
+        self.layer_norm_pair = LayerNorm(self.c_atompair)
         self.linear_pair = LinearNoBias(self.c_atompair, self.num_heads, init='default')
 
     def forward(
@@ -416,7 +416,12 @@ def gather_token_repr(
     return gathered_embeddings
 
 
-def map_token_pairs_to_local_atom_pairs(token_pairs, tok_idx, n_queries=32, n_keys=128) -> Tensor:
+def map_token_pairs_to_local_atom_pairs(
+        token_pairs: Tensor,
+        tok_idx: Tensor,
+        n_queries=32,
+        n_keys=128
+) -> Tensor:
     """Given token pairs and token indices, map token pairs to local atom pairs to be used within local atom attention.
     Args:
         token_pairs:
@@ -508,8 +513,8 @@ class AtomAttentionEncoder(nn.Module):
             c_atom: int = 128,
             c_atompair: int = 16,
             c_trunk_pair: int = 16,
-            num_blocks: int = 3,
-            num_heads: int = 4,
+            no_blocks: int = 3,
+            no_heads: int = 4,
             dropout=0.0,
             n_queries: int = 32,
             n_keys: int = 128,
@@ -528,9 +533,9 @@ class AtomAttentionEncoder(nn.Module):
                 The number of channels for the pair representation. Defaults to 16.
             c_trunk_pair:
                 The number of channels for the trunk pair representation. Defaults to 16.
-            num_blocks:
+            no_blocks:
                 Number of blocks in AtomTransformer. Defaults to 3.
-            num_heads:
+            no_heads:
                 Number of parallel attention heads. Note that c_atom will be split across no_heads
                 (i.e. each head will have dimension c_atom // no_heads).
             dropout:
@@ -549,12 +554,12 @@ class AtomAttentionEncoder(nn.Module):
         """
         super().__init__()
         self.n_tokens = n_tokens
-        self.num_blocks = num_blocks
+        self.no_blocks = no_blocks
         self.c_token = c_token
         self.c_atom = c_atom
         self.c_atompair = c_atompair
         self.c_trunk_pair = c_trunk_pair
-        self.num_heads = num_heads
+        self.no_heads = no_heads
         self.dropout = dropout
         self.n_queries = n_queries
         self.n_keys = n_keys
@@ -572,11 +577,14 @@ class AtomAttentionEncoder(nn.Module):
         self.linear_mask = LinearNoBias(1, c_atompair)
 
         if trunk_conditioning:
-            self.linear_trunk_single = LinearNoBias(c_token, c_atom, init='final')
-            self.trunk_single_layer_norm = nn.LayerNorm(c_token)
-
-            self.trunk_pair_layer_norm = nn.LayerNorm(c_trunk_pair)
-            self.linear_trunk_pair = LinearNoBias(c_trunk_pair, c_atompair, init='final')
+            self.proj_trunk_single = nn.Sequential(
+                LayerNorm(c_token),
+                LinearNoBias(c_token, c_atom, init='final')
+            )
+            self.proj_trunk_pair = nn.Sequential(
+                LayerNorm(c_trunk_pair),
+                LinearNoBias(c_trunk_pair, c_atompair, init='final')
+            )
 
             self.linear_noisy_pos = LinearNoBias(3, c_atom, init='final')
 
@@ -585,15 +593,19 @@ class AtomAttentionEncoder(nn.Module):
         self.linear_single_to_pair_col = LinearNoBias(c_atom, c_atompair, init='relu')
 
         # Small MLP on the pair activations
-        self.linear_pair_1 = LinearNoBias(c_atompair, c_atompair, init='relu')
-        self.linear_pair_2 = LinearNoBias(c_atompair, c_atompair, init='final')
+        self.pair_mlp = nn.Sequential(
+            nn.ReLU(),
+            LinearNoBias(c_atompair, c_atompair, init='relu'),
+            nn.ReLU(),
+            LinearNoBias(c_atompair, c_atompair, init='final')
+        )
 
         # Cross attention transformer
         self.atom_transformer = AtomTransformer(
             c_atom=c_atom,
             c_atompair=c_atompair,
-            num_blocks=num_blocks,
-            num_heads=num_heads,
+            num_blocks=no_blocks,
+            num_heads=no_heads,
             dropout=dropout,
             n_queries=n_queries,
             n_keys=n_keys,
@@ -646,7 +658,7 @@ class AtomAttentionEncoder(nn.Module):
         # If provided, add trunk embeddings
         if self.trunk_conditioning:
             local_atom_pair = local_atom_pair + map_token_pairs_to_local_atom_pairs(
-                self.linear_trunk_pair(self.trunk_pair_layer_norm(z_trunk)),
+                self.proj_trunk_pair(z_trunk),
                 features['atom_to_token']
             )
 
@@ -656,7 +668,7 @@ class AtomAttentionEncoder(nn.Module):
         local_atom_pair = local_atom_pair + (a[:, :, :, None, :] + b[:, :, None, :, :])
 
         # Run a small MLP on the pair activations
-        local_atom_pair = self.linear_pair_2(F.relu(self.linear_pair_1(F.relu(local_atom_pair))))
+        local_atom_pair = self.pair_mlp(local_atom_pair)
 
         return local_atom_pair
 
@@ -698,7 +710,7 @@ class AtomAttentionEncoder(nn.Module):
         # If provided, add trunk embeddings and noisy positions
         if self.trunk_conditioning:
             atom_single_conditioning = atom_single_conditioning + gather_token_repr(
-                self.linear_trunk_single(self.trunk_single_layer_norm(s_trunk)),
+                self.proj_trunk_single(s_trunk),
                 features['atom_to_token']
             )
 
@@ -844,7 +856,7 @@ class AtomAttentionDecoder(nn.Module):
 
         self.linear_atom = LinearNoBias(c_token, c_atom, init='default')
         self.linear_update = LinearNoBias(c_atom, 3, init='final')
-        self.layer_norm = nn.LayerNorm(c_atom)
+        self.layer_norm = LayerNorm(c_atom)
 
     def forward(
             self,
