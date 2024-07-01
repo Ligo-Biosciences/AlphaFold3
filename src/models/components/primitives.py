@@ -303,7 +303,6 @@ def softmax_no_cast(t: torch.Tensor, dim: int = -1) -> torch.Tensor:
 # @torch.jit.script
 def _attention(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, biases: List[torch.Tensor]) -> torch.Tensor:
     """A stock PyTorch attention implementation with optional biases."""
-    assert len(biases) == 1, "Only one bias term is supported for stock PyTorch attention"
     # [*, H, C_hidden, K]
     key = permute_final_dims(key, (1, 0))
 
@@ -311,7 +310,8 @@ def _attention(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, bias
     a = torch.matmul(query, key)
 
     # Add bias, not inplace to ensure gradients flow through the biases
-    a = a + biases[0]
+    for bias in biases:
+        a = a + bias
 
     a = softmax_no_cast(a, -1)
 
@@ -419,12 +419,15 @@ class AttentionPairBias(nn.Module):
 
         # Projections
         self.input_proj = None
+        self.output_proj_linear = None
         if input_gating:
             self.input_proj = AdaLN(dim)
+
+            # Output projection from AdaLN
+            self.output_proj_linear = Linear(dim, dim, init='gating')
+            self.output_proj_linear.bias = nn.Parameter(torch.ones(dim) * -2.0)  # gate values will be ~0.11
         else:
             self.input_proj = LayerNorm(dim)
-        self.output_proj_linear = Linear(dim, dim, init='gating')
-        self.output_proj_linear.bias = nn.Parameter(torch.ones(dim) * -2.0)  # gate values will be ~0.11
 
         # Attention
         self.attention = Attention(
@@ -437,15 +440,18 @@ class AttentionPairBias(nn.Module):
         )
 
         # Pair bias
-        self.layer_norm_pair = LayerNorm(self.c_pair)
-        self.linear_pair = LinearNoBias(self.c_pair, self.num_heads, init='default')
+        self.proj_pair_bias = nn.Sequential(
+            LayerNorm(self.c_pair),
+            LinearNoBias(self.c_pair, self.num_heads, init='default')
+        )
 
     def forward(
             self,
             single_repr: torch.Tensor,  # (bs, n_tokens, c_atom)
-            single_proj: Optional[torch.Tensor],  # (bs, n_tokens, c_atom)
-            pair_repr: torch.Tensor,  # (bs, n_tokens, n_tokens, c_pair)
+            single_proj: Optional[torch.Tensor] = None,  # (bs, n_tokens, c_atom)
+            pair_repr: torch.Tensor = None,  # (bs, n_tokens, n_tokens, c_pair)
             mask: Optional[torch.Tensor] = None,  # (bs, n_tokens)
+            use_deepspeed_evo_attention: bool = True
     ) -> torch.Tensor:
         """Full self-attention at the token-level with pair bias."""
 
@@ -462,7 +468,7 @@ class AttentionPairBias(nn.Module):
             mask_bias = (mask_bias-1) * self.inf
 
         # Project pair biases per head from pair representation
-        pair_bias = self.linear_pair(self.layer_norm_pair(pair_repr))  # (bs, n_tokens, n_tokens, n_heads)
+        pair_bias = self.proj_pair_bias(pair_repr)  # (bs, n_tokens, n_tokens, n_heads)
 
         # Shape wrangling before Evo attention
         pair_bias = pair_bias.permute(0, 3, 1, 2).unsqueeze(1)  # (bs, 1, n_heads, n_tokens, n_tokens)
@@ -473,14 +479,15 @@ class AttentionPairBias(nn.Module):
             q_x=a,
             kv_x=a,
             biases=[mask_bias, pair_bias],
-            use_deepspeed_evo_attention=True
+            use_deepspeed_evo_attention=use_deepspeed_evo_attention
         )  # (bs, 1, n_tokens, c_atom)
 
         # Remove the extra dimension
         output = output.squeeze(1)
 
         # Output projection (from adaLN-Zero)
-        output = F.sigmoid(self.output_proj_linear(output)) * output
+        if self.input_gating:
+            output = F.sigmoid(self.output_proj_linear(output)) * output
         return output
 
 

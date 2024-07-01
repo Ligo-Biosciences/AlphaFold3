@@ -6,7 +6,7 @@ All transition blocks use SwiGlu."""
 
 import torch
 import torch.nn as nn
-
+from torch import Tensor
 from typing import Tuple, Sequence, Optional
 from functools import partial
 from abc import ABC, abstractmethod
@@ -42,8 +42,7 @@ class PairStack(nn.Module):
             transition_n: int,
             pair_dropout: float,
             fuse_projection_weights: bool,
-            inf: float,
-            eps: float
+            inf: float
     ):
         super(PairStack, self).__init__()
 
@@ -89,15 +88,15 @@ class PairStack(nn.Module):
 
     def forward(
             self,
-            z: torch.Tensor,
-            pair_mask: torch.Tensor,
+            z: Tensor,
+            pair_mask: Tensor,
             chunk_size: Optional[int] = None,
             use_deepspeed_evo_attention: bool = False,
             use_lma: bool = False,
             inplace_safe: bool = False,
             _mask_trans: bool = True,
             _attn_chunk_size: Optional[int] = None
-    ) -> torch.Tensor:
+    ) -> Tensor:
         # DeepMind doesn't mask these transitions in the source, so _mask_trans
         # should be disabled to better approximate the exact activations of
         # the original.
@@ -138,7 +137,6 @@ class PairStack(nn.Module):
                         z,
                         mask=pair_mask,
                         chunk_size=_attn_chunk_size,
-                        use_memory_efficient_kernel=False,
                         use_deepspeed_evo_attention=use_deepspeed_evo_attention,
                         use_lma=use_lma,
                         inplace_safe=inplace_safe,
@@ -153,7 +151,6 @@ class PairStack(nn.Module):
                         z,
                         mask=pair_mask,
                         chunk_size=_attn_chunk_size,
-                        use_memory_efficient_kernel=False,
                         use_deepspeed_evo_attention=use_deepspeed_evo_attention,
                         use_lma=use_lma,
                         inplace_safe=inplace_safe,
@@ -164,7 +161,7 @@ class PairStack(nn.Module):
 
         z = add(z,
                 self.pair_transition(
-                    z, mask=pair_trans_mask, chunk_size=chunk_size,
+                    z,  # mask=pair_trans_mask, chunk_size=chunk_size,
                 ),
                 inplace=inplace_safe,
                 )
@@ -197,9 +194,9 @@ class PairformerStackBlock(nn.Module):
             fuse_projection_weights=fuse_projection_weights,
             inf=inf,
         )
-
         self.attention = AttentionPairBias(
             dim=c_s,
+            c_pair=c_z,
             no_heads=no_heads_single_att,
             input_gating=False,  # no single representation gating within Pairformer
         )
@@ -210,15 +207,15 @@ class PairformerStackBlock(nn.Module):
 
     def forward(
             self,
-            s: torch.Tensor,  # (bs, n_tokens, c_s)
-            z: torch.Tensor,  # (bs, n_tokens, c_z)
-            single_mask: torch.Tensor,  # (bs, n_tokens)
-            pair_mask: torch.Tensor,  # (bs, n_tokens, n_tokens)
+            s: Tensor,  # (bs, n_tokens, c_s)
+            z: Tensor,  # (bs, n_tokens, c_z)
+            single_mask: Tensor,  # (bs, n_tokens)
+            pair_mask: Tensor,  # (bs, n_tokens, n_tokens)
             chunk_size: Optional[int] = None,
             use_deepspeed_evo_attention: bool = False,
             use_lma: bool = False,
             inplace_safe: bool = False,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> Tuple[Tensor, Tensor]:
         z = self.pair_stack(
             z=z,
             pair_mask=pair_mask,
@@ -227,7 +224,12 @@ class PairformerStackBlock(nn.Module):
             use_lma=use_lma,
             inplace_safe=inplace_safe,
         )
-        s = self.attention(single_repr=s, pair_repr=z, mask=single_mask)
+        s = self.attention(
+            single_repr=s,
+            pair_repr=z,
+            mask=single_mask,
+            use_deepspeed_evo_attention=use_deepspeed_evo_attention
+        )
         s = self.transition(s)
         return s, z
 
@@ -302,10 +304,10 @@ class PairformerStack(nn.Module):
 
     def _prep_blocks(
             self,
-            s: torch.Tensor,  # (bs, n_tokens, c_s)
-            z: torch.Tensor,  # (bs, n_tokens, c_z)
-            single_mask: torch.Tensor,  # (bs, n_tokens)
-            pair_mask: torch.Tensor,  # (bs, n_tokens, n_tokens)
+            s: Tensor,  # (bs, n_tokens, c_s)
+            z: Tensor,  # (bs, n_tokens, c_z)
+            single_mask: Tensor,  # (bs, n_tokens)
+            pair_mask: Tensor,  # (bs, n_tokens, n_tokens)
             chunk_size: Optional[int] = None,
             use_deepspeed_evo_attention: bool = False,
             use_lma: bool = False,
@@ -336,15 +338,15 @@ class PairformerStack(nn.Module):
 
     def forward(
             self,
-            s: torch.Tensor,  # (bs, n_tokens, c_s)
-            z: torch.Tensor,  # (bs, n_tokens, c_z)
-            single_mask: torch.Tensor,  # (bs, n_tokens)
-            pair_mask: torch.Tensor,  # (bs, n_tokens, n_tokens)
+            s: Tensor,  # (bs, n_tokens, c_s)
+            z: Tensor,  # (bs, n_tokens, c_z)
+            single_mask: Tensor,  # (bs, n_tokens)
+            pair_mask: Tensor,  # (bs, n_tokens, n_tokens)
             chunk_size: Optional[int] = None,
             use_deepspeed_evo_attention: bool = False,
             use_lma: bool = False,
             inplace_safe: bool = False,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> Tuple[Tensor, Tensor]:
         """
         Args:
             s:
