@@ -40,7 +40,7 @@ class FeatureNet(nn.Module):
         """
 
         super(FeatureNet, self).__init__()
-        assert c_z % 2 == 0, "Channels in pair representation c_in should be divisible by 2."
+        assert c_z % 2 == 0, "Channels in pair representation c_hidden should be divisible by 2."
         self.c_s = c_s
         self.c_z = c_z
         self.relpos_k = relpos_k

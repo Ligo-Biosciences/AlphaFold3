@@ -29,7 +29,7 @@ class Proteus(nn.Module):
             diffusion_module:
                 DiffusionModule to use denoise the noisy atoms."""
         super().__init__()
-        self.feature_embedder = feature_embedder
+        self.feature_embedder = torch.compile(feature_embedder)  # TODO: awkward, fix this
         self.diffusion_module = diffusion_module
 
     def forward(
@@ -78,9 +78,9 @@ class Proteus(nn.Module):
             noisy_atoms=noisy_atoms,
             timesteps=timesteps,
             features=features,
-            s_inputs=init_features.s_inputs,
-            s_trunk=init_features.s_trunk,
-            z_trunk=init_features.z_trunk,
+            s_inputs=init_features[0],  # TODO: do named accession
+            s_trunk=init_features[1],
+            z_trunk=init_features[2],
             sd_data=sd_data,
             token_mask=token_mask,
             atom_mask=atom_mask,
@@ -294,14 +294,6 @@ class ProteusLitModule(LightningModule):
             self.model = torch.compile(self.model)
 
     def configure_optimizers(self) -> Dict[str, Any]:
-        """Choose what optimizers and learning-rate schedulers to use in your optimization.
-        Normally you'd need one. But in the case of GANs or similar you might have multiple.
-
-        Examples:
-            https://lightning.ai/docs/pytorch/latest/common/lightning_module.html#configure-optimizers
-
-        :return: A dict containing the configured optimizers and learning-rate schedulers to be used for training.
-        """
         optimizer = self.hparams.optimizer(self.trainer.model.parameters())
         if self.hparams.scheduler is not None:
             scheduler = self.hparams.scheduler(optimizer=optimizer)

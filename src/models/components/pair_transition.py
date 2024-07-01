@@ -31,7 +31,7 @@ class PairTransition(nn.Module):
                 c_z:
                     Pair transition channel dimension
                 n:
-                    Factor by which c_in is multiplied to obtain hidden channel
+                    Factor by which c_hidden is multiplied to obtain hidden channel
                     dimension
         """
         super(PairTransition, self).__init__()

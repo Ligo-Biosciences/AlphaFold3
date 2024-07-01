@@ -384,7 +384,7 @@ class PairformerStack(nn.Module):
 
         s, z = checkpoint_blocks(
             blocks,
-            args=[s, z],
+            args=(s, z),
             blocks_per_ckpt=blocks_per_ckpt,
         )
 

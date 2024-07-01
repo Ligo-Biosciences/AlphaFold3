@@ -37,7 +37,7 @@ def print_config_tree(
     :param resolve: Whether to resolve reference fields of DictConfig. Default is ``False``.
     :param save_to_file: Whether to export config to the hydra output folder. Default is ``False``.
     """
-    style = "dim"
+    style = "c_hidden"
     tree = rich.tree.Tree("CONFIG", style=style, guide_style=style)
 
     queue = []

@@ -257,7 +257,7 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
                 return [slice(None) for _ in t.shape]
 
             def slice_tensor(t, start, end, dim):
-                # Slices start:end from the dim dimension of t
+                # Slices start:end from the c_hidden dimension of t
                 s = empty_slicer(t)
                 s[dim] = slice(start, end)
                 return t[s]

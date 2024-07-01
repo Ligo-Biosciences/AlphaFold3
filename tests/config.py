@@ -12,7 +12,7 @@ consts = mlc.ConfigDict(
         # For compatibility with DeepMind's pretrained weights, it's easiest for
         # everyone if these take their real values.
         "c_m": 256,
-        "c_in": 128,
+        "c_hidden": 128,
         "c_s": 384,
         "c_t": 64,
         "c_e": 64,
