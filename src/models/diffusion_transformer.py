@@ -42,7 +42,7 @@ class DiffusionTransformerBlock(nn.Module):
         self.num_heads = no_heads
         self.dropout = dropout
 
-        self.attention_block = AttentionPairBias(c_token, c_pair, no_heads, dropout)
+        self.attention_block = AttentionPairBias(c_token, c_pair, no_heads, dropout, input_gating=True)
         self.conditioned_transition_block = ConditionedTransitionBlock(c_token)
 
     def forward(
@@ -50,10 +50,17 @@ class DiffusionTransformerBlock(nn.Module):
             single_repr: Tensor,  # (bs, n_tokens, c_token)
             single_proj: Tensor,  # (bs, n_tokens, c_token)
             pair_repr: Tensor,  # (bs, n_tokens, n_tokens, c_pair)
-            mask: Optional[Tensor] = None
+            mask: Optional[Tensor] = None,
+            use_deepspeed_evo_attention: bool = True
     ) -> Tuple[Tensor, Tensor, Tensor]:
         """Forward pass of the DiffusionTransformerBlock module. Algorithm 23 in AlphaFold3 supplement."""
-        b = self.attention_block(single_repr, single_proj, pair_repr, mask)
+        b = self.attention_block(
+            single_repr=single_repr,
+            single_proj=single_proj,
+            pair_repr=pair_repr,
+            mask=mask,
+            use_deepspeed_evo_attention=use_deepspeed_evo_attention
+        )
         single_repr = b + self.conditioned_transition_block(single_repr, single_proj)
         return single_repr, single_proj, pair_repr
 
@@ -113,15 +120,15 @@ class DiffusionTransformer(nn.Module):
             single_repr: Tensor,
             single_proj: Tensor,
             pair_repr: Tensor,
-            mask: Optional[Tensor] = None
+            mask: Optional[Tensor] = None,
+            use_deepspeed_evo_attention: bool = True
     ):
         """Prepare the blocks for the forward pass."""
         blocks = [
             partial(
                 block,
-                # single_proj=single_proj,
-                # pair_repr=pair_repr,
-                mask=mask
+                mask=mask,
+                use_deepspeed_evo_attention=use_deepspeed_evo_attention
             )
             for block in self.blocks
         ]
@@ -141,10 +148,17 @@ class DiffusionTransformer(nn.Module):
             single_repr: Tensor,
             single_proj: Tensor,
             pair_repr: Tensor,
-            mask: Optional[Tensor] = None
+            mask: Optional[Tensor] = None,
+            use_deepspeed_evo_attention: bool = True
     ):
         """Forward pass of the DiffusionTransformer module. Algorithm 23 in AlphaFold3 supplement."""
-        blocks = self._prep_blocks(single_repr, single_proj, pair_repr, mask)
+        blocks = self._prep_blocks(
+            single_repr=single_repr,
+            single_proj=single_proj,
+            pair_repr=pair_repr,
+            mask=mask,
+            use_deepspeed_evo_attention=use_deepspeed_evo_attention
+        )
         blocks_per_ckpt = self.blocks_per_ckpt
         if not torch.is_grad_enabled():
             blocks_per_ckpt = None

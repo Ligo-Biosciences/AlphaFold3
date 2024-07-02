@@ -151,7 +151,7 @@ class DiffusionModule(torch.nn.Module):
             torch.add(timesteps ** 2, self.sd_data ** 2)
         )
         noisy_pos_scale = noisy_pos_scale.unsqueeze(-1)  # (bs, 1, 1)
-        r_update_scale = torch.sqrt(noisy_pos_scale) * timesteps
+        r_update_scale = torch.sqrt(noisy_pos_scale) * timesteps.unsqueeze(-1)
         return noisy_atoms * noisy_pos_scale + r_updates * r_update_scale
 
     def forward(
@@ -163,7 +163,8 @@ class DiffusionModule(torch.nn.Module):
             s_trunk: Tensor,  # (bs, n_tokens, c_token)
             z_trunk: Tensor,  # (bs, n_tokens, n_tokens, c_pair)
             token_mask: Tensor = None,  # (bs, n_tokens)
-            atom_mask: Tensor = None  # (bs, n_atoms)
+            atom_mask: Tensor = None,  # (bs, n_atoms)
+            use_deepspeed_evo_attention: bool = True
     ) -> Tensor:
         """Diffusion module that denoises atomic coordinates based on conditioning.
         Args:
@@ -213,13 +214,13 @@ class DiffusionModule(torch.nn.Module):
                 [*, n_tokens, c_token] Single conditioning from Pairformer trunk
             z_trunk:
                 [*, n_tokens, n_tokens, c_pair] Pair conditioning from Pairformer trunk
-            sd_data:
-                Scaling factor for the timesteps before fourier embedding
             token_mask:
                 [*, N_tokens] binary mask for tokens, whether token is present (not padding)
             atom_mask:
                 [*, N_atoms] binary mask for atoms, whether atom is present (will still be 1.0 if
                 atom is missing from the crystal structure, only 0.0 for padding)
+            use_deepspeed_evo_attention:
+                Whether to use Deepspeed's optimized kernel for attention pair bias
 
         """
         # Conditioning
@@ -244,7 +245,8 @@ class DiffusionModule(torch.nn.Module):
             single_repr=token_single,
             single_proj=token_repr,
             pair_repr=pair_repr,
-            mask=token_mask
+            mask=token_mask,
+            use_deepspeed_evo_attention=use_deepspeed_evo_attention
         )
 
         token_single = self.token_post_layer_norm(token_single)

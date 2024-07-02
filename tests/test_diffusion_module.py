@@ -26,7 +26,7 @@ class TestDiffusionModule(unittest.TestCase):
 
         # self.r_max = 32
         # self.s_max = 2
-        self.module = DiffusionModule()  # values above are default values
+        self.module = DiffusionModule(compile_model=False)  # values above are default values
         self.optimizer = torch.optim.Adam(self.module.parameters(), lr=1e-3)
         residue_index = torch.randint(0, self.n_tokens, (self.batch_size, self.n_tokens))
         # Input features to the model
@@ -49,6 +49,7 @@ class TestDiffusionModule(unittest.TestCase):
         self.s_inputs = torch.randn(self.batch_size, self.n_tokens, self.c_token)
         self.s_trunk = torch.randn(self.batch_size, self.n_tokens, self.c_token)
         self.z_trunk = torch.randn(self.batch_size, self.n_tokens, self.n_tokens, self.c_tokenpair)
+        self.token_mask = torch.randint(0, 2, (self.batch_size, self.n_tokens))
         self.sd_data = 16.0  # torch.randn(self.batch_size, 1)  # standard dev of data (bs, 1)
 
     def test_forward(self):
@@ -58,7 +59,9 @@ class TestDiffusionModule(unittest.TestCase):
                              s_inputs=self.s_inputs,  # (bs, n_tokens, c_token)
                              s_trunk=self.s_trunk,  # (bs, n_tokens, c_token)
                              z_trunk=self.z_trunk,  # (bs, n_tokens, n_tokens, c_pair)
-                             sd_data=self.sd_data)
+                             token_mask=self.token_mask,
+                             use_deepspeed_evo_attention=False
+                             )
         self.assertEqual(output.shape, (self.batch_size, self.n_atoms, 3))
 
     def test_gradients_not_none(self):
@@ -69,7 +72,9 @@ class TestDiffusionModule(unittest.TestCase):
                              s_inputs=self.s_inputs,  # (bs, n_tokens, c_token)
                              s_trunk=self.s_trunk,  # (bs, n_tokens, c_token)
                              z_trunk=self.z_trunk,  # (bs, n_tokens, n_tokens, c_pair)
-                             sd_data=self.sd_data)
+                             token_mask=self.token_mask,
+                             use_deepspeed_evo_attention=False
+                             )
         output = output.to_tensor()
         loss = torch.mean((output - torch.ones_like(output)) ** 2)
         loss.backward()
