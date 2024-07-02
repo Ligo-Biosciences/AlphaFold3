@@ -36,9 +36,9 @@ class PairStack(nn.Module):
     def __init__(
             self,
             c_z: int,
-            c_hidden_mul: int,
-            c_hidden_pair_att: int,
-            no_heads_pair: int,
+            c_hidden_tri_mul: int,
+            c_hidden_pair_attn: int,
+            no_heads_tri_attn: int,
             transition_n: int,
             pair_dropout: float,
             fuse_projection_weights: bool,
@@ -49,42 +49,42 @@ class PairStack(nn.Module):
         if fuse_projection_weights:
             self.tri_mul_out = FusedTriangleMultiplicationOutgoing(
                 c_z,
-                c_hidden_mul,
+                c_hidden_tri_mul,
             )
             self.tri_mul_in = FusedTriangleMultiplicationIncoming(
                 c_z,
-                c_hidden_mul,
+                c_hidden_tri_mul,
             )
         else:
             self.tri_mul_out = TriangleMultiplicationOutgoing(
                 c_z,
-                c_hidden_mul,
+                c_hidden_tri_mul,
             )
             self.tri_mul_in = TriangleMultiplicationIncoming(
                 c_z,
-                c_hidden_mul,
+                c_hidden_tri_mul,
             )
 
         self.tri_att_start = TriangleAttentionStartingNode(
             c_z,
-            c_hidden_pair_att,
-            no_heads_pair,
+            c_hidden_pair_attn,
+            no_heads_tri_attn,
             inf=inf,
         )
         self.tri_att_end = TriangleAttentionEndingNode(
             c_z,
-            c_hidden_pair_att,
-            no_heads_pair,
+            c_hidden_pair_attn,
+            no_heads_tri_attn,
             inf=inf,
         )
 
-        self.pair_transition = Transition(
+        self.transition = Transition(
             c_z,
             transition_n,
         )
 
-        self.ps_dropout_row_layer = DropoutRowwise(pair_dropout)
-        self.ps_dropout_col_layer = DropoutColumnwise(pair_dropout)
+        self.dropout_row_layer = DropoutRowwise(pair_dropout)
+        self.dropout_col_layer = DropoutColumnwise(pair_dropout)
 
     def forward(
             self,
@@ -112,7 +112,7 @@ class PairStack(nn.Module):
             _add_with_inplace=True,
         )
         if not inplace_safe:
-            z = z + self.ps_dropout_row_layer(tmu_update)
+            z = z + self.dropout_row_layer(tmu_update)
         else:
             z = tmu_update
 
@@ -125,14 +125,14 @@ class PairStack(nn.Module):
             _add_with_inplace=True,
         )
         if not inplace_safe:
-            z = z + self.ps_dropout_row_layer(tmu_update)
+            z = z + self.dropout_row_layer(tmu_update)
         else:
             z = tmu_update
 
         del tmu_update
 
         z = add(z,
-                self.ps_dropout_row_layer(
+                self.dropout_row_layer(
                     self.tri_att_start(
                         z,
                         mask=pair_mask,
@@ -146,7 +146,7 @@ class PairStack(nn.Module):
                 )
 
         z = add(z,
-                self.ps_dropout_col_layer(
+                self.dropout_col_layer(
                     self.tri_att_end(
                         z,
                         mask=pair_mask,
@@ -159,13 +159,7 @@ class PairStack(nn.Module):
                 inplace=inplace_safe,
                 )
 
-        z = add(z,
-                self.pair_transition(
-                    z,  # mask=pair_trans_mask, chunk_size=chunk_size,
-                ),
-                inplace=inplace_safe,
-                )
-
+        z = add(z, self.transition(z), inplace=inplace_safe)
         return z
 
 
@@ -186,9 +180,9 @@ class PairformerStackBlock(nn.Module):
         super(PairformerStackBlock, self).__init__()
         self.pair_stack = PairStack(
             c_z=c_z,
-            c_hidden_mul=c_hidden_mul,
-            c_hidden_pair_att=c_hidden_pair_att,
-            no_heads_pair=no_heads_pair,
+            c_hidden_tri_mul=c_hidden_mul,
+            c_hidden_pair_attn=c_hidden_pair_att,
+            no_heads_tri_attn=no_heads_pair,
             transition_n=transition_n,
             pair_dropout=pair_dropout,
             fuse_projection_weights=fuse_projection_weights,
@@ -230,7 +224,7 @@ class PairformerStackBlock(nn.Module):
             mask=single_mask,
             use_deepspeed_evo_attention=use_deepspeed_evo_attention
         )
-        s = self.transition(s)
+        s = add(s, self.transition(s), inplace=inplace_safe)
         return s, z
 
 

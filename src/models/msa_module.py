@@ -22,6 +22,12 @@ from torch import nn
 from typing import Optional
 from src.models.components.primitives import LinearNoBias, LayerNorm
 from src.models.pairformer import PairStack
+from src.models.components.outer_product_mean import OuterProductMean
+from src.models.components.transition import Transition
+from src.models.components.dropout import DropoutRowwise
+from src.utils.tensor_utils import add
+from functools import partial
+from src.utils.checkpointing import checkpoint_blocks
 
 
 class MSAPairWeightedAveraging(nn.Module):
@@ -55,7 +61,7 @@ class MSAPairWeightedAveraging(nn.Module):
         # Pair
         self.proj_pair_bias = nn.Sequential(
             LayerNorm(c_z),
-            LinearNoBias(c_hidden, no_heads)
+            LinearNoBias(c_z, no_heads)
         )
 
         # Output projection
@@ -80,6 +86,8 @@ class MSAPairWeightedAveraging(nn.Module):
                 [*, N_seq, N_res] MSA mask
             z_mask:
                 [*, N_res, N_res] pair mask
+        Returns:
+            [*, N_seq, N_res, C_m] updated MSA representation
         """
         *_, n_seq, n_res, _ = m.shape
 
@@ -99,7 +107,7 @@ class MSAPairWeightedAveraging(nn.Module):
 
         if msa_mask is not None:
             v = v * msa_mask.unsqueeze(-1).unsqueeze(-1)
-        new_v_shape = (v.shape[:-3] + (n_seq, n_res, n_res, self.no_heads, self.c_hidden))
+        new_v_shape = (v.shape[:-4] + (n_seq, n_res, n_res, self.no_heads, self.c_hidden))
         v = v.unsqueeze(-3).expand(new_v_shape)  # (*, seq, res, res, heads, c_hidden)
 
         # Weighted average with gating
@@ -109,26 +117,316 @@ class MSAPairWeightedAveraging(nn.Module):
 
         # Output projection
         output = self.output_proj(
-            o.reshape((m.shape[:-1], self.c_hidden * self.no_heads))  # (*, seq, res, c_hidden * heads)
+            o.reshape((m.shape[:-1] + (self.c_hidden * self.no_heads,)))  # (*, seq, res, c_hidden * heads)
         )
         return output
 
 
-class MSAModule(nn.Module):
-    def __init__(self):
-        super().__init__()
-        pass
+class MSAStack(nn.Module):
+    """MSA stack that applies pair weighted averaging, dropout, and transition."""
 
-    def forward(self):
-        # SampleRandomWithoutReplacement
-        # Embed the MSA
-        # for all blocks:
-        #  Communication
-        #  z_ij = z_ij + OuterProductMean(m_si)
-        #  MSA stack
-        #  z_ij = z_ij + MSAPairWeightedAveraging(m_si, z_ij)
-        #  Pair stack
-        #  z_ij = PairStack(z_ij)
-        #  Transition
-        #  z_ij = Transition(z_ij)
-        pass
+    def __init__(
+            self,
+            c_msa: int,
+            c_z: int,
+            c_hidden: int = 8,
+            no_heads: int = 8,
+            dropout: float = 0.15,
+            inf: float = 1e8
+    ):
+        super(MSAStack, self).__init__()
+
+        self.msa_pair_avg = MSAPairWeightedAveraging(
+            c_msa=c_msa,
+            c_z=c_z,
+            c_hidden=c_hidden,
+            no_heads=no_heads,
+            inf=inf
+        )
+        self.dropout_row_layer = DropoutRowwise(dropout)
+        self.transition = Transition(c_msa)
+
+    def forward(
+            self,
+            m: Tensor,
+            z: Tensor,
+            msa_mask: Optional[Tensor] = None,
+            z_mask: Optional[Tensor] = None,
+            inplace_safe: bool = False
+    ) -> Tensor:
+        """
+        Args:
+            m:
+                [*, N_seq, N_res, C_m] MSA embeddings
+            z:
+                [*, N_res, N_res, C_z] pair embeddings
+            msa_mask:
+                [*, N_seq, N_res] MSA mask
+            z_mask:
+                [*, N_res, N_res] pair mask
+            inplace_safe:
+                whether to perform ops inplace
+        Returns:
+            [*, N_seq, N_res, C_m] updated MSA representation
+        """
+        m = add(
+            m,
+            self.dropout_row_layer(
+                self.msa_pair_avg(
+                    m=m,
+                    z=z,
+                    msa_mask=msa_mask,
+                    z_mask=z_mask
+                )
+            ),
+            inplace=inplace_safe
+        )
+        m = add(m, self.transition(m), inplace=inplace_safe)
+        return m
+
+
+class MSAModuleBlock(nn.Module):
+    def __init__(
+            self,
+            c_msa: int = 64,
+            c_z: int = 128,
+            c_hidden: int = 32,
+            no_heads: int = 8,
+            c_hidden_tri_mul: int = 128,
+            c_hidden_pair_attn: int = 32,
+            no_heads_tri_attn: int = 4,
+            transition_n: int = 4,
+            pair_dropout: float = 0.25,
+            fuse_projection_weights: bool = False,
+            inf: float = 1e8
+    ):
+        super(MSAModuleBlock, self).__init__()
+
+        # Communication
+        self.outer_product_mean = OuterProductMean(c_m=c_msa, c_z=c_z, c_hidden=c_hidden)
+
+        # MSA stack
+        self.msa_stack = MSAStack(
+            c_msa=c_msa,
+            c_z=c_z,
+            c_hidden=c_hidden,
+            no_heads=no_heads,
+            inf=inf
+        )
+
+        # Pair stack
+        self.pair_stack = PairStack(
+            c_z=c_z,
+            c_hidden_tri_mul=c_hidden_tri_mul,
+            c_hidden_pair_attn=c_hidden_pair_attn,
+            no_heads_tri_attn=no_heads_tri_attn,
+            transition_n=transition_n,
+            pair_dropout=pair_dropout,
+            fuse_projection_weights=fuse_projection_weights,
+            inf=inf
+        )
+
+    def forward(
+            self,
+            m: Tensor,
+            z: Tensor,
+            msa_mask: Tensor,
+            z_mask: Tensor,
+            chunk_size: Optional[int] = None,
+            use_deepspeed_evo_attention: bool = False,
+            use_lma: bool = False,
+            inplace_safe: bool = False,
+    ):
+        """
+        Args:
+            m:
+                [*, N_seq, N_res, C_m] MSA embeddings
+            z:
+                [*, N_res, N_res, C_z] pair embeddings
+            msa_mask:
+                [*, N_seq, N_res] MSA mask
+            z_mask:
+                [*, N_res, N_res] pair mask
+            chunk_size:
+                chunk size
+            use_deepspeed_evo_attention:
+                whether to use Deepspeed's optimized kernels for attention
+            use_lma:
+                whether to use low-memory attention. Mutually exclusive with
+                use_deepspeed_evo_attention.
+            inplace_safe:
+                whether to perform ops inplace
+        Returns:
+            Tuple of:
+                [*, N_seq, N_res, C_m] updated MSA representation,
+                [*, N_res, N_res, C_z] updated pair representation
+        """
+        # Communication
+        z = add(
+            z,
+            self.outer_product_mean(
+                m,
+                mask=msa_mask,
+                chunk_size=chunk_size,
+                inplace_safe=inplace_safe,
+            ),
+            inplace=inplace_safe
+        )
+
+        # MSA stack
+        m = self.msa_stack(
+            m=m,
+            z=z,
+            msa_mask=msa_mask,
+            z_mask=z_mask,
+            inplace_safe=inplace_safe
+        )
+
+        # Pair stack
+        z = self.pair_stack(
+            z=z,
+            pair_mask=z_mask,
+            chunk_size=chunk_size,
+            use_deepspeed_evo_attention=use_deepspeed_evo_attention,
+            use_lma=use_lma,
+            inplace_safe=inplace_safe,
+        )
+        return m, z
+
+
+class MSAModule(nn.Module):
+    def __init__(
+            self,
+            no_blocks: int = 4,
+            c_msa: int = 64,
+            c_z: int = 128,
+            c_hidden: int = 32,
+            no_heads: int = 8,
+            c_hidden_tri_mul: int = 128,
+            c_hidden_pair_attn: int = 32,
+            no_heads_tri_attn: int = 4,
+            transition_n: int = 4,
+            pair_dropout: float = 0.25,
+            fuse_projection_weights: bool = False,
+            clear_cache_between_blocks: bool = False,
+            blocks_per_ckpt: int = 1,
+            inf: float = 1e8
+    ):
+        """
+        Initialize the MSA module.
+        Args:
+            no_blocks:
+                number of MSAModuleBlocks
+            c_msa:
+                MSA representation dim
+            c_z:
+                pair representation dim
+            c_hidden:
+                hidden representation dim
+            no_heads:
+                number of heads in the pair averaging
+            c_hidden_tri_mul:
+                hidden dimensionality of triangular multiplicative updates
+            c_hidden_pair_attn:
+                hidden dimensionality of triangular attention
+            no_heads_tri_attn:
+                number of heads in triangular attention
+            transition_n:
+                multiplication factor for the hidden dim during the transition
+            pair_dropout:
+                dropout rate within the pair stack
+            fuse_projection_weights:
+                whether to use FusedTriangleMultiplicativeUpdate or not
+            blocks_per_ckpt:
+                Number of blocks per checkpoint. If None, no checkpointing is used.
+            clear_cache_between_blocks:
+                Whether to clear CUDA's GPU memory cache between blocks of the
+                stack. Slows down each block but can reduce fragmentation
+        """
+        super(MSAModule, self).__init__()
+        self.blocks = nn.ModuleList([
+            MSAModuleBlock(
+                c_msa=c_msa,
+                c_z=c_z,
+                c_hidden=c_hidden,
+                no_heads=no_heads,
+                c_hidden_tri_mul=c_hidden_tri_mul,
+                c_hidden_pair_attn=c_hidden_pair_attn,
+                no_heads_tri_attn=no_heads_tri_attn,
+                transition_n=transition_n,
+                pair_dropout=pair_dropout,
+                fuse_projection_weights=fuse_projection_weights,
+                inf=inf)
+            for _ in range(no_blocks)
+        ])
+        self.blocks_per_ckpt = blocks_per_ckpt
+        self.clear_cache_between_blocks = clear_cache_between_blocks
+
+    def _prep_blocks(
+            self,
+            m: Tensor,
+            z: Tensor,
+            msa_mask: Optional[Tensor] = None,
+            z_mask: Optional[Tensor] = None,
+            chunk_size: Optional[int] = None,
+            use_deepspeed_evo_attention: bool = False,
+            use_lma: bool = False,
+            inplace_safe: bool = False,
+    ):
+        blocks = [
+            partial(
+                block,
+                msa_mask=msa_mask,
+                z_mask=z_mask,
+                chunk_size=chunk_size,
+                use_deepspeed_evo_attention=use_deepspeed_evo_attention,
+                use_lma=use_lma,
+                inplace_safe=inplace_safe
+            )
+            for block in self.blocks
+        ]
+
+        # Clear CUDA's GPU memory cache between blocks
+        if self.clear_cache_between_blocks:
+            def block_with_cache_clear(block, *args, **kwargs):
+                torch.cuda.empty_cache()
+                return block(*args, **kwargs)
+
+            blocks = [partial(block_with_cache_clear, b) for b in blocks]
+
+        return blocks
+
+    def forward(
+            self,
+            m: Tensor,
+            z: Tensor,
+            msa_mask: Optional[Tensor] = None,
+            z_mask: Optional[Tensor] = None,
+            chunk_size: Optional[int] = None,
+            use_deepspeed_evo_attention: bool = False,
+            use_lma: bool = False,
+            inplace_safe: bool = False,
+    ) -> Tensor:
+        blocks = self._prep_blocks(
+            m=m,
+            z=z,
+            msa_mask=msa_mask,
+            z_mask=z_mask,
+            chunk_size=chunk_size,
+            use_deepspeed_evo_attention=use_deepspeed_evo_attention,
+            use_lma=use_lma,
+            inplace_safe=inplace_safe
+        )
+        blocks_per_ckpt = self.blocks_per_ckpt
+        if not torch.is_grad_enabled():
+            blocks_per_ckpt = None
+
+        # Run with grad checkpointing
+        m, z = checkpoint_blocks(
+            blocks,
+            args=(m, z),
+            blocks_per_ckpt=blocks_per_ckpt,
+        )
+        return z
+
+
