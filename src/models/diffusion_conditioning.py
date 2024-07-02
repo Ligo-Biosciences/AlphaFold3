@@ -70,7 +70,7 @@ class DiffusionConditioning(nn.Module):
     def _forward(
             self,
             timesteps: Tensor,  # timestep (bs, 1)
-            features: Dict[str, Tensor],  # input feature dict
+            features: Dict[str, Tensor],  # x feature dict
             s_inputs: Tensor,  # (bs, n_tokens, c_token)
             s_trunk: Tensor,  # (bs, n_tokens, c_token)
             z_trunk: Tensor,  # (bs, n_tokens, n_tokens, c_pair)
@@ -81,9 +81,9 @@ class DiffusionConditioning(nn.Module):
             timesteps:
                 [*, 1] timestep tensor
             features:
-                input feature dictionary for the RelativePositionEncoding containing:
+                x feature dictionary for the RelativePositionEncoding containing:
                     "residue_index":
-                        [*, n_tokens] Residue number in the token's original input chain.
+                        [*, n_tokens] Residue number in the token's original x chain.
                     "token_index":
                         [*, n_tokens] Token number. Increases monotonically; does not restart at 1 for new chains
                     "asym_id":
@@ -94,7 +94,7 @@ class DiffusionConditioning(nn.Module):
                         [*, n_tokens] Unique integer within chains of this sequence. e.g. if chains A, B and C
                         share a sequence but D does not, their sym_ids would be [0, 1, 2, 0]
             s_inputs:
-                [*, n_tokens, c_token] Single conditioning input
+                [*, n_tokens, c_token] Single conditioning x
             s_trunk:
                 [*, n_tokens, c_token] Single conditioning from Pairformer trunk
             z_trunk:
@@ -133,7 +133,7 @@ class DiffusionConditioning(nn.Module):
     def forward(
             self,
             timesteps: Tensor,  # timestep (bs, 1)
-            features: Dict[str, Tensor],  # input feature dict
+            features: Dict[str, Tensor],  # x feature dict
             s_inputs: Tensor,  # (bs, n_tokens, c_token)
             s_trunk: Tensor,  # (bs, n_tokens, c_token)
             z_trunk: Tensor,  # (bs, n_tokens, n_tokens, c_pair)

@@ -1,7 +1,7 @@
 """Implements MSA Row Attention with Pair Bias.
 
 Although this component is named after its AlphaFold equivalent "MSARowAttentionWithPairBias", it will
-be used to evolve the single representation in the network with input from the pair representation.
+be used to evolve the single representation in the network with x from the pair representation.
 """
 from functools import partial
 import math

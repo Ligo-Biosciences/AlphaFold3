@@ -101,7 +101,7 @@ class EvoformerBlock(torch.nn.Module):
         pair_mask = None
         if mask is not None:
             msa_mask = mask[:, None, :]  # [*, 1, N_res] single representation mask
-            pair_mask = mask[:, :, None] * mask[:, None, :]  # [*, N_res, N_res] input mask
+            pair_mask = mask[:, :, None] * mask[:, None, :]  # [*, N_res, N_res] x mask
 
         # MSA Stack
         m = m + self.msa_dropout(self.msa_row_attention(m, z, msa_mask))

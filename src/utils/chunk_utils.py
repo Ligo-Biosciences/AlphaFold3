@@ -238,17 +238,17 @@ def chunk_layer(
             indexing of all batch dimensions simultaneously (s.timesteps. the
             number of sub-batches is the product of the batch dimensions).
         no_batch_dims:
-            How many of the initial dimensions of each input tensor can
+            How many of the initial dimensions of each x tensor can
             be considered batch dimensions.
         low_mem:
-            Avoids flattening potentially large input tensors. Unnecessary
+            Avoids flattening potentially large x tensors. Unnecessary
             in most cases, and is ever so slightly slower than the default
             setting.
     Returns:
         The reassembled output of the layer on the inputs.
     """
     if not (len(inputs) > 0):
-        raise ValueError("Must provide at least one input")
+        raise ValueError("Must provide at least one x")
 
     initial_dims = [shape[:no_batch_dims] for shape in _fetch_dims(inputs)]
     orig_batch_dims = tuple([max(s) for s in zip(*initial_dims)])
@@ -279,7 +279,7 @@ def chunk_layer(
     i = 0
     out = prepped_outputs
     for _ in range(no_chunks):
-        # Chunk the input
+        # Chunk the x
         if (not low_mem):
             select_chunk = (
                 lambda t: t[i: i + chunk_size] if t.shape[0] != 1 else t

@@ -30,7 +30,7 @@ class RelativePositionEncoding(nn.Module):
         self.r_max = r_max
         self.s_max = s_max
 
-        # Compute total input dimensions for the linear projection
+        # Compute total x dimensions for the linear projection
         input_dim = 2 * r_max + 2 + 2 * r_max + 2 + 2 * s_max + 2 + 1  # (relpos, rel_token, rel_chain, same_entity)
         self.linear_proj = Linear(input_dim, c_pair, bias=False)
 
@@ -38,9 +38,9 @@ class RelativePositionEncoding(nn.Module):
         """Computes relative position encoding. AlphaFold3 Supplement Algorithm 3.
         Args:
             features:
-                input feature dictionary containing:
+                x feature dictionary containing:
                     "residue_index":
-                        [*, n_tokens] Residue number in the token's original input chain.
+                        [*, n_tokens] Residue number in the token's original x chain.
                     "token_index":
                         [*, n_tokens] Token number. Increases monotonically; does not restart at 1 for new chains
                     "asym_id":

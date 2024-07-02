@@ -96,7 +96,7 @@ class TriangleAttention(nn.Module):
         """
         Args:
             x:
-                [*, I, J, C_in] input tensor (e.g. the pair representation)
+                [*, I, J, C_in] x tensor (e.g. the pair representation)
             mask:
                 [*, I, J] mask tensor
             chunk_size:

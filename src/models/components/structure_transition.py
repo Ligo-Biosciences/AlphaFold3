@@ -50,7 +50,7 @@ class StructureTransition(nn.Module):
                  dropout_rate: float = 0.1):
         """
         Args:
-            c: the number of channels in the input and output tensors.
+            c: the number of channels in the x and output tensors.
             num_layers: int, the number of structure transition layers.
             dropout_rate: float, the dropout rate
         """

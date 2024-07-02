@@ -131,7 +131,7 @@ class AF3Featurizer(nn.Module):
             "features":
                 a dictionary containing the features of AlphaFold3 containing the following elements:
                     "residue_index":
-                        [n_tokens] Residue number in the token’s original input chain.
+                        [n_tokens] Residue number in the token’s original x chain.
                     "token_index":
                         [n_tokens] Token number. Increases monotonically; does not restart at 1 for new chains.
                     "asym_id":

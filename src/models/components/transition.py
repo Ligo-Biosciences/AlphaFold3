@@ -14,7 +14,7 @@ class Transition(nn.Module):
         """
         Args:
             input_dim:
-                Channels of the input tensor
+                Channels of the x tensor
             n:
                 channel expansion factor for hidden dimensions
         """
@@ -38,7 +38,7 @@ class ConditionedTransitionBlock(nn.Module):
         """
         Args:
             input_dim:
-                Channels of the input tensor
+                Channels of the x tensor
             n:
                 channel expansion factor for hidden dimensions
         """

@@ -15,7 +15,7 @@ from src.utils.tensor_utils import tensor_tree_map
 
 class Proteus(nn.Module):
     """Convenience class that consists of a simple feature embedder and diffusion module.
-    This is used to make the ProteusLitModule receiving a single nn.Module as input."""
+    This is used to make the ProteusLitModule receiving a single nn.Module as x."""
 
     def __init__(
             self,
@@ -36,7 +36,7 @@ class Proteus(nn.Module):
             self,
             noisy_atoms: Vec3Array,  # (bs, n_atoms)
             timesteps: torch.Tensor,  # (bs, 1)
-            features: Dict[str, torch.Tensor],  # input feature dict
+            features: Dict[str, torch.Tensor],  # x feature dict
             sd_data: float = 16.0,
             token_mask: torch.Tensor = None,  # (bs, n_tokens)
             atom_mask: torch.Tensor = None  # (bs, n_atoms)
@@ -48,7 +48,7 @@ class Proteus(nn.Module):
             timesteps:
                 tensor of timesteps (bs, 1)
             features:
-                input feature dictionary containing the tensors
+                x feature dictionary containing the tensors
             sd_data:
                 Scaling factor for the timesteps before fourier embedding
             token_mask:
@@ -193,7 +193,7 @@ class ProteusLitModule(LightningModule):
     ) -> torch.Tensor:
         """Perform a single training step on a batch of data from the training set.
 
-        :param batch: A batch of data (a tuple) containing the input tensor of images and target
+        :param batch: A batch of data (a tuple) containing the x tensor of images and target
             labels.
         :param batch_idx: The index of the current batch.
         :return: A tensor of losses between model predictions and targets.
@@ -236,7 +236,7 @@ class ProteusLitModule(LightningModule):
     def validation_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
         """Perform a single validation step on a batch of data from the validation set.
         Args:
-            batch: A batch of data (a tuple) containing the input tensor of images and target
+            batch: A batch of data (a tuple) containing the x tensor of images and target
                    labels.
             batch_idx:
                 The index of the current batch.
@@ -266,7 +266,7 @@ class ProteusLitModule(LightningModule):
 
         Args:
         batch:
-            A batch of data (a tuple) containing the input tensor of images and target
+            A batch of data (a tuple) containing the x tensor of images and target
             labels.
         batch_idx:
             The index of the current batch.

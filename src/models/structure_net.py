@@ -178,7 +178,7 @@ class StructureNet(nn.Module):
         for _ in range(self.n_structure_block):
             # structure = checkpoint_sequential(self.net,
             #                                  segments=self.n_structure_layer,
-            #                                  input=structure)
+            #                                  x=structure)
             structure = self.net(structure)
 
         # Return updated transforms

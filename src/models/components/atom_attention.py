@@ -23,8 +23,8 @@ def partition_tensor(
         n_keys: int = 128,
         pad_value: Optional[float] = None,
 ) -> Tensor:
-    """Partitions the input flat atom tensor into windows of n_keys with a slide stride of n_queries.
-    The input tensor is padded to make the centers of the partitions align with the subset centers in AlphaFold3.
+    """Partitions the x flat atom tensor into windows of n_keys with a slide stride of n_queries.
+    The x tensor is padded to make the centers of the partitions align with the subset centers in AlphaFold3.
     Subset centers = (15.5, 47.5, 79.5, ...)
     """
     # Pad
@@ -331,7 +331,7 @@ class AtomTransformer(nn.Module):
             atom_pair_repr: Tensor,
             mask: Optional[Tensor] = None,
     ):
-        """Prepare the input tensors for the AtomTransformerBlock."""
+        """Prepare the x tensors for the AtomTransformerBlock."""
         blocks = [
             partial(
                 block,
@@ -626,7 +626,7 @@ class AtomAttentionEncoder(nn.Module):
         atom pair representations are large and can be checkpointed to reduce memory usage.
         Args:
             features:
-                Dictionary of input features.
+                Dictionary of x features.
             atom_single:
                 [bs, n_atoms, c_atom] The single atom representation from init_single_repr
             z_trunk:
@@ -683,7 +683,7 @@ class AtomAttentionEncoder(nn.Module):
         atom single representations are large and can be checkpointed to reduce memory usage.
         Args:
             features:
-                Dictionary of input features.
+                Dictionary of x features.
             s_trunk:
                 [*, n_tokens, c_token] the token representation from the trunk
             noisy_pos:
@@ -730,7 +730,7 @@ class AtomAttentionEncoder(nn.Module):
         """Forward pass for the AtomAttentionEncoder module.
         Args:
             features:
-                Dictionary containing the input features:
+                Dictionary containing the x features:
                     "ref_pos":
                         [*, N_atoms, 3] atom positions in the reference conformers, with
                         a random rotation and translation applied. Atom positions in Angstroms.

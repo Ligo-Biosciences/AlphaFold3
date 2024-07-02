@@ -187,8 +187,8 @@ class Linear(nn.Linear):
 
         self.precision = precision
 
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        d = input.dtype
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        d = x.dtype
         deepspeed_is_initialized = (
                 deepspeed_is_installed and
                 deepspeed.comm.comm.is_initialized()
@@ -196,16 +196,16 @@ class Linear(nn.Linear):
         if self.precision is not None:
             with torch.cuda.amp.autocast(enabled=False):
                 bias = self.bias.to(dtype=self.precision) if self.bias is not None else None
-                return F.linear(input.to(dtype=self.precision),
-                                            self.weight.to(dtype=self.precision),
-                                            bias).to(dtype=d)
+                return F.linear(x.to(dtype=self.precision),
+                                self.weight.to(dtype=self.precision),
+                                bias).to(dtype=d)
 
         if d is torch.bfloat16 and not deepspeed_is_initialized:
             with torch.cuda.amp.autocast(enabled=False):
                 bias = self.bias.to(dtype=d) if self.bias is not None else None
-                return F.linear(input, self.weight.to(dtype=d), bias)
+                return F.linear(x, self.weight.to(dtype=d), bias)
 
-        return F.linear(input, self.weight, self.bias)
+        return F.linear(x, self.weight, self.bias)
 
 
 class LinearNoBias(Linear):
@@ -283,7 +283,7 @@ class AdaLN(nn.Module):
 @torch.jit.ignore
 def softmax_no_cast(t: torch.Tensor, dim: int = -1) -> torch.Tensor:
     """
-        Softmax, but without automatic casting to fp32 when the input is of
+        Softmax, but without automatic casting to fp32 when the x is of
         type bfloat16
     """
     d = t.dtype
@@ -749,7 +749,7 @@ def _deepspeed_evo_attn(
     k = k.transpose(-2, -3)
     v = v.transpose(-2, -3)
 
-    # Reshape tensors to match expected input shape [B, N, Q/K, H, C_hidden]
+    # Reshape tensors to match expected x shape [B, N, Q/K, H, C_hidden]
     # for DS4Sci_EvoformerAttention() by adding or flattening batch dims as needed.
     orig_shape = q.shape
     if len(orig_shape[:-3]) != 2:

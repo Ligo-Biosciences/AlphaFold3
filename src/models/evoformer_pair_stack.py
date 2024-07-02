@@ -51,7 +51,7 @@ class EvoformerPairBlock(torch.nn.Module):
         """Feedforward of pair stack block. Implements part of Alg. 6 in Jumper et al. 2021
         Args:
             z: the pair representation tensor [*, N_res, N_res, C_z]
-            mask: input mask [*, N_res, N_res]
+            mask: x mask [*, N_res, N_res]
         """
         z += self.outgoing_dropout_rowwise(self.triangle_multiplication_outgoing(z, mask))
         z += self.incoming_dropout_rowwise(self.triangle_multiplication_incoming(z, mask))
@@ -82,7 +82,7 @@ class EvoformerPairStack(torch.nn.Module):
     def forward(self, z, mask=None):
         """Feedforward of Evoformer pair stack. Adapted from Alg. 6 in Jumper et al. 2021.
         :param z: the pair representation tensor [*, N_res, N_res, C_z]
-        :param mask: input mask [*, N_res, N_res]
+        :param mask: x mask [*, N_res, N_res]
         """
         for block in self.blocks:
             z = block(z, mask)

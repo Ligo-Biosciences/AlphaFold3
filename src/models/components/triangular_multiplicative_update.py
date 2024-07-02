@@ -93,9 +93,9 @@ class BaseTriangleMultiplicativeUpdate(nn.Module, ABC):
         """
         Args:
             x:
-                [*, N_res, N_res, C_z] input tensor
+                [*, N_res, N_res, C_z] x tensor
             mask:
-                [*, N_res, N_res] input mask
+                [*, N_res, N_res] x mask
         Returns:
             [*, N_res, N_res, C_z] output tensor
         """
@@ -149,13 +149,13 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
         Uses in-place operations, fusion of the addition that happens after
         this module in the Evoformer, a smidge of recomputation, and 
         a cache of overwritten values to lower peak memory consumption of this
-        module from 5x the size of the input tensor z to 2.5x its size. Useful
+        module from 5x the size of the x tensor z to 2.5x its size. Useful
         for inference on extremely long sequences. 
         
         It works as follows. We will make reference to variables used in the
         default forward implementation below. Naively, triangle multiplication
         attention requires the manifestation of 5 tensors the size of z:
-        1) z, the "square" input tensor, 2) a, the first projection of z, 
+        1) z, the "square" x tensor, 2) a, the first projection of z,
         3) b, the second projection of b, 4) g, a z-sized mask, and 5) a 
         z-sized tensor for intermediate computations. For large N, this is 
         prohibitively expensive; for N=4000, for example, z is more than 8GB 
@@ -241,7 +241,7 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
 
             return p
 
-        # We start by fully manifesting a. In addition to the input, this
+        # We start by fully manifesting a. In addition to the x, this
         # brings total memory consumption to 2x z (disregarding size of chunks)
         # [*, N, N, c]
         a = compute_projection(z, mask, True, chunked=True)
@@ -265,7 +265,7 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
             def flip_z_cache_(z_cache, z):
                 # "Reorient" the z_cache (see below), filling it with quadrants
                 # 3---recovered from the z_cache---and 4---recovered from z---
-                # of the input tensor z. 
+                # of the x tensor z.
                 quadrant_3 = slice_tensor(
                     z_cache, half_n, None, row_dim
                 )
@@ -405,9 +405,9 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
         """
         Args:
             x:
-                [*, N_res, N_res, C_z] input tensor
+                [*, N_res, N_res, C_z] x tensor
             mask:
-                [*, N_res, N_res] input mask
+                [*, N_res, N_res] x mask
         Returns:
             [*, N_res, N_res, C_z] output tensor
         """
@@ -553,9 +553,9 @@ class FusedTriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
         """
         Args:
             x:
-                [*, N_res, N_res, C_z] input tensor
+                [*, N_res, N_res, C_z] x tensor
             mask:
-                [*, N_res, N_res] input mask
+                [*, N_res, N_res] x mask
         Returns:
             [*, N_res, N_res, C_z] output tensor
         """

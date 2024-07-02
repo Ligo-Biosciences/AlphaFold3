@@ -22,7 +22,7 @@ from proteinflow.data import ProteinEntry
 class ProteinDataset(Dataset):
     """Dataset to load proteinflow data.
 
-    Saves the model input tensors as pickle files in `features_folder`. When `clustering_dict_path` is provided,
+    Saves the model x tensors as pickle files in `features_folder`. When `clustering_dict_path` is provided,
     at each iteration a random biounit from a cluster is sampled.
 
     If a complex contains multiple chains, they are concatenated. The sequence identity information is preserved in the
@@ -115,7 +115,7 @@ class ProteinDataset(Dataset):
         Parameters
         ----------
         dataset_folder : str
-            the path to the folder with proteinflow format input files (assumes that files are named {biounit_id}.pickle)
+            the path to the folder with proteinflow format x files (assumes that files are named {biounit_id}.pickle)
         features_folder : str, default "./data/tmp/"
             the path to the folder where the ProteinMPNN features will be saved
         clustering_dict_path : str, optional

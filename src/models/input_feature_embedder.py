@@ -59,7 +59,7 @@ class InputFeatureEmbedder(nn.Module):
             dropout=self.dropout,
             n_queries=self.n_queries,
             n_keys=self.n_keys,
-            trunk_conditioning=False,  # no trunk conditioning for the input feature embedder
+            trunk_conditioning=False,  # no trunk conditioning for the x feature embedder
         )
 
     def forward(
@@ -67,10 +67,10 @@ class InputFeatureEmbedder(nn.Module):
             features: Dict[str, torch.Tensor],
             mask: torch.Tensor = None
     ) -> torch.Tensor:
-        """Forward pass of the input feature embedder.
+        """Forward pass of the x feature embedder.
         Args:
             features:
-                Dictionary containing the input features:
+                Dictionary containing the x features:
                     "ref_pos":
                         [*, N_atoms, 3] atom positions in the reference conformers, with
                         a random rotation and translation applied. Atom positions in Angstroms.
@@ -95,9 +95,9 @@ class InputFeatureEmbedder(nn.Module):
             mask:
                 [*, N_atoms] mask indicating which atoms are valid (non-padding).
         Returns:
-            [*, N_tokens, c_token] Embedding of the input features.
+            [*, N_tokens, c_token] Embedding of the x features.
         """
-        # Encode the input features
+        # Encode the x features
         output = self.encoder(features=features, mask=mask)
         per_token_features = output.token_single  # f_restype, f_profile, and f_deletion_mean do not exist for design
         return per_token_features
@@ -169,15 +169,15 @@ class ProteusFeatureEmbedder(nn.Module):
         """Forward pass of the Proteus feature embedder.
         Args:
             features:
-                Dictionary containing the input features
+                Dictionary containing the x features
             atom_mask:
                 [*, N_atoms] mask indicating which atoms are valid (non-padding).
             token_mask:
                 [*, N_tokens] mask indicating which tokens are valid (non-padding).
         Returns:
-            [*, N_tokens, c_token] Embedding of the input features.
+            [*, N_tokens, c_token] Embedding of the x features.
         """
-        # Encode the input features
+        # Encode the x features
         per_token_features = self.input_feature_embedder(features=features, mask=atom_mask)
         # f_restype, f_profile, and f_deletion_mean do not exist for design
 
@@ -200,13 +200,13 @@ class ProteusFeatureEmbedder(nn.Module):
         """Forward pass of the Proteus feature embedder.
             Args:
                 features:
-                    Dictionary containing the input features
+                    Dictionary containing the x features
                 atom_mask:
                     [*, N_atoms] mask indicating which atoms are valid (non-padding).
                 token_mask:
                     [*, N_tokens] mask indicating which tokens are valid (non-padding).
             Returns:
-                [*, N_tokens, c_token] Embedding of the input features.
+                [*, N_tokens, c_token] Embedding of the x features.
         """
         return checkpoint(self._forward, features, atom_mask, token_mask)
 

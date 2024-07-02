@@ -55,7 +55,7 @@ class TestDiffusionModule(unittest.TestCase):
     def test_forward(self):
         output = self.module(noisy_atoms=self.noisy_atoms,  # (bs, n_atoms)
                              timesteps=self.t,
-                             features=self.features,  # input feature dict
+                             features=self.features,  # x feature dict
                              s_inputs=self.s_inputs,  # (bs, n_tokens, c_token)
                              s_trunk=self.s_trunk,  # (bs, n_tokens, c_token)
                              z_trunk=self.z_trunk,  # (bs, n_tokens, n_tokens, c_pair)
@@ -68,7 +68,7 @@ class TestDiffusionModule(unittest.TestCase):
         self.optimizer.zero_grad()
         output = self.module(noisy_atoms=self.noisy_atoms,  # (bs, n_atoms)
                              timesteps=self.t,
-                             features=self.features,  # input feature dict
+                             features=self.features,  # x feature dict
                              s_inputs=self.s_inputs,  # (bs, n_tokens, c_token)
                              s_trunk=self.s_trunk,  # (bs, n_tokens, c_token)
                              z_trunk=self.z_trunk,  # (bs, n_tokens, n_tokens, c_pair)

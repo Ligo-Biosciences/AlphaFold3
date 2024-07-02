@@ -135,7 +135,7 @@ class DiffusionModule(torch.nn.Module):
             timesteps: Tensor
     ) -> Tensor:
         """
-        Rescales updates to positions and combines with input positions.
+        Rescales updates to positions and combines with x positions.
         Args:
             r_updates:
                 [bs, n_atoms, 3] updates to the atom positions from the network
@@ -159,7 +159,7 @@ class DiffusionModule(torch.nn.Module):
             self,
             noisy_atoms: Tensor,  # (bs, n_atoms, 3)
             timesteps: Tensor,  # (bs, 1)
-            features: Dict[str, Tensor],  # input feature dict
+            features: Dict[str, Tensor],  # x feature dict
             s_inputs: Tensor,  # (bs, n_tokens, c_token)
             s_trunk: Tensor,  # (bs, n_tokens, c_token)
             z_trunk: Tensor,  # (bs, n_tokens, n_tokens, c_pair)
@@ -174,7 +174,7 @@ class DiffusionModule(torch.nn.Module):
             timesteps:
                 tensor of timesteps (bs, 1)
             features:
-                input feature dictionary containing the tensors:
+                x feature dictionary containing the tensors:
                     "ref_pos":
                         [*, N_atoms, 3] atom positions in the reference conformers, with
                         a random rotation and translation applied. Atom positions in Angstroms.
@@ -197,7 +197,7 @@ class DiffusionModule(torch.nn.Module):
                     "atom_to_token":
                         [*, N_atoms] Token index for each atom in the flat atom representation.
                     "residue_index":
-                        [*, N_tokens] Residue number in the token’s original input chain.
+                        [*, N_tokens] Residue number in the token’s original x chain.
                     "token_index":
                         [*, N_tokens] Token number. Increases monotonically; does not restart at 1
                         for new chains.
@@ -210,7 +210,7 @@ class DiffusionModule(torch.nn.Module):
                         A, B and C share a sequence but D does not, their sym_ids would be [0, 1, 2, 0]
 
             s_inputs:
-                [*, n_tokens, c_token] Single conditioning input
+                [*, n_tokens, c_token] Single conditioning x
             s_trunk:
                 [*, n_tokens, c_token] Single conditioning from Pairformer trunk
             z_trunk:
@@ -262,6 +262,6 @@ class DiffusionModule(torch.nn.Module):
             mask=atom_mask,  # (bs, n_atoms)
         )  # (bs, n_atoms, 3)
 
-        # Rescale updates to positions and combine with input positions
+        # Rescale updates to positions and combine with x positions
         output_pos = self.rescale_with_updates(atom_pos_updates, noisy_atoms, timesteps)
         return output_pos
