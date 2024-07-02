@@ -150,6 +150,7 @@ class DiffusionModule(torch.nn.Module):
             self.sd_data**2,
             torch.add(timesteps ** 2, self.sd_data ** 2)
         )
+
         noisy_pos_scale = noisy_pos_scale.unsqueeze(-1)  # (bs, 1, 1)
         r_update_scale = torch.sqrt(noisy_pos_scale) * timesteps.unsqueeze(-1)
         return noisy_atoms * noisy_pos_scale + r_updates * r_update_scale
