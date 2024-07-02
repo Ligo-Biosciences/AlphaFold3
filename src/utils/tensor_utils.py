@@ -71,10 +71,11 @@ def dict_multimap(fn, dicts):
 
 
 def one_hot(x, v_bins):
+    dtype = v_bins.dtype
     reshaped_bins = v_bins.view(((1,) * len(x.shape)) + (len(v_bins),))
     diffs = x[..., None] - reshaped_bins
     am = torch.argmin(torch.abs(diffs), dim=-1)
-    return nn.functional.one_hot(am, num_classes=len(v_bins)).float()
+    return nn.functional.one_hot(am, num_classes=len(v_bins)).to(dtype)
 
 
 def batched_gather(data, inds, dim=0, no_batch_dims=0):

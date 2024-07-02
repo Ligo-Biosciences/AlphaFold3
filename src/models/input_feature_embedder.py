@@ -1,10 +1,13 @@
 """Construct an initial 1D embedding."""
 import torch
+from torch import Tensor
 from torch import nn
 from src.models.components.atom_attention import AtomAttentionEncoder
-from typing import Dict, NamedTuple
+from typing import Dict, NamedTuple, Tuple
 from src.models.components.primitives import LinearNoBias
 from src.models.components.relative_position_encoding import RelativePositionEncoding
+from src.utils.checkpointing import get_checkpoint_fn
+checkpoint = get_checkpoint_fn()
 
 
 class InputFeatureEmbedder(nn.Module):
@@ -51,8 +54,8 @@ class InputFeatureEmbedder(nn.Module):
             c_atom=self.c_atom,
             c_atompair=self.c_atompair,
             c_trunk_pair=self.c_trunk_pair,
-            num_blocks=self.num_blocks,
-            num_heads=self.num_heads,
+            no_blocks=self.num_blocks,
+            no_heads=self.num_heads,
             dropout=self.dropout,
             n_queries=self.n_queries,
             n_keys=self.n_keys,
@@ -157,12 +160,12 @@ class ProteusFeatureEmbedder(nn.Module):
         self.linear_z_row = LinearNoBias(c_token, c_trunk_pair)
         self.relative_pos_encoder = RelativePositionEncoding(c_trunk_pair)
 
-    def forward(
+    def _forward(
             self,
             features: Dict[str, torch.Tensor],
             atom_mask: torch.Tensor = None,
             token_mask: torch.Tensor = None
-    ) -> ProteusFeatures:
+    ) -> Tuple[Tensor, Tensor, Tensor]:
         """Forward pass of the Proteus feature embedder.
         Args:
             features:
@@ -186,6 +189,24 @@ class ProteusFeatureEmbedder(nn.Module):
                   self.linear_z_row(per_token_features[:, None, :, :])
         z_trunk = z_trunk + self.relative_pos_encoder(features, token_mask)
 
-        return ProteusFeatures(s_inputs=per_token_features,
-                               s_trunk=s_trunk,
-                               z_trunk=z_trunk)
+        return per_token_features, s_trunk, z_trunk
+
+    def forward(
+            self,
+            features: Dict[str, torch.Tensor],
+            atom_mask: torch.Tensor = None,
+            token_mask: torch.Tensor = None
+    ) -> Tuple[Tensor, Tensor, Tensor]:
+        """Forward pass of the Proteus feature embedder.
+            Args:
+                features:
+                    Dictionary containing the input features
+                atom_mask:
+                    [*, N_atoms] mask indicating which atoms are valid (non-padding).
+                token_mask:
+                    [*, N_tokens] mask indicating which tokens are valid (non-padding).
+            Returns:
+                [*, N_tokens, c_token] Embedding of the input features.
+        """
+        return checkpoint(self._forward, features, atom_mask, token_mask)
+

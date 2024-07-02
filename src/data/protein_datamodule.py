@@ -177,10 +177,10 @@ class AF3Featurizer(nn.Module):
         total_L = protein_dict["residue_idx"].shape[0]  # crop_size
 
         af3_features = {
-            "residue_index": protein_dict["residue_idx"],
+            "residue_index": protein_dict["residue_idx"],  # int
             "token_index": torch.arange(total_L),  # dtype=torch.float32
-            "asym_id": torch.zeros((total_L,)),
-            "entity_id": torch.zeros((total_L,)),  # , dtype=torch.float32
+            "asym_id": torch.zeros((total_L,)),  # int
+            "entity_id": torch.zeros((total_L,)),  # int
             "sym_id": torch.zeros((total_L,)),  # , dtype=torch.float32
             "ref_pos": AF3Featurizer.compute_ref_residue_conformers('ALA', n_res=total_L),
             "ref_mask": torch.ones((total_L * 4,)),  # , dtype=torch.float32
@@ -190,7 +190,7 @@ class AF3Featurizer(nn.Module):
             "ref_atom_name_chars": AF3Featurizer.compute_atom_name_chars(
                 ["N", "CA", "C", "O"]).unsqueeze(0).expand(total_L, 4, 4, 64).reshape(total_L * 4, 4, 64),
             "ref_space_uid": protein_dict["residue_idx"].unsqueeze(-1).expand(total_L, 4).reshape(total_L * 4),
-            "atom_to_token": torch.arange(total_L).unsqueeze(-1).expand(total_L, 4).reshape(total_L * 4),
+            "atom_to_token": torch.arange(total_L).unsqueeze(-1).expand(total_L, 4).reshape(total_L * 4).long(),
         }
 
         # Compute masks

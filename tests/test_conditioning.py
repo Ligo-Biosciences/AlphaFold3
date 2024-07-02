@@ -86,11 +86,10 @@ class TestDiffusionConditioning(unittest.TestCase):
         s_inputs = torch.randn(self.batch_size, self.n_tokens, self.c_token)
         s_trunk = torch.randn(self.batch_size, self.n_tokens, self.c_token)
         z_trunk = torch.randn(self.batch_size, self.n_tokens, self.n_tokens, self.c_pair)
-        sd_data = 16.0  # torch.randn(self.batch_size, 1)  # standard dev of data (bs, 1)
 
         mask = torch.randint(0, 2, (self.batch_size, self.n_tokens))
 
-        output = self.module(t, features, s_inputs, s_trunk, z_trunk, sd_data)
+        output = self.module(t, features, s_inputs, s_trunk, z_trunk, mask)
         self.assertEqual(output[0].shape, (self.batch_size, self.n_tokens, self.c_token))
         self.assertEqual(output[1].shape, (self.batch_size, self.n_tokens, self.n_tokens, self.c_pair))
 

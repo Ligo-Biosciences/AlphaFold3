@@ -2,7 +2,6 @@
 import torch
 import unittest
 from src.models.diffusion_module import DiffusionModule
-from src.utils.geometry.vector import Vec3Array
 
 
 class TestDiffusionModule(unittest.TestCase):

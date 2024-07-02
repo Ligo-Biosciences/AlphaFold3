@@ -45,7 +45,7 @@ class EvoformerPairBlock(torch.nn.Module):
         self.ending_dropout_columnwise = DropoutColumnwise(dropout_rate)
         self.triangle_attention_ending_node = TriangleAttentionEndingNode(c_in=c_s, c_hidden=c_hidden // n_heads,
                                                                           no_heads=n_heads)
-        self.pair_transition = PairTransition(c_z=c_s, n=4)  # expand hidden dim by factor of 4
+        self.pair_transition = PairTransition(c_z=c_s, n=4)  # expand hidden c_hidden by factor of 4
 
     def forward(self, z, mask=None):
         """Feedforward of pair stack block. Implements part of Alg. 6 in Jumper et al. 2021
