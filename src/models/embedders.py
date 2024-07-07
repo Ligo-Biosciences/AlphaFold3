@@ -120,7 +120,7 @@ class TemplateEmbedder(nn.Module):
             LayerNorm(c_z),
             LinearNoBias(c_z, c_template)
         )
-        no_template_features = 32 + 1 + 1 + 1 + 39 + 3
+        no_template_features = 108
         self.linear_templ_feat = LinearNoBias(no_template_features, c_template)
         self.pair_stack = TemplatePairStack(
             no_blocks=no_blocks,
@@ -179,7 +179,8 @@ class TemplateEmbedder(nn.Module):
                 Whether to use inplace operations.
         """
         # Grab data about the inputs
-        *bs, n_templ, n_token = features["template_restype"].shape
+        *bs, n_templ, n_token, _ = features["template_restype"].shape
+        bs = tuple(bs)
 
         # Compute masks
         b_frame_mask = features["template_backbone_frame_mask"]
@@ -201,8 +202,8 @@ class TemplateEmbedder(nn.Module):
         template_feat = template_feat * same_asym_id.unsqueeze(-1)
 
         # Add residue type information
-        temp_restype_i = features["template_restype"][..., None].expand(bs + (n_templ, n_token, n_token, -1))
-        temp_restype_j = features["template_restype"][..., None, :].expand(bs + (n_templ, n_token, n_token, -1))
+        temp_restype_i = features["template_restype"][..., None, :].expand(bs + (n_templ, n_token, n_token, -1))
+        temp_restype_j = features["template_restype"][..., None, :, :].expand(bs + (n_templ, n_token, n_token, -1))
         template_feat = torch.cat([template_feat, temp_restype_i, temp_restype_j], dim=-1)
 
         # Run the pair stack per template

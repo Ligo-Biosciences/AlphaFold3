@@ -18,10 +18,12 @@ class TemplatePairStack(nn.Module):
             no_blocks: int = 2,
             c_template: int = 32,
             clear_cache_between_blocks: bool = False,
+            blocks_per_ckpt: int = 1
     ):
         super(TemplatePairStack, self).__init__()
         self.blocks = nn.ModuleList([PairStack(c_z=c_template) for _ in range(no_blocks)])
         self.clear_cache_between_blocks = clear_cache_between_blocks
+        self.blocks_per_ckpt = blocks_per_ckpt
 
     def _prep_blocks(
             self,
@@ -41,7 +43,7 @@ class TemplatePairStack(nn.Module):
                 use_lma=use_lma,
                 inplace_safe=inplace_safe
             )
-            for block in self.pair_stack
+            for block in self.blocks
         ]
         # Clear CUDA's GPU memory cache between blocks
         if self.clear_cache_between_blocks:
