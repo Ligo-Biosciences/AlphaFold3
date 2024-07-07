@@ -38,7 +38,7 @@ class RelativePositionEncoding(nn.Module):
         """Computes relative position encoding. AlphaFold3 Supplement Algorithm 3.
         Args:
             features:
-                x feature dictionary containing:
+                input feature dictionary containing:
                     "residue_index":
                         [*, n_tokens] Residue number in the token's original x chain.
                     "token_index":

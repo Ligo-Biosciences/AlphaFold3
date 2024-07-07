@@ -93,7 +93,7 @@ class InputFeatureEmbedder(nn.Module):
             mask:
                 [*, N_atoms] mask indicating which atoms are valid (non-padding).
         Returns:
-            [*, N_tokens, c_token] Embedding of the x features.
+            [*, N_tokens, c_token] Embedding of the input features.
         """
         # Encode the input features
         output = self.encoder(features=features, mask=mask, n_tokens=n_tokens)
@@ -109,13 +109,95 @@ class InputEmbedder(nn.Module):
             c_atom: int = 128,
             c_atompair: int = 16,
             c_trunk_pair: int = 128,
-
     ):
         super(InputEmbedder, self).__init__()
-        pass
 
-    def forward(self):
-        pass
+        # InputFeatureEmbedder for the s_inputs representation
+        self.input_feature_embedder = InputFeatureEmbedder(
+            c_token=c_token,
+            c_atom=c_atom,
+            c_atompair=c_atompair,
+            c_trunk_pair=c_trunk_pair
+        )
+
+        # Projections
+        self.linear_single = LinearNoBias(c_token, c_token)
+        self.linear_proj_i = LinearNoBias(c_token, c_trunk_pair)
+        self.linear_proj_j = LinearNoBias(c_token, c_trunk_pair)
+        self.linear_bonds = LinearNoBias(1, c_trunk_pair)
+
+        # Relative position encoding
+        self.relpos = RelativePositionEncoding(c_pair=c_trunk_pair)
+
+    def forward(
+            self,
+            features: Dict[str, Tensor],
+            atom_mask: Optional[Tensor] = None,
+            token_mask: Optional[Tensor] = None,
+            inplace_safe: bool = False
+    ) -> Tuple[Tensor, Tensor, Tensor]:
+        """
+        Args:
+            features:
+                Dictionary containing the following input features:
+                    "ref_pos":
+                        [*, N_atoms, 3] atom positions in the reference conformers, with
+                        a random rotation and translation applied. Atom positions in Angstroms.
+                    "ref_charge":
+                        [*, N_atoms] Charge for each atom in the reference conformer.
+                    "ref_mask":
+                        [*, N_atoms] Mask indicating which atom slots are used in the reference
+                        conformer.
+                    "ref_element":
+                        [*, N_atoms, 128] One-hot encoding of the element atomic number for each atom
+                        in the reference conformer, up to atomic number 128.
+                    "ref_atom_name_chars":
+                        [*, N_atom, 4, 64] One-hot encoding of the unique atom names in the reference
+                        conformer. Each character is encoded as ord(c - 32), and names are padded to
+                        length 4.
+                    "ref_space_uid":
+                        [*, N_atoms] Numerical encoding of the chain id and residue index associated
+                        with this reference conformer. Each (chain id, residue index) tuple is assigned
+                        an integer on first appearance.
+                    "atom_to_token":
+                        [*, N_atoms] Token index for each atom in the flat atom representation.
+                    "token_bonds":
+                        [*, N_tokens, N_tokens] feature indicating which tokens are bonded to each other. 
+                        Only includes polymer-ligand and ligand-ligand bonds
+            atom_mask:
+                [*, n_atoms] mask indicating which atoms are valid (non-padding).
+            token_mask:
+                [*, n_tokens] mask indicating which tokens are valid (non-padding).
+            inplace_safe:
+                whether to use inplace operations
+        """
+        *_, n_tokens, _ = features["token_bonds"].shape
+
+        # Single representation with input feature embedder
+        s_inputs = self.input_feature_embedder(features, n_tokens=n_tokens, mask=atom_mask)
+
+        # Projections
+        s_init = self.linear_single(s_inputs)
+        z_init = add(
+            self.linear_proj_i(s_inputs[..., None, :]),
+            self.linear_proj_j(s_inputs[..., None, :, :]),
+            inplace=inplace_safe
+        )  # (*, n_tokens, n_tokens, c_trunk_pair)
+
+        # Add relative position encoding
+        z_init = add(
+            z_init,
+            self.relpos(features, mask=token_mask),
+            inplace=inplace_safe
+        )
+
+        # Add token bond information
+        z_init = add(
+            z_init,
+            self.linear_bonds(features["token_bonds"][..., None]),
+            inplace=inplace_safe
+        )
+        return s_inputs, s_init, z_init
 
 
 class TemplateEmbedder(nn.Module):
@@ -290,9 +372,7 @@ class ProteusFeatureEmbedder(nn.Module):
             num_heads=num_heads,
             dropout=dropout,
             n_queries=n_queries,
-            n_keys=n_keys,
-            device=device,
-            dtype=dtype
+            n_keys=n_keys
         )
         self.linear_s_init = LinearNoBias(c_token, c_token)
         self.linear_z_col = LinearNoBias(c_token, c_trunk_pair)

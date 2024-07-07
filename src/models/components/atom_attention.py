@@ -61,8 +61,6 @@ def extract_locals(
                 The value to use for padding.
         Returns:
             A tensor of shape [batch_size, N_atoms // partition_increment, partition_length, channels].
-
-    TODO: my representation of atoms should not be a full pairwise tensor, should always remain local
     """
     batch_size, n_atoms, _, channels = bias_tensor.shape
     # Pad bias tensor column-wise by n_keys // 2 - n_queries // 2 on each side
@@ -438,7 +436,7 @@ def map_token_pairs_to_local_atom_pairs(
         pair embeddings. For each atom pair (l, m), the corresponding token pair's embeddings are extracted."""
     bs, n_atoms = tok_idx.shape
     _, n_tokens, _, c_pair = token_pairs.shape
-    # tok_idx = tok_idx.int()  # convert to int for indexing
+    # tok_idx = tok_idx.long()  # convert to int for indexing
 
     # Expand tok_idx for efficient gather operation
     tok_idx_l = tok_idx.unsqueeze(2).expand(-1, -1, n_atoms).unsqueeze(-1)
@@ -476,7 +474,7 @@ def aggregate_atom_to_token(
     masked_atom -> legitimate_token
     """
     bs, n_atoms, c_atom = atom_representation.shape
-    # tok_idx = tok_idx.int()  # convert to int for indexing
+    # tok_idx = tok_idx.long()  # convert to int for indexing
 
     # Initialize the token representation tensor with zeros
     token_representation = torch.zeros((bs, n_tokens, c_atom),
@@ -622,7 +620,7 @@ class AtomAttentionEncoder(nn.Module):
         atom pair representations are large and can be checkpointed to reduce memory usage.
         Args:
             features:
-                Dictionary of x features.
+                Dictionary of input features.
             atom_single:
                 [bs, n_atoms, c_atom] The single atom representation from init_single_repr
             z_trunk:
@@ -679,7 +677,7 @@ class AtomAttentionEncoder(nn.Module):
         atom single representations are large and can be checkpointed to reduce memory usage.
         Args:
             features:
-                Dictionary of x features.
+                Dictionary of input features.
             s_trunk:
                 [*, n_tokens, c_token] the token representation from the trunk
             noisy_pos:
