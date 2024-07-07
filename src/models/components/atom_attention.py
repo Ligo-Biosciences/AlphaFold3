@@ -508,7 +508,6 @@ class AtomAttentionEncoder(nn.Module):
 
     def __init__(
             self,
-            n_tokens: int,
             c_token: int,
             c_atom: int = 128,
             c_atompair: int = 16,
@@ -523,8 +522,6 @@ class AtomAttentionEncoder(nn.Module):
     ):
         """Initialize the AtomAttentionEncoder module.
         Args:
-            n_tokens:
-                The number of tokens that will be in the output representation.
             c_token:
                 The number of channels for the token representation.
             c_atom:
@@ -553,7 +550,6 @@ class AtomAttentionEncoder(nn.Module):
 
         """
         super().__init__()
-        self.n_tokens = n_tokens
         self.no_blocks = no_blocks
         self.c_token = c_token
         self.c_atom = c_atom
@@ -722,6 +718,7 @@ class AtomAttentionEncoder(nn.Module):
     def forward(
             self,
             features: Dict[str, Tensor],
+            n_tokens: int,
             s_trunk: Optional[Tensor] = None,  # (bs, n_tokens, c_token)
             z_trunk: Optional[Tensor] = None,  # (bs, n_tokens, c_trunk_pair)
             noisy_pos: Optional[Tensor] = None,  # (bs, n_atoms, 3)
@@ -752,6 +749,8 @@ class AtomAttentionEncoder(nn.Module):
                         an integer on first appearance.
                     "atom_to_token":
                         [*, N_atoms] Token index for each atom in the flat atom representation.
+            n_tokens:
+                The number of tokens that will be in the output representation.
             s_trunk:
                 [*, N_tokens, c_token] single representation of the Pairformer trunk
             z_trunk:
@@ -783,7 +782,7 @@ class AtomAttentionEncoder(nn.Module):
         # Aggregate per-atom representation to per-token representation
         token_repr = aggregate_atom_to_token(atom_representation=F.relu(self.linear_output(atom_single_conditioning)),
                                              tok_idx=features['atom_to_token'],
-                                             n_tokens=self.n_tokens)
+                                             n_tokens=n_tokens)
         output = AtomAttentionEncoderOutput(
             token_single=token_repr,
             atom_single_skip_repr=atom_single_conditioning,

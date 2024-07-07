@@ -20,24 +20,19 @@ class InputFeatureEmbedder(nn.Module):
     - Embed per-atom features
     - Concatenate the per-token features
     """
-
     def __init__(
             self,
-            n_tokens: int,
             c_token: int = 384,
             c_atom: int = 128,
             c_atompair: int = 16,
-            c_trunk_pair: int = 16,
+            c_trunk_pair: int = 128,
             num_blocks: int = 3,
             num_heads: int = 4,
             dropout=0.0,
             n_queries: int = 32,
             n_keys: int = 128,
-            device=None,
-            dtype=None,
     ):
         super().__init__()
-        self.n_tokens = n_tokens
         self.num_blocks = num_blocks
         self.c_token = c_token
         self.c_atom = c_atom
@@ -47,12 +42,9 @@ class InputFeatureEmbedder(nn.Module):
         self.dropout = dropout
         self.n_queries = n_queries
         self.n_keys = n_keys
-        self.device = device
-        self.dtype = dtype
 
         # Atom Attention encoder
         self.encoder = AtomAttentionEncoder(
-            n_tokens=self.n_tokens,
             c_token=self.c_token,
             c_atom=self.c_atom,
             c_atompair=self.c_atompair,
@@ -68,12 +60,13 @@ class InputFeatureEmbedder(nn.Module):
     def forward(
             self,
             features: Dict[str, torch.Tensor],
+            n_tokens: int,
             mask: torch.Tensor = None
     ) -> torch.Tensor:
-        """Forward pass of the x feature embedder.
+        """Forward pass of the input feature embedder.
         Args:
             features:
-                Dictionary containing the x features:
+                Dictionary containing the input features:
                     "ref_pos":
                         [*, N_atoms, 3] atom positions in the reference conformers, with
                         a random rotation and translation applied. Atom positions in Angstroms.
@@ -95,15 +88,34 @@ class InputFeatureEmbedder(nn.Module):
                         an integer on first appearance.
                     "atom_to_token":
                         [*, N_atoms] Token index for each atom in the flat atom representation.
+            n_tokens:
+                number of tokens
             mask:
                 [*, N_atoms] mask indicating which atoms are valid (non-padding).
         Returns:
             [*, N_tokens, c_token] Embedding of the x features.
         """
-        # Encode the x features
-        output = self.encoder(features=features, mask=mask)
+        # Encode the input features
+        output = self.encoder(features=features, mask=mask, n_tokens=n_tokens)
         per_token_features = output.token_single  # f_restype, f_profile, and f_deletion_mean do not exist for design
         return per_token_features
+
+
+class InputEmbedder(nn.Module):
+    """Input embedder for AlphaFold3 that initializes the single and pair representations."""
+    def __init__(
+            self,
+            c_token: int = 384,
+            c_atom: int = 128,
+            c_atompair: int = 16,
+            c_trunk_pair: int = 128,
+
+    ):
+        super(InputEmbedder, self).__init__()
+        pass
+
+    def forward(self):
+        pass
 
 
 class TemplateEmbedder(nn.Module):
@@ -270,7 +282,6 @@ class ProteusFeatureEmbedder(nn.Module):
         self.dtype = dtype
 
         self.input_feature_embedder = InputFeatureEmbedder(
-            n_tokens=n_tokens,
             num_blocks=num_blocks,
             c_token=c_token,
             c_atom=c_atom,
@@ -328,7 +339,7 @@ class ProteusFeatureEmbedder(nn.Module):
         """Forward pass of the Proteus feature embedder.
             Args:
                 features:
-                    Dictionary containing the x features
+                    Dictionary containing the input features
                 atom_mask:
                     [*, N_atoms] mask indicating which atoms are valid (non-padding).
                 token_mask:

@@ -8,7 +8,6 @@ class TestDiffusionModule(unittest.TestCase):
     def setUp(self):
         self.batch_size = 2
         self.n_atoms = 384 * 4
-
         self.c_atom = 128
         self.c_atompair = 16
         self.c_token = 768
@@ -75,7 +74,6 @@ class TestDiffusionModule(unittest.TestCase):
                              token_mask=self.token_mask,
                              use_deepspeed_evo_attention=False
                              )
-        output = output.to_tensor()
         loss = torch.mean((output - torch.ones_like(output)) ** 2)
         loss.backward()
 

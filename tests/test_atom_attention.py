@@ -62,7 +62,6 @@ class TestAtomAttentionEncoder(unittest.TestCase):
         self.n_keys = 128
         self.trunk_conditioning = True
         self.encoder = AtomAttentionEncoder(
-            n_tokens=self.n_tokens,
             c_token=self.c_token,
             c_atom=self.c_atom,
             c_atompair=self.c_atompair,
@@ -77,7 +76,6 @@ class TestAtomAttentionEncoder(unittest.TestCase):
 
     def test_initialization(self):
         """Test whether the module initializes with the correct properties."""
-        self.assertEqual(self.encoder.n_tokens, self.n_tokens)
         self.assertEqual(self.encoder.c_atom, self.c_atom)
         self.assertTrue(isinstance(self.encoder.linear_atom_embedding, nn.Linear))
         # Add more assertions for other properties
@@ -104,7 +102,14 @@ class TestAtomAttentionEncoder(unittest.TestCase):
         #     'token_pair': torch.rand(self.batch_size, self.n_tokens, self.n_tokens, self.c_trunk_pair)
         # }
 
-        output = self.encoder(features, s_trunk, z_trunk, noisy_pos, mask)
+        output = self.encoder(
+            features=features,
+            n_tokens=self.n_tokens,
+            s_trunk=s_trunk,
+            z_trunk=z_trunk,
+            noisy_pos=noisy_pos,
+            mask=mask
+        )
         self.assertEqual(output.token_single.shape, torch.Size([self.batch_size, self.n_tokens, self.c_token]))
         self.assertEqual(output.atom_single_skip_repr.shape, torch.Size([self.batch_size, self.n_atoms, self.c_atom]))
         self.assertEqual(output.atom_single_skip_proj.shape, torch.Size([self.batch_size, self.n_atoms, self.c_atom]))

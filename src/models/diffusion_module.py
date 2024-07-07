@@ -25,7 +25,6 @@ class DiffusionModule(torch.nn.Module):
             c_atompair: int = 16,
             c_token: int = 768,
             c_tokenpair: int = 128,
-            n_tokens: int = 384,
             atom_encoder_blocks: int = 3,
             atom_encoder_heads: int = 16,
             dropout: float = 0.0,
@@ -44,7 +43,6 @@ class DiffusionModule(torch.nn.Module):
         self.c_atompair = c_atompair
         self.c_token = c_token
         self.c_tokenpair = c_tokenpair
-        self.n_tokens = n_tokens
         self.atom_encoder_blocks = atom_encoder_blocks
         self.atom_encoder_heads = atom_encoder_heads
         self.dropout = dropout
@@ -64,7 +62,6 @@ class DiffusionModule(torch.nn.Module):
 
         # Sequence-local atom attention and aggregation to coarse-grained tokens
         self.atom_attention_encoder = AtomAttentionEncoder(
-            n_tokens=n_tokens,
             c_token=c_token,
             c_atom=c_atom,
             c_atompair=c_atompair,
@@ -159,7 +156,7 @@ class DiffusionModule(torch.nn.Module):
             self,
             noisy_atoms: Tensor,  # (bs, n_atoms, 3)
             timesteps: Tensor,  # (bs, 1)
-            features: Dict[str, Tensor],  # x feature dict
+            features: Dict[str, Tensor],  # input feature dict
             s_inputs: Tensor,  # (bs, n_tokens, c_token)
             s_trunk: Tensor,  # (bs, n_tokens, c_token)
             z_trunk: Tensor,  # (bs, n_tokens, n_tokens, c_pair)
@@ -174,7 +171,7 @@ class DiffusionModule(torch.nn.Module):
             timesteps:
                 tensor of timesteps (bs, 1)
             features:
-                x feature dictionary containing the tensors:
+                input feature dictionary containing the tensors:
                     "ref_pos":
                         [*, N_atoms, 3] atom positions in the reference conformers, with
                         a random rotation and translation applied. Atom positions in Angstroms.
@@ -224,6 +221,9 @@ class DiffusionModule(torch.nn.Module):
                 Whether to use Deepspeed's optimized kernel for attention pair bias
 
         """
+        # Grab data about the inputs
+        *_, n_tokens = features["asym_id"].shape
+
         # Conditioning
         token_repr, pair_repr = self.diffusion_conditioning(
             timesteps=timesteps,
@@ -238,7 +238,13 @@ class DiffusionModule(torch.nn.Module):
         r_noisy = self.scale_inputs(noisy_atoms, timesteps)
 
         # Sequence local atom attention and aggregation to coarse-grained tokens
-        atom_encoder_output = self.atom_attention_encoder(features, s_trunk, z_trunk, r_noisy)
+        atom_encoder_output = self.atom_attention_encoder(
+            features=features,
+            n_tokens=n_tokens,
+            s_trunk=s_trunk,
+            z_trunk=z_trunk,
+            noisy_pos=r_noisy
+        )
 
         # Full self-attention on token level
         token_single = atom_encoder_output.token_single + self.token_proj(token_repr)
