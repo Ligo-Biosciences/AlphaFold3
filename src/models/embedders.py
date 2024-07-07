@@ -3,10 +3,13 @@ import torch
 from torch import Tensor
 from torch import nn
 from src.models.components.atom_attention import AtomAttentionEncoder
-from typing import Dict, NamedTuple, Tuple
-from src.models.components.primitives import LinearNoBias
+from typing import Dict, NamedTuple, Tuple, Optional
+from src.models.components.primitives import LinearNoBias, LayerNorm
 from src.models.components.relative_position_encoding import RelativePositionEncoding
+from src.models.template import TemplatePairStack
+from src.utils.tensor_utils import add
 from src.utils.checkpointing import get_checkpoint_fn
+
 checkpoint = get_checkpoint_fn()
 
 
@@ -103,6 +106,129 @@ class InputFeatureEmbedder(nn.Module):
         return per_token_features
 
 
+class TemplateEmbedder(nn.Module):
+    def __init__(
+            self,
+            no_blocks: int = 2,
+            c_template: int = 32,
+            c_z: int = 128,
+            clear_cache_between_blocks: bool = False
+    ):
+        super(TemplateEmbedder, self).__init__()
+
+        self.proj_pair = nn.Sequential(
+            LayerNorm(c_z),
+            LinearNoBias(c_z, c_template)
+        )
+        no_template_features = 32 + 1 + 1 + 1 + 39 + 3
+        self.linear_templ_feat = LinearNoBias(no_template_features, c_template)
+        self.pair_stack = TemplatePairStack(
+            no_blocks=no_blocks,
+            c_template=c_template,
+            clear_cache_between_blocks=clear_cache_between_blocks
+        )
+        self.v_to_u_ln = LayerNorm(c_template)
+        self.output_proj = nn.Sequential(
+            nn.ReLU(),
+            LinearNoBias(c_template, c_template)
+        )
+        self.clear_cache_between_blocks = clear_cache_between_blocks
+
+    def forward(
+            self,
+            features: Dict[str, Tensor],
+            z_trunk: Tensor,
+            pair_mask: Tensor,
+            chunk_size: Optional[int] = None,
+            use_deepspeed_evo_attention: bool = False,
+            use_lma: bool = False,
+            inplace_safe: bool = False,
+    ) -> Tensor:
+        """
+        Args:
+            features:
+                Dictionary containing the template features:
+                    "template_restype":
+                        [*, N_templ, N_token, 32] One-hot encoding of the template sequence.
+                    "template_pseudo_beta_mask":
+                        [*, N_templ, N_token] Mask indicating if the Cβ (Cα for glycine)
+                        has coordinates for the template at this residue.
+                    "template_backbone_frame_mask":
+                        [*, N_templ, N_token] Mask indicating if coordinates exist for all
+                        atoms required to compute the backbone frame (used in the template_unit_vector feature).
+                    "template_distogram":
+                        [*, N_templ, N_token, N_token, 39] A one-hot pairwise feature indicating the distance
+                        between Cβ atoms (Cα for glycine). Pairwise distances are discretized into 38 bins of
+                        equal width between 3.25 Å and 50.75 Å; one more bin contains any larger distances.
+                    "template_unit_vector":
+                        [*, N_templ, N_token, N_token, 3] The unit vector of the displacement of the Cα atom of
+                        all residues within the local frame of each residue.
+                    "asym_id":
+                        [*, N_token] Unique integer for each distinct chain.
+            z_trunk:
+                [*, N_token, N_token, c_z] pair representation from the trunk.
+            pair_mask:
+                [*, N_token, N_token] mask indicating which pairs are valid (non-padding).
+            chunk_size:
+                Chunk size for the pair stack.
+            use_deepspeed_evo_attention:
+                Whether to use DeepSpeed Evo attention within the pair stack.
+            use_lma:
+                Whether to use LMA within the pair stack.
+            inplace_safe:
+                Whether to use inplace operations.
+        """
+        # Grab data about the inputs
+        *bs, n_templ, n_token = features["template_restype"].shape
+
+        # Compute masks
+        b_frame_mask = features["template_backbone_frame_mask"]
+        b_frame_mask = b_frame_mask[..., None] * b_frame_mask[..., None, :]  # [*, n_templ, n_token, n_token]
+        b_pseudo_beta_mask = features["template_pseudo_beta_mask"]
+        b_pseudo_beta_mask = b_pseudo_beta_mask[..., None] * b_pseudo_beta_mask[..., None, :]
+
+        template_feat = torch.cat([
+            features["template_distogram"],
+            b_frame_mask[..., None],  # [*, n_templ, n_token, n_token, 1]
+            features["template_unit_vector"],
+            b_pseudo_beta_mask[..., None]
+        ], dim=-1)
+
+        # Mask out features that are not in the same chain
+        asym_id_i = features["asym_id"][..., None, :].expand((bs + (n_templ, n_token, n_token)))
+        asym_id_j = features["asym_id"][..., None].expand((bs + (n_templ, n_token, n_token)))
+        same_asym_id = torch.isclose(asym_id_i, asym_id_j).to(template_feat.dtype)
+        template_feat = template_feat * same_asym_id.unsqueeze(-1)
+
+        # Add residue type information
+        temp_restype_i = features["template_restype"][..., None].expand(bs + (n_templ, n_token, n_token, -1))
+        temp_restype_j = features["template_restype"][..., None, :].expand(bs + (n_templ, n_token, n_token, -1))
+        template_feat = torch.cat([template_feat, temp_restype_i, temp_restype_j], dim=-1)
+
+        # Run the pair stack per template
+        single_templates = torch.unbind(template_feat, dim=-4)  # each element shape [*, n_token, n_token, c_template]
+        z_proj = self.proj_pair(z_trunk)
+        u = torch.zeros_like(z_proj)
+        for t in range(len(single_templates)):
+            # Grab the template features
+            v = z_proj + self.linear_templ_feat(single_templates[t])
+            # Run the pair stack
+            v = add(v,
+                    self.pair_stack(v,
+                                    pair_mask=pair_mask,
+                                    chunk_size=chunk_size,
+                                    use_deepspeed_evo_attention=use_deepspeed_evo_attention,
+                                    use_lma=use_lma, inplace_safe=inplace_safe),
+                    inplace=inplace_safe
+                    )
+            # Normalize and add to u
+            u = add(u, self.v_to_u_ln(v), inplace=inplace_safe)
+            del v
+        u = torch.div(u, n_templ)  # average
+        u = self.output_proj(u)
+        return u
+
+
 class ProteusFeatures(NamedTuple):
     """Structured output class for Proteus features."""
     s_inputs: torch.Tensor  # (bs, n_tokens, c_token)
@@ -112,6 +238,7 @@ class ProteusFeatures(NamedTuple):
 
 class ProteusFeatureEmbedder(nn.Module):
     """Convenience class for the Proteus experiment."""
+
     def __init__(
             self,
             n_tokens: int,
@@ -185,7 +312,7 @@ class ProteusFeatureEmbedder(nn.Module):
         s_trunk = self.linear_s_init(per_token_features)
 
         # Compute z_trunk
-        z_trunk = self.linear_z_col(per_token_features[:, :, None, :]) +\
+        z_trunk = self.linear_z_col(per_token_features[:, :, None, :]) + \
                   self.linear_z_row(per_token_features[:, None, :, :])
         z_trunk = z_trunk + self.relative_pos_encoder(features, token_mask)
 
@@ -209,4 +336,3 @@ class ProteusFeatureEmbedder(nn.Module):
                 [*, N_tokens, c_token] Embedding of the x features.
         """
         return checkpoint(self._forward, features, atom_mask, token_mask)
-

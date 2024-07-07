@@ -407,6 +407,8 @@ class MSAModule(nn.Module):
             use_lma: bool = False,
             inplace_safe: bool = False,
     ) -> Tensor:
+        # TODO: combine the input single representation here
+        #  this module should also receive the features dict and embed MSA features
         blocks = self._prep_blocks(
             m=m,
             z=z,

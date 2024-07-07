@@ -7,9 +7,8 @@ All transition blocks use SwiGlu."""
 import torch
 import torch.nn as nn
 from torch import Tensor
-from typing import Tuple, Sequence, Optional
+from typing import Tuple, Optional
 from functools import partial
-from abc import ABC, abstractmethod
 
 from src.models.components.triangular_multiplicative_update import (
     TriangleMultiplicationOutgoing,
@@ -36,13 +35,13 @@ class PairStack(nn.Module):
     def __init__(
             self,
             c_z: int,
-            c_hidden_tri_mul: int,
-            c_hidden_pair_attn: int,
-            no_heads_tri_attn: int,
-            transition_n: int,
-            pair_dropout: float,
-            fuse_projection_weights: bool,
-            inf: float
+            c_hidden_tri_mul: int = 128,
+            c_hidden_pair_attn: int = 32,
+            no_heads_tri_attn: int = 4,
+            transition_n: int = 4,
+            pair_dropout: float = 0.25,
+            fuse_projection_weights: bool = False,
+            inf: float = 1e8,
     ):
         super(PairStack, self).__init__()
 
@@ -94,13 +93,8 @@ class PairStack(nn.Module):
             use_deepspeed_evo_attention: bool = False,
             use_lma: bool = False,
             inplace_safe: bool = False,
-            _mask_trans: bool = True,
             _attn_chunk_size: Optional[int] = None
     ) -> Tensor:
-        # DeepMind doesn't mask these transitions in the source, so _mask_trans
-        # should be disabled to better approximate the exact activations of
-        # the original.
-        pair_trans_mask = pair_mask if _mask_trans else None
 
         if _attn_chunk_size is None:
             _attn_chunk_size = chunk_size

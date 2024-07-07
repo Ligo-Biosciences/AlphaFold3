@@ -57,12 +57,12 @@ class RelativePositionEncoding(nn.Module):
         """
 
         # Same chain mask (bs, n_tokens, n_tokens)
-        b_same_chain = features["asym_id"][:, :, None] == features["asym_id"][:, None, :]  # (bs, n_tokens, n_tokens)
+        b_same_chain = torch.isclose(features["asym_id"][..., :, None],  features["asym_id"][..., None, :])
 
         # Same residue mask (bs, n_tokens, n_tokens)
-        b_same_residue = features["residue_index"][:, :, None] == features["residue_index"][:, None, :]
+        b_same_residue = torch.isclose(features["residue_index"][..., :, None],  features["residue_index"][..., None, :])
 
-        b_same_entity = features["entity_id"][:, :, None] == features["entity_id"][:, None, :]
+        b_same_entity = torch.isclose(features["entity_id"][..., :, None], features["entity_id"][..., None, :])
         b_same_entity = b_same_entity.unsqueeze(-1)  # (bs, n_tokens, n_tokens, 1)
 
         # Compute relative residue position encoding
@@ -80,7 +80,7 @@ class RelativePositionEncoding(nn.Module):
 
         # Mask the output
         if mask is not None:
-            mask = (mask[:, :, None] * mask[:, None, :]).unsqueeze(-1)  # (bs, n_tokens, n_tokens, 1)
+            mask = (mask[..., :, None] * mask[..., None, :]).unsqueeze(-1)  # (bs, n_tokens, n_tokens, 1)
             p_ij = p_ij * mask
         return p_ij
 
@@ -89,7 +89,7 @@ class RelativePositionEncoding(nn.Module):
                condition_tensor: torch.Tensor,
                clamp_max: int) -> torch.Tensor:
         """Computes relative position encoding of an arbitrary tensor."""
-        relative_dists = feature_tensor[:, None, :] - feature_tensor[:, :, None]
+        relative_dists = feature_tensor[..., None, :] - feature_tensor[..., :, None]
         d_ij = torch.where(
             condition_tensor,
             torch.clamp(torch.add(relative_dists, clamp_max), min=0, max=2 * clamp_max),
