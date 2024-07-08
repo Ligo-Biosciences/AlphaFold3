@@ -268,6 +268,6 @@ class DiffusionModule(torch.nn.Module):
             mask=atom_mask,  # (bs, n_atoms)
         )  # (bs, n_atoms, 3)
 
-        # Rescale updates to positions and combine with x positions
+        # Rescale updates to positions and combine with input positions
         output_pos = self.rescale_with_updates(atom_pos_updates, noisy_atoms, timesteps)
         return output_pos

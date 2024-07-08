@@ -27,7 +27,9 @@ from src.models.components.transition import Transition
 from src.models.components.dropout import DropoutRowwise
 from src.utils.tensor_utils import add
 from functools import partial
-from src.utils.checkpointing import checkpoint_blocks
+from typing import Dict
+from src.utils.checkpointing import checkpoint_blocks, get_checkpoint_fn
+checkpoint = get_checkpoint_fn()
 
 
 class MSAPairWeightedAveraging(nn.Module):
@@ -299,6 +301,7 @@ class MSAModule(nn.Module):
             self,
             no_blocks: int = 4,
             c_msa: int = 64,
+            c_token: int = 384,
             c_z: int = 128,
             c_hidden: int = 32,
             no_heads: int = 8,
@@ -319,6 +322,8 @@ class MSAModule(nn.Module):
                 number of MSAModuleBlocks
             c_msa:
                 MSA representation dim
+            c_token:
+                Single representation dim
             c_z:
                 pair representation dim
             c_hidden:
@@ -359,13 +364,15 @@ class MSAModule(nn.Module):
                 inf=inf)
             for _ in range(no_blocks)
         ])
+
+        # MSA featurization
+        self.linear_msa_feat = LinearNoBias(34, c_msa)
+        self.proj_s_inputs = LinearNoBias(c_token, c_msa, init='final')
         self.blocks_per_ckpt = blocks_per_ckpt
         self.clear_cache_between_blocks = clear_cache_between_blocks
 
     def _prep_blocks(
             self,
-            m: Tensor,
-            z: Tensor,
             msa_mask: Optional[Tensor] = None,
             z_mask: Optional[Tensor] = None,
             chunk_size: Optional[int] = None,
@@ -396,22 +403,74 @@ class MSAModule(nn.Module):
 
         return blocks
 
+    def init_msa_repr(
+            self,
+            feats: Dict[str, Tensor],
+            s_inputs: Tensor,
+            msa_mask: Optional[Tensor] = None,
+            inplace_safe: bool = False,
+    ) -> Tensor:
+        """Initializes the MSA representation."""
+        msa_feats = torch.cat([
+            feats["msa"],
+            feats["has_deletion"][..., None],
+            feats["deletion_value"][..., None]],
+            dim=-1)
+        m = self.linear_msa_feat(msa_feats)
+        m = add(m,
+                self.proj_s_inputs(s_inputs[..., None, :, :]),
+                inplace=inplace_safe)
+        if msa_mask is not None:
+            m = m * msa_mask[..., None]
+        return m
+
     def forward(
             self,
-            m: Tensor,
+            feats: Dict[str, Tensor],
             z: Tensor,
-            msa_mask: Optional[Tensor] = None,
+            s_inputs: Tensor,
             z_mask: Optional[Tensor] = None,
             chunk_size: Optional[int] = None,
             use_deepspeed_evo_attention: bool = False,
             use_lma: bool = False,
             inplace_safe: bool = False,
     ) -> Tensor:
-        # TODO: combine the input single representation here
-        #  this module should also receive the features dict and embed MSA features
+        """
+        Args:
+            feats:
+                Dictionary containing the MSA features with the following features:
+                    "msa":
+                        [*, N_msa, N_token, 32] One-hot encoding of the processed MSA, using the same classes
+                        as restype.
+                    "has_deletion":
+                        [*, N_msa, N_token] Binary feature indicating if there is a deletion to the left of
+                        each position in the MSA.
+                    "deletion_value":
+                        [*, N_msa, N_token] Raw deletion counts (the number of deletions to the left of each MSA
+                        position) are transformed to [0, 1] using 2/π * arctan(d/3).
+                    "msa_mask":
+                        [*, N_seq, N_token] MSA mask
+            z:
+                [*, N_token, N_token, C_z] pair embeddings
+            s_inputs:
+                [*, N_token, c_token] single input embeddings
+            z_mask:
+                [*, N_token, N_token] pair mask
+            chunk_size:
+                chunk size
+            use_deepspeed_evo_attention:
+                whether to use Deepspeed's optimized kernels for attention
+            use_lma:
+                whether to use low-memory attention. Mutually exclusive with
+                use_deepspeed_evo_attention.
+            inplace_safe:
+                whether to perform ops inplace
+        """
+        # Prep MSA mask
+        msa_mask = feats["msa_mask"]
+
+        # Prep the blocks
         blocks = self._prep_blocks(
-            m=m,
-            z=z,
             msa_mask=msa_mask,
             z_mask=z_mask,
             chunk_size=chunk_size,
@@ -422,6 +481,9 @@ class MSAModule(nn.Module):
         blocks_per_ckpt = self.blocks_per_ckpt
         if not torch.is_grad_enabled():
             blocks_per_ckpt = None
+
+        # Initialize the MSA embedding
+        m = checkpoint(self.init_msa_repr, feats, s_inputs, msa_mask, inplace_safe)
 
         # Run with grad checkpointing
         m, z = checkpoint_blocks(
