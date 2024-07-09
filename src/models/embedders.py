@@ -9,7 +9,6 @@ from src.models.components.relative_position_encoding import RelativePositionEnc
 from src.models.template import TemplatePairStack
 from src.utils.tensor_utils import add
 from src.utils.checkpointing import get_checkpoint_fn
-
 checkpoint = get_checkpoint_fn()
 
 
@@ -54,15 +53,15 @@ class InputFeatureEmbedder(nn.Module):
             dropout=self.dropout,
             n_queries=self.n_queries,
             n_keys=self.n_keys,
-            trunk_conditioning=False,  # no trunk conditioning for the x feature embedder
+            trunk_conditioning=False,  # no trunk conditioning for the input feature embedder
         )
 
     def forward(
             self,
-            features: Dict[str, torch.Tensor],
+            features: Dict[str, Tensor],
             n_tokens: int,
-            mask: torch.Tensor = None
-    ) -> torch.Tensor:
+            mask: Tensor = None
+    ) -> Tensor:
         """Forward pass of the input feature embedder.
         Args:
             features:
@@ -132,46 +131,48 @@ class InputEmbedder(nn.Module):
     def forward(
             self,
             features: Dict[str, Tensor],
-            atom_mask: Optional[Tensor] = None,
-            token_mask: Optional[Tensor] = None,
             inplace_safe: bool = False
     ) -> Tuple[Tensor, Tensor, Tensor]:
         """
         Args:
             features:
                 Dictionary containing the following input features:
-                    "ref_pos":
-                        [*, N_atoms, 3] atom positions in the reference conformers, with
+                    "ref_pos" ([*, N_atoms, 3]):
+                        atom positions in the reference conformers, with
                         a random rotation and translation applied. Atom positions in Angstroms.
-                    "ref_charge":
-                        [*, N_atoms] Charge for each atom in the reference conformer.
-                    "ref_mask":
-                        [*, N_atoms] Mask indicating which atom slots are used in the reference
+                    "ref_charge" ([*, N_atoms]):
+                        Charge for each atom in the reference conformer.
+                    "ref_mask" ([*, N_atoms]):
+                        Mask indicating which atom slots are used in the reference
                         conformer.
-                    "ref_element":
-                        [*, N_atoms, 128] One-hot encoding of the element atomic number for each atom
+                    "ref_element" ([*, N_atoms, 128]):
+                        One-hot encoding of the element atomic number for each atom
                         in the reference conformer, up to atomic number 128.
-                    "ref_atom_name_chars":
-                        [*, N_atom, 4, 64] One-hot encoding of the unique atom names in the reference
+                    "ref_atom_name_chars" ([*, N_atom, 4, 64]):
+                        One-hot encoding of the unique atom names in the reference
                         conformer. Each character is encoded as ord(c - 32), and names are padded to
                         length 4.
-                    "ref_space_uid":
-                        [*, N_atoms] Numerical encoding of the chain id and residue index associated
+                    "ref_space_uid" ([*, N_atoms]):
+                        Numerical encoding of the chain id and residue index associated
                         with this reference conformer. Each (chain id, residue index) tuple is assigned
                         an integer on first appearance.
-                    "atom_to_token":
-                        [*, N_atoms] Token index for each atom in the flat atom representation.
-                    "token_bonds":
-                        [*, N_tokens, N_tokens] feature indicating which tokens are bonded to each other. 
+                    "atom_to_token" ([*, N_atoms]):
+                        Token index for each atom in the flat atom representation.
+                    "token_bonds" ([*, N_tokens, N_token]):
+                        feature indicating which tokens are bonded to each other.
                         Only includes polymer-ligand and ligand-ligand bonds
-            atom_mask:
-                [*, n_atoms] mask indicating which atoms are valid (non-padding).
-            token_mask:
-                [*, n_tokens] mask indicating which tokens are valid (non-padding).
+                    "atom_mask" ([*, n_atoms]):
+                        mask indicating which atoms are valid (non-padding).
+                    "token_mask" ([*, N_token]):
+                        mask indicating which tokens are valid (non-padding).
             inplace_safe:
                 whether to use inplace operations
         """
         *_, n_tokens, _ = features["token_bonds"].shape
+
+        # Extract masks
+        atom_mask = features["atom_mask"]
+        token_mask = features["token_mask"]
 
         # Single representation with input feature embedder
         s_inputs = self.input_feature_embedder(features, n_tokens=n_tokens, mask=atom_mask)
@@ -305,7 +306,7 @@ class TemplateEmbedder(nn.Module):
         z_proj = self.proj_pair(z_trunk)
         u = torch.zeros_like(z_proj)
         for t in range(len(single_templates)):
-            # Grab the template features
+            # Project and add the template features
             v = z_proj + self.linear_templ_feat(single_templates[t])
             # Run the pair stack
             v = add(v,
@@ -326,9 +327,9 @@ class TemplateEmbedder(nn.Module):
 
 class ProteusFeatures(NamedTuple):
     """Structured output class for Proteus features."""
-    s_inputs: torch.Tensor  # (bs, n_tokens, c_token)
-    s_trunk: torch.Tensor  # (bs, n_tokens, c_token)
-    z_trunk: torch.Tensor  # (bs, n_tokens, n_tokens, c_token)
+    s_inputs: Tensor  # (bs, n_tokens, c_token)
+    s_trunk: Tensor  # (bs, n_tokens, c_token)
+    z_trunk: Tensor  # (bs, n_tokens, n_tokens, c_token)
 
 
 class ProteusFeatureEmbedder(nn.Module):

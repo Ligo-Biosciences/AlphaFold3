@@ -59,11 +59,11 @@ class TestInputEmbedder(unittest.TestCase):
             "entity_id": torch.randint(0, self.n_tokens, (self.batch_size, self.n_tokens)),
             "sym_id": torch.randint(0, self.n_tokens, (self.batch_size, self.n_tokens)),
             'atom_to_token': torch.randint(0, self.n_tokens, (self.batch_size, self.n_atoms)),
-            'token_bonds': torch.randint(0, 2, (self.batch_size, self.n_tokens, self.n_tokens)).float()
+            'token_bonds': torch.randint(0, 2, (self.batch_size, self.n_tokens, self.n_tokens)).float(),
+            'token_mask': torch.randint(0, 2, (self.batch_size, self.n_tokens)),
+            'atom_mask': torch.randint(0, 2, (self.batch_size, self.n_atoms))
         }
-        token_mask = torch.randint(0, 2, (self.batch_size, self.n_tokens))
-        atom_mask = torch.randint(0, 2, (self.batch_size, self.n_atoms))
-        s_inputs, s_init, z_init = self.module(features, atom_mask, token_mask)
+        s_inputs, s_init, z_init = self.module(features)
         self.assertEqual(s_inputs.shape, (self.batch_size, self.n_tokens, self.c_token))
         self.assertEqual(s_init.shape, (self.batch_size, self.n_tokens, self.c_token))
         self.assertEqual(z_init.shape, (self.batch_size, self.n_tokens, self.n_tokens, self.c_z))
