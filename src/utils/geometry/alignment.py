@@ -26,30 +26,30 @@ def weighted_rigid_align(
 ) -> Vec3Array:
     """Performs a weighted alignment of x to x_gt. Warning: ground truth here only refers to the structure
     not being moved, not to be confused with ground truth during training."""
+    with torch.no_grad():
+        # Mean-centre positions
+        mu = (x * weights).mean(dim=1, keepdim=True) / weights.mean(dim=1, keepdim=True)
+        mu_gt = (x_gt * weights).mean(dim=1, keepdim=True) / weights.mean(dim=1, keepdim=True)
+        x -= mu  # Vec3Array of shape (bs, n_atoms)
+        x_gt -= mu_gt
 
-    # Mean-centre positions
-    mu = (x * weights).mean(dim=1, keepdim=True) / weights.mean(dim=1, keepdim=True)
-    mu_gt = (x_gt * weights).mean(dim=1, keepdim=True) / weights.mean(dim=1, keepdim=True)
-    x -= mu  # Vec3Array of shape (bs, n_atoms)
-    x_gt -= mu_gt
+        # Mask atoms before computing covariance matrix
+        if mask is not None:
+            x *= mask
+            x_gt *= mask
 
-    # Mask atoms before computing covariance matrix
-    if mask is not None:
-        x *= mask
-        x_gt *= mask
+        # Find optimal rotation from singular value decomposition
+        U, S, Vh = torch.linalg.svd(compute_covariance_matrix(x_gt.to_tensor(), x.to_tensor()))  # shapes: (bs, 3, 3)
+        R = U @ Vh
 
-    # Find optimal rotation from singular value decomposition
-    U, S, Vh = torch.linalg.svd(compute_covariance_matrix(x_gt.to_tensor(), x.to_tensor()))  # shapes: (bs, 3, 3)
-    R = U @ Vh
+        # Remove reflection
+        if torch.linalg.det(R) < 0:
+            reflection_matrix = torch.diag((torch.tensor([1, 1, -1], device=U.device, dtype=U.dtype)))
+            reflection_matrix = reflection_matrix.unsqueeze(0).expand_as(R)
+            R = U @ reflection_matrix @ Vh  # (bs, 3, 3)
 
-    # Remove reflection
-    if torch.linalg.det(R) < 0:
-        reflection_matrix = torch.diag((torch.tensor([1, 1, -1], device=U.device, dtype=U.dtype)))
-        reflection_matrix = reflection_matrix.unsqueeze(0).expand_as(R)
-        R = U @ reflection_matrix @ Vh  # (bs, 3, 3)
+        R = Rot3Array.from_array(R)
 
-    R = Rot3Array.from_array(R)
-
-    # Apply alignment
-    x_aligned = R.apply_to_point(x) + mu
-    return x_aligned
+        # Apply alignment
+        x_aligned = R.apply_to_point(x) + mu
+        return x_aligned

@@ -2,6 +2,7 @@
 
 import torch
 from src.utils.geometry.vector import Vec3Array, square_euclidean_distance, euclidean_distance
+from src.utils.geometry.alignment import weighted_rigid_align
 from torch.nn import functional as F
 from typing import Optional
 
@@ -23,7 +24,8 @@ def smooth_lddt_loss(
     # Compute distance difference for all pairs of atoms
     delta_lm = torch.abs(delta_x_gt_lm - delta_x_lm)  # (bs, n_atoms, n_atoms)
     epsilon_lm = torch.div((F.sigmoid(torch.sub(0.5, delta_lm)) + F.sigmoid(torch.sub(1.0, delta_lm)) +
-                            F.sigmoid(torch.sub(2.0, delta_lm)) + F.sigmoid(torch.sub(4.0, delta_lm))), 4.0)
+                            F.sigmoid(torch.sub(2.0, delta_lm)) + F.sigmoid(torch.sub(4.0, delta_lm))),
+                           4.0)
 
     # Restrict to bespoke inclusion radius
     atom_is_nucleotide = (atom_is_dna + atom_is_rna).unsqueeze(-1).expand_as(delta_x_gt_lm)
@@ -73,8 +75,12 @@ def diffusion_loss(
         sd_data: float = 16.0,  # Standard deviation of the data
 ) -> torch.Tensor:  # (bs,)
     """Diffusion loss that scales the MSE and LDDT losses by the noise level (timestep)."""
-    mse = mean_squared_error(pred_atoms, gt_atoms, weights, mask)
-    lddt_loss = smooth_lddt_loss(pred_atoms, gt_atoms, atom_is_rna, atom_is_dna, mask)
+    # Align the gt_atoms to pred_atoms
+    aligned_gt_atoms = weighted_rigid_align(x=gt_atoms, x_gt=pred_atoms, weights=weights, mask=mask)
+
+    # MSE loss
+    mse = mean_squared_error(pred_atoms, aligned_gt_atoms, weights, mask)
+    lddt_loss = smooth_lddt_loss(pred_atoms, aligned_gt_atoms, atom_is_rna, atom_is_dna, mask)
 
     # Scale by (t**2 + σ**2) / (t + σ)**2
     scaling_factor = torch.add(timesteps ** 2, sd_data ** 2) / (torch.add(timesteps, sd_data) ** 2)
