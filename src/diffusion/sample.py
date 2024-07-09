@@ -25,14 +25,14 @@ def sample_noise_level(
         sd_data: float = 16.0
 ) -> torch.Tensor:
     """Sample noise level given random normal noise.
-    The sampled noise level has the same shape and device as the input."""
+    The sampled noise level has the same shape and device as the x."""
     return torch.mul(torch.exp(torch.add(torch.mul(random_normal, 1.5), -1.2)), sd_data)
 
 
 # Inference
 def sample_diffusion(
         model: LightningModule,  # denoising model
-        features: Dict[str, torch.Tensor],  # input feature dict
+        features: Dict[str, torch.Tensor],  # x feature dict
         # s_inputs: torch.Tensor,  # (bs, n_tokens, c_token)
         # s_trunk: torch.Tensor,  # (bs, n_tokens, c_token)
         # z_trunk: torch.Tensor,  # (bs, n_tokens, n_tokens, c_token)çö

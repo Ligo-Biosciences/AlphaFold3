@@ -5,7 +5,6 @@ from torch import nn
 from torch.nn import functional as F
 from lightning import LightningDataModule
 from torch.utils.data import ConcatDataset, DataLoader, Dataset
-import proteinflow
 from torchvision import transforms
 from src.data.components.protein_dataset import ProteinDataset
 from src.common import residue_constants
@@ -132,7 +131,7 @@ class AF3Featurizer(nn.Module):
             "features":
                 a dictionary containing the features of AlphaFold3 containing the following elements:
                     "residue_index":
-                        [n_tokens] Residue number in the token’s original input chain.
+                        [n_tokens] Residue number in the token’s original x chain.
                     "token_index":
                         [n_tokens] Token number. Increases monotonically; does not restart at 1 for new chains.
                     "asym_id":
@@ -178,21 +177,20 @@ class AF3Featurizer(nn.Module):
         total_L = protein_dict["residue_idx"].shape[0]  # crop_size
 
         af3_features = {
-            "residue_index": protein_dict["residue_idx"],
-            "token_index": torch.arange(total_L, dtype=torch.float32),
-            "asym_id": torch.zeros((total_L,), dtype=torch.float32),
-            "entity_id": torch.zeros((total_L,), dtype=torch.float32),
-            "sym_id": torch.zeros((total_L,), dtype=torch.float32),
+            "residue_index": protein_dict["residue_idx"],  # int
+            "token_index": torch.arange(total_L),  # dtype=torch.float32
+            "asym_id": torch.zeros((total_L,)),  # int
+            "entity_id": torch.zeros((total_L,)),  # int
+            "sym_id": torch.zeros((total_L,)),  # , dtype=torch.float32
             "ref_pos": AF3Featurizer.compute_ref_residue_conformers('ALA', n_res=total_L),
-            "ref_mask": torch.ones((total_L * 4,), dtype=torch.float32),
+            "ref_mask": torch.ones((total_L * 4,)),  # , dtype=torch.float32
             "ref_element": F.one_hot(torch.tensor([7, 6, 6, 8]).unsqueeze(0).expand(total_L, 4).reshape(total_L * 4),
                                      num_classes=128),  # N, C, C, O  atoms repeating in 4s for each residue
-            "ref_charge": torch.zeros((total_L * 4,), dtype=torch.float32),
+            "ref_charge": torch.zeros((total_L * 4,)),  # , dtype=torch.float32
             "ref_atom_name_chars": AF3Featurizer.compute_atom_name_chars(
                 ["N", "CA", "C", "O"]).unsqueeze(0).expand(total_L, 4, 4, 64).reshape(total_L * 4, 4, 64),
             "ref_space_uid": protein_dict["residue_idx"].unsqueeze(-1).expand(total_L, 4).reshape(total_L * 4),
-            "atom_to_token": torch.arange(total_L).unsqueeze(-1).expand(total_L, 4).reshape(total_L * 4),
-
+            "atom_to_token": torch.arange(total_L).unsqueeze(-1).expand(total_L, 4).reshape(total_L * 4).long(),
         }
 
         # Compute masks
@@ -202,7 +200,7 @@ class AF3Featurizer(nn.Module):
         # Final output dictionary
         output_dict = {
             "features": af3_features,
-            "atom_positions": protein_dict["X"].reshape(total_L * 4, 3).float(),
+            "atom_positions": protein_dict["X"].reshape(total_L * 4, 3),  # .float(),
             "atom_exists": protein_dict["mask"].unsqueeze(-1).expand(total_L, 4).reshape(total_L * 4) * atom_mask,
             "token_mask": token_mask,
             "atom_mask": atom_mask,

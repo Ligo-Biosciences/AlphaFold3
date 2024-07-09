@@ -113,10 +113,10 @@ def frame_aligned_point_error(
     # FP16-friendly averaging. Roughly equivalent to:
     #
     # norm_factor = (
-    #     torch.sum(frames_mask, dim=-1) *
-    #     torch.sum(positions_mask, dim=-1)
+    #     torch.sum(frames_mask, c_hidden=-1) *
+    #     torch.sum(positions_mask, c_hidden=-1)
     # )
-    # normed_error = torch.sum(normed_error, dim=(-1, -2)) / (eps + norm_factor)
+    # normed_error = torch.sum(normed_error, c_hidden=(-1, -2)) / (eps + norm_factor)
     #
     # ("roughly" because eps is necessarily duplicated in the latter)
     normed_error = torch.sum(normed_error, dim=-1)
@@ -126,7 +126,7 @@ def frame_aligned_point_error(
     normed_error = torch.sum(normed_error, dim=-1)
     normed_error = normed_error / (epsilon + torch.sum(positions_mask, dim=-1))
 
-    return torch.mean(normed_error)  # average over batch dim
+    return torch.mean(normed_error)  # average over batch c_hidden
 
 
 def lddt(
@@ -201,7 +201,7 @@ def lddt_ca(
     ca_pos = residue_constants.atom_order["CA"]
     all_atom_pred_pos = all_atom_pred_pos[..., ca_pos, :]
     all_atom_positions = all_atom_positions[..., ca_pos, :]
-    all_atom_mask = all_atom_mask[..., ca_pos: (ca_pos + 1)]  # keep dim
+    all_atom_mask = all_atom_mask[..., ca_pos: (ca_pos + 1)]  # keep c_hidden
 
     return lddt(
         all_atom_pred_pos,

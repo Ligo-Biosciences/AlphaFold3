@@ -313,7 +313,7 @@ class Rotations:
         """
         if ((rot_mats is None and quats is None) or
                 (rot_mats is not None and quats is not None)):
-            raise ValueError("Exactly one input argument must be specified")
+            raise ValueError("Exactly one x argument must be specified")
 
         if ((rot_mats is not None and rot_mats.shape[-2:] != (3, 3)) or
                 (quats is not None and quats.shape[-1] != 4)):
@@ -703,7 +703,7 @@ class Rotations:
             to torch.cat().
 
             Note that the output of this operation is always a rotation matrix,
-            regardless of the format of input rotations.
+            regardless of the format of x rotations.
 
             Args:
                 rs:
@@ -833,7 +833,7 @@ class Rigids:
                 rots: A [*, 3, 3] rotation tensor
                 trans: A corresponding [*, 3] translation tensor
         """
-        # (we need device, dtype, etc. from at least one input)
+        # (we need device, dtype, etc. from at least one x)
 
         batch_dims, dtype, device, requires_grad = None, None, None, None
         if trans is not None:
@@ -847,7 +847,7 @@ class Rigids:
             device = rots.device
             requires_grad = rots.requires_grad
         else:
-            raise ValueError("At least one input argument must be specified")
+            raise ValueError("At least one x argument must be specified")
 
         if rots is None:
             rots = Rotations.identity(
@@ -1140,7 +1140,7 @@ class Rigids:
                 T object with shape [*]
         """
         if t.shape[-2:] != (4, 4):
-            raise ValueError("Incorrectly shaped input tensor")
+            raise ValueError("Incorrectly shaped x tensor")
 
         rots = Rotations(rot_mats=t[..., :3, :3], quats=None)
         trans = t[..., :3, 3]
@@ -1167,7 +1167,7 @@ class Rigids:
             normalize_quats: bool = False,
     ) -> Rigids:
         if t.shape[-1] != 7:
-            raise ValueError("Incorrectly shaped input tensor")
+            raise ValueError("Incorrectly shaped x tensor")
 
         quats, trans = t[..., :4], t[..., 4:]
 
@@ -1351,7 +1351,7 @@ class Rigids:
             Returns:
                 A transformation object. After applying the translation and
                 rotation to the reference backbone, the coordinates will
-                approximately equal to the input coordinates.
+                approximately equal to the x coordinates.
         """
         translation = -1 * ca_xyz
         n_xyz = n_xyz + translation

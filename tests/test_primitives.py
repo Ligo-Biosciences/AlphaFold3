@@ -41,9 +41,9 @@ class TestAttentionPairBias(unittest.TestCase):
         self.c_pair = 16
 
         # Initialize the module
-        self.module = AttentionPairBias(dim=self.embed_dim, num_heads=self.num_heads, c_pair=self.c_pair)
+        self.module = AttentionPairBias(dim=self.embed_dim, no_heads=self.num_heads, c_pair=self.c_pair)
 
-        # Example input tensors
+        # Example x tensors
         self.single_repr = torch.randn(self.batch_size, self.n_tokens, self.embed_dim)
         self.single_proj = torch.randn(self.batch_size, self.n_tokens, self.embed_dim)
         self.pair_repr = torch.randn(self.batch_size, self.n_tokens, self.n_tokens, self.c_pair)

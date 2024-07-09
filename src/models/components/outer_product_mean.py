@@ -71,7 +71,7 @@ class OuterProductMean(nn.Module):
                b: torch.Tensor,
                chunk_size: int
                ) -> torch.Tensor:
-        # Since the "batch dim" in this case is not a true batch dimension
+        # Since the "batch c_hidden" in this case is not a true batch dimension
         # (in that the shape of the output depends on it), we need to
         # iterate over it ourselves
         a_reshape = a.reshape((-1,) + a.shape[-3:])

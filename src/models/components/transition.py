@@ -1,10 +1,10 @@
-""""""
+"""Transition blocks in AlphaFold3"""
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from src.models.components.primitives import AdaLN
-from src.models.components.primitives import Linear
+from src.models.components.primitives import Linear, LinearNoBias
 
 
 class Transition(nn.Module):
@@ -14,15 +14,15 @@ class Transition(nn.Module):
         """
         Args:
             input_dim:
-                Channels of the input tensor
+                Channels of the x tensor
             n:
                 channel expansion factor for hidden dimensions
         """
         super(Transition, self).__init__()
         self.layer_norm = nn.LayerNorm(input_dim)
-        self.linear_1 = Linear(input_dim, n * input_dim, bias=False, init='relu')
-        self.linear_2 = Linear(input_dim, n * input_dim, bias=False, init='default')
-        self.output_linear = Linear(input_dim * n, input_dim, bias=False, init='final')
+        self.linear_1 = LinearNoBias(input_dim, n * input_dim, init='relu')
+        self.linear_2 = LinearNoBias(input_dim, n * input_dim, init='default')
+        self.output_linear = LinearNoBias(input_dim * n, input_dim, init='final')
 
     def forward(self, x):
         x = self.layer_norm(x)
@@ -38,14 +38,14 @@ class ConditionedTransitionBlock(nn.Module):
         """
         Args:
             input_dim:
-                Channels of the input tensor
+                Channels of the x tensor
             n:
                 channel expansion factor for hidden dimensions
         """
         super(ConditionedTransitionBlock, self).__init__()
         self.ada_ln = AdaLN(input_dim)
-        self.hidden_gating_linear = Linear(input_dim, n * input_dim, bias=False, init='relu')
-        self.hidden_linear = Linear(input_dim, n * input_dim, bias=False, init='default')
+        self.hidden_gating_linear = LinearNoBias(input_dim, n * input_dim, init='relu')
+        self.hidden_linear = LinearNoBias(input_dim, n * input_dim, init='default')
         self.output_linear = Linear(input_dim * n, input_dim, init='default')
         # TODO: check if this is in line with the adaLN-Zero initialization
         self.output_gating_linear = Linear(input_dim, input_dim, init='gating')

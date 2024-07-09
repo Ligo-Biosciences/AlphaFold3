@@ -71,63 +71,11 @@ def dict_multimap(fn, dicts):
 
 
 def one_hot(x, v_bins):
+    dtype = v_bins.dtype
     reshaped_bins = v_bins.view(((1,) * len(x.shape)) + (len(v_bins),))
     diffs = x[..., None] - reshaped_bins
     am = torch.argmin(torch.abs(diffs), dim=-1)
-    return nn.functional.one_hot(am, num_classes=len(v_bins)).float()
-
-
-def _partition_tensor(input_tensor, partition_increment=32, partition_length=128):
-    """DEPRECATED. Partition a tensor along the second dimension. Used for sequence-local atom attention.
-    Args:
-        input_tensor:
-            A tensor of shape [batch_size, N_atoms, channels].
-        partition_increment:
-            The increment between the centers of the partitions.
-        partition_length:
-            The length of the partitions.
-    Returns:
-        A tensor of shape [batch_size, N_atoms // partition_increment, partition_length, channels].
-    TODO: make this more memory efficient!! Likely creating terrible memory problems due to
-     allocation of intermediate tensors.
-    """
-    batch_size, N_atoms, channels = input_tensor.shape
-    half_length = partition_length // 2
-    assert N_atoms > partition_length, "Number of atoms must be greater than partition length."
-    assert N_atoms % partition_increment == 0, "Number of atoms must be divisible by partition increment."
-
-    # Calculate centers starting from 15.5 with an increment of 32
-    centers = np.arange(partition_increment/2, N_atoms, step=partition_increment, dtype='float32')
-
-    # Initialize a list to hold the partitions
-    partitions = []
-
-    for center in centers:
-        # Calculate start and end indices
-        start_index = int(center - half_length)
-        end_index = int(center + half_length)
-
-        # Apply padding if necessary and extract the slice
-        if start_index < 0:
-            # Pad at the beginning
-            pre_padding = torch.zeros((batch_size, -start_index, channels), device=input_tensor.device)
-            valid_part = input_tensor[:, :end_index, :]
-            partition = torch.cat([pre_padding, valid_part], dim=1)
-        elif end_index > N_atoms:
-            # Pad at the end
-            post_padding = torch.zeros((batch_size, end_index - N_atoms, channels), device=input_tensor.device)
-            valid_part = input_tensor[:, start_index:N_atoms, :]
-            partition = torch.cat([valid_part, post_padding], dim=1)
-        else:
-            # No padding needed
-            partition = input_tensor[:, start_index:end_index, :]
-
-        partitions.append(partition)
-
-    # Stack all the partitions along a new dimension
-    output_tensor = torch.stack(partitions, dim=1)
-
-    return output_tensor
+    return nn.functional.one_hot(am, num_classes=len(v_bins)).to(dtype)
 
 
 def batched_gather(data, inds, dim=0, no_batch_dims=0):

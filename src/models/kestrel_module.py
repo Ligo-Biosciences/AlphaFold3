@@ -172,7 +172,7 @@ class KestrelLitModule(LightningModule):
     ) -> torch.Tensor:
         """Perform a single training step on a batch of data from the training set.
 
-        :param batch: A batch of data (a tuple) containing the input tensor of images and target
+        :param batch: A batch of data (a tuple) containing the x tensor of images and target
             labels.
         :param batch_idx: The index of the current batch.
         :return: A tensor of losses between model predictions and targets.
@@ -205,7 +205,7 @@ class KestrelLitModule(LightningModule):
     def validation_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
         """Perform a single validation step on a batch of data from the validation set.
 
-        :param batch: A batch of data (a tuple) containing the input tensor of images and target
+        :param batch: A batch of data (a tuple) containing the x tensor of images and target
             labels.
         :param batch_idx: The index of the current batch.
         """
@@ -230,7 +230,7 @@ class KestrelLitModule(LightningModule):
     def test_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
         """Perform a single test step on a batch of data from the test set.
 
-        :param batch: A batch of data (a tuple) containing the input tensor of images and target
+        :param batch: A batch of data (a tuple) containing the x tensor of images and target
             labels.
         :param batch_idx: The index of the current batch.
         """
