@@ -19,6 +19,8 @@ from src.models.components.primitives import LinearNoBias, LayerNorm
 from src.utils.tensor_utils import tensor_tree_map
 from src.utils.geometry.vector import Vec3Array
 from src.diffusion.augmentation import centre_random_augmentation
+from src.diffusion.sample import sample_noise_level, noise_positions
+import math
 
 
 class DiffusionModule(torch.nn.Module):
@@ -38,6 +40,9 @@ class DiffusionModule(torch.nn.Module):
             token_transformer_blocks: int = 24,
             token_transformer_heads: int = 16,
             sd_data: float = 16.0,
+            s_max: float = 160.0,
+            s_min: float = 4e-4,
+            p: float = 7.0,
             clear_cache_between_blocks: bool = False,
             compile_model: bool = True,
     ):
@@ -54,6 +59,9 @@ class DiffusionModule(torch.nn.Module):
         self.token_transformer_blocks = token_transformer_blocks
         self.token_transformer_heads = token_transformer_heads
         self.sd_data = sd_data
+        self.s_max = s_max
+        self.s_min = s_min
+        self.p = p
         self.clear_cache_between_blocks = clear_cache_between_blocks
 
         # Conditioning
@@ -165,7 +173,7 @@ class DiffusionModule(torch.nn.Module):
             z_trunk: Tensor,  # (bs, n_tokens, n_tokens, c_pair)
             use_deepspeed_evo_attention: bool = True
     ) -> Tensor:
-        """Diffusion module that denoises atomic coordinates based on conditioning.
+        """Single denoising step that denoises atomic coordinates based on conditioning.
         Args:
             noisy_atoms:
                 tensor of noisy atom positions (bs, n_atoms, 3)
@@ -276,20 +284,115 @@ class DiffusionModule(torch.nn.Module):
         output_pos = self.rescale_with_updates(atom_pos_updates, noisy_atoms, timesteps)
         return output_pos
 
+    def training(
+            self,
+            ground_truth_atoms: Tensor,
+            features: Dict[str, Tensor],
+            s_inputs: Tensor,
+            s_trunk: Tensor,
+            z_trunk: Tensor,
+            samples_per_trunk: int,
+            use_deepspeed_evo_attention: bool = False
+    ) -> Tensor:
+        """Train step of DiffusionModule.
+        Args:
+            ground_truth_atoms:
+                The coordinates of the ground truth atoms. [*, N_atoms, 3]
+            features:
+                input feature dictionary containing the tensors:
+                    "ref_pos" ([*, N_atoms, 3]):
+                        atom positions in the reference conformers, with
+                        a random rotation and translation applied. Atom positions in Angstroms.
+                    "ref_charge" ([*, N_atoms]):
+                        Charge for each atom in the reference conformer.
+                    "ref_mask" ([*, N_atoms]):
+                        Mask indicating which atom slots are used in the reference
+                        conformer.
+                    "ref_element" ([*, N_atoms, 128]):
+                        One-hot encoding of the element atomic number for each atom
+                        in the reference conformer, up to atomic number 128.
+                    "ref_atom_name_chars" ([*, N_atom, 4, 64]):
+                        One-hot encoding of the unique atom names in the reference
+                        conformer. Each character is encoded as ord(c - 32), and names are padded to
+                        length 4.
+                    "ref_space_uid" ([*, N_atoms]):
+                        Numerical encoding of the chain id and residue index associated
+                        with this reference conformer. Each (chain id, residue index) tuple is assigned
+                        an integer on first appearance.
+                    "atom_to_token" ([*, N_atoms]):
+                        Token index for each atom in the flat atom representation.
+                    "residue_index" ([*, N_tokens]):
+                        Residue number in the token’s original x chain.
+                    "token_index" ([*, N_tokens]):
+                        Token number. Increases monotonically; does not restart at 1
+                        for new chains.
+                    "asym_id" ([*, N_tokens]):
+                        Unique integer for each distinct chain.
+                    "entity_id" ([*, N_tokens]):
+                        Unique integer for each distinct sequence.
+                    "sym_id" ([*, N_tokens]):
+                        Unique integer within chains of this sequence. E.g. if chains
+                        A, B and C share a sequence but D does not, their sym_ids would be [0, 1, 2, 0]
+                    "token_mask" ([*, N_tokens]):
+                        [*, N_tokens] binary mask for tokens, whether token is present (not padding)
+                    "atom_mask" ([*, N_atoms]):
+                        binary mask for atoms, whether atom is present (will still be 1.0 if
+                        atom is missing from the crystal structure, only 0.0 for padding)
+            s_inputs:
+                [*, N_token, c_token] Single conditioning input
+            s_trunk:
+                [*, N_token, c_token] Single conditioning from Pairformer trunk
+            z_trunk:
+                [*, N_token, N_token, c_pair] Pair conditioning from Pairformer trunk
+            samples_per_trunk:
+                the number of diffusion samples per trunk embedding.
+                Total samples = batch_size * samples_per_trunk
+            use_deepspeed_evo_attention:
+                Whether to use Deepspeed's optimized kernel for attention pair bias
+        """
+        # Expand the batch by samples_per_trunk
+        expand_batch = lambda tensor: tensor.repeat_interleave(samples_per_trunk, dim=0)
+        feats = tensor_tree_map(expand_batch, features)
+        s_inputs = expand_batch(s_inputs)
+        s_trunk = expand_batch(s_trunk)
+        z_trunk = expand_batch(z_trunk)
+        ground_truth_atoms = expand_batch(ground_truth_atoms)
+
+        # Grab data about the inputs
+        exp_batch_size = s_inputs.shape[0]
+        device, dtype = s_inputs.device, s_inputs.dtype
+
+        # Create samples_per_trunk noisy versions of the ground truth atoms
+        timesteps = sample_noise_level((exp_batch_size, 1), device=device, dtype=dtype)
+        ground_truth_atoms = Vec3Array.from_array(ground_truth_atoms)
+        noisy_atoms = noise_positions(ground_truth_atoms, timesteps)
+
+        # Run the denoising step
+        denoised_atoms = self.forward(
+            noisy_atoms=noisy_atoms.to_tensor().to(dtype),
+            timesteps=timesteps,
+            features=feats,
+            s_inputs=s_inputs,
+            s_trunk=s_trunk,
+            z_trunk=z_trunk,
+            use_deepspeed_evo_attention=use_deepspeed_evo_attention
+        )
+        return denoised_atoms
+
     def sample(
             self,
             features: Dict[str, Tensor],  # input feature dict
             s_inputs: Tensor,  # (bs, n_tokens, c_token)
             s_trunk: Tensor,  # (bs, n_tokens, c_token)
             z_trunk: Tensor,  # (bs, n_tokens, n_tokens, c_token)
-            noise_schedule: Tensor,  # (n_steps, 1)
+            n_steps: int = 200,
             samples_per_trunk: int = 32,
             gamma_0: float = 0.8,
             gamma_min: float = 1.0,
             noise_scale: float = 1.003,
             step_scale: float = 1.5,
             use_deepspeed_evo_attention: bool = False
-    ) -> Vec3Array:
+    ) -> Tensor:
         """Implements SampleDiffusion, Algorithm 18 in AlphaFold3 Supplement.
         Args:
             features:
@@ -341,8 +444,8 @@ class DiffusionModule(torch.nn.Module):
             samples_per_trunk:
                 the number of diffusion samples per trunk embedding.
                 Total samples = batch_size * samples_per_trunk
-            noise_schedule:
-                [*, n_steps] noise schedule for the diffusion trajectory
+            n_steps:
+                number of diffusion steps
             gamma_0:
                 lower bound on the gamma. Defaults to value used in the paper.
             gamma_min:
@@ -354,16 +457,15 @@ class DiffusionModule(torch.nn.Module):
             use_deepspeed_evo_attention:
                 Whether to use Deepspeed's optimized kernel for attention pair bias
         Returns:
-            Vec3Array object of shape (bs * samples_per_trunk, n_atoms) containing the sampled
+            Tensor of shape (bs * samples_per_trunk, n_atoms, 3) containing the sampled
             structures
         """
         # Grab data about the input
         batch_size, n_atoms, _ = features["ref_pos"].shape
         dtype, device = s_inputs.dtype, s_inputs.device
-        n_steps, _ = noise_schedule.shape
 
         # Expand the batch by samples_per_trunk
-        expand_batch = lambda t: t.repeat_interleave(samples_per_trunk, dim=0)
+        expand_batch = lambda tensor: tensor.repeat_interleave(samples_per_trunk, dim=0)
         feats = tensor_tree_map(expand_batch, features)
         s_inputs = expand_batch(s_inputs)
         s_trunk = expand_batch(s_trunk)
@@ -372,8 +474,11 @@ class DiffusionModule(torch.nn.Module):
         # Sample random noise as the initial structure
         x_l = Vec3Array.randn((batch_size * samples_per_trunk, n_atoms), device)  # float32
 
-        # Type cast noise schedule to float32 to prevent numerical issues in sampling
-        noise_schedule = noise_schedule.to(x_l.x.dtype)
+        # Create the noise schedule with float64 dtype to prevent numerical issues
+        t = torch.linspace(0, 1, n_steps, device=device, dtype=torch.float64).unsqueeze(-1)  # (n_steps, 1)
+        s_max_root = math.pow(self.s_max, 1 / self.p)
+        s_min_root = math.pow(self.s_min, 1 / self.p)
+        noise_schedule = self.sd_data * (s_max_root + t * (s_min_root - s_max_root)) ** self.p
 
         for i in range(1, n_steps):
             # Centre random augmentation
@@ -389,7 +494,8 @@ class DiffusionModule(torch.nn.Module):
 
             t_hat = torch.mul(prev_step, torch.add(gamma, 1.0))
             normal_noise = Vec3Array.randn((batch_size * samples_per_trunk, n_atoms), device)
-            zeta = noise_scale * torch.sqrt((t_hat ** 2 - prev_step ** 2)) * normal_noise
+            zeta_factor = (noise_scale * torch.sqrt((t_hat ** 2 - prev_step ** 2))).to(normal_noise.x.dtype)
+            zeta = zeta_factor * normal_noise
             x_noisy = x_l + zeta
 
             # Run DiffusionModule to denoise structure
@@ -410,4 +516,4 @@ class DiffusionModule(torch.nn.Module):
             dt = c_step - t_hat
             x_l = x_noisy + step_scale * dt * delta
 
-        return x_l
+        return x_l.to_tensor().to(dtype)  # revert to model dtype

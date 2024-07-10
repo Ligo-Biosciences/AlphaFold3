@@ -82,14 +82,14 @@ class TestDiffusionModule(unittest.TestCase):
         self.assertEqual(output.shape, (self.batch_size, self.n_atoms, 3))
 
     def test_sample(self):
-        sample = self.module.sample(noise_schedule=torch.randn(self.n_steps, 1),
+        sample = self.module.sample(n_steps=self.n_steps,
                                     features=self.features,  # x feature dict
                                     s_inputs=self.s_inputs,  # (bs, n_tokens, c_token)
                                     s_trunk=self.s_trunk,  # (bs, n_tokens, c_token)
                                     z_trunk=self.z_trunk,  # (bs, n_tokens, n_tokens, c_pair)
                                     samples_per_trunk=self.samples_per_trunk,
                                     use_deepspeed_evo_attention=False)
-        self.assertEqual(sample.shape, (self.batch_size * self.samples_per_trunk, self.n_atoms))
+        self.assertEqual(sample.shape, (self.batch_size * self.samples_per_trunk, self.n_atoms, 3))
 
     def test_gradients_not_none(self):
         self.optimizer.zero_grad()
@@ -99,8 +99,7 @@ class TestDiffusionModule(unittest.TestCase):
                              s_inputs=self.s_inputs,  # (bs, n_tokens, c_token)
                              s_trunk=self.s_trunk,  # (bs, n_tokens, c_token)
                              z_trunk=self.z_trunk,  # (bs, n_tokens, n_tokens, c_pair)
-                             use_deepspeed_evo_attention=False
-                             )
+                             use_deepspeed_evo_attention=False)
         loss = torch.mean((output - torch.ones_like(output)) ** 2)
         loss.backward()
 

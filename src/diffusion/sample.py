@@ -2,7 +2,7 @@
 from pytorch_lightning import LightningModule
 import torch
 from src.utils.geometry.vector import Vec3Array
-from typing import Tuple, Dict
+from typing import Tuple, Dict, Sequence
 from src.diffusion.augmentation import centre_random_augmentation
 
 
@@ -21,21 +21,23 @@ def noise_positions(
 
 
 def sample_noise_level(
-        random_normal: torch.Tensor,
-        sd_data: float = 16.0
+        shape: Sequence[int],
+        device: torch.device,
+        dtype: torch.dtype,
+        sd_data: float = 16.0,
 ) -> torch.Tensor:
-    """Sample noise level given random normal noise.
-    The sampled noise level has the same shape and device as the x."""
+    """Sample noise level given random normal noise."""
+    random_normal = torch.randn(shape, device=device, dtype=dtype)
     return torch.mul(torch.exp(torch.add(torch.mul(random_normal, 1.5), -1.2)), sd_data)
 
 
 # Inference
 def sample_diffusion(
         model: LightningModule,  # denoising model
-        features: Dict[str, torch.Tensor],  # x feature dict
+        features: Dict[str, torch.Tensor],  # input feature dict
         # s_inputs: torch.Tensor,  # (bs, n_tokens, c_token)
         # s_trunk: torch.Tensor,  # (bs, n_tokens, c_token)
-        # z_trunk: torch.Tensor,  # (bs, n_tokens, n_tokens, c_token)çö
+        # z_trunk: torch.Tensor,  # (bs, n_tokens, n_tokens, c_token)
         noise_schedule: torch.Tensor,  # (n_steps, 1)
         gamma_0: float = 0.8,
         gamma_min: float = 1.0,
