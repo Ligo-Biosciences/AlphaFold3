@@ -11,11 +11,14 @@ but with several modifications to make it more amenable to the task. The main ch
 import torch
 from torch import nn
 from torch import Tensor
-from typing import Dict
+from typing import Dict, Optional
 from src.models.diffusion_conditioning import DiffusionConditioning
 from src.models.diffusion_transformer import DiffusionTransformer
 from src.models.components.atom_attention import AtomAttentionEncoder, AtomAttentionDecoder
 from src.models.components.primitives import LinearNoBias, LayerNorm
+from src.utils.tensor_utils import tensor_tree_map
+from src.utils.geometry.vector import Vec3Array
+from src.diffusion.augmentation import centre_random_augmentation
 
 
 class DiffusionModule(torch.nn.Module):
@@ -132,7 +135,7 @@ class DiffusionModule(torch.nn.Module):
             timesteps: Tensor
     ) -> Tensor:
         """
-        Rescales updates to positions and combines with x positions.
+        Rescales updates to positions and combines with input positions.
         Args:
             r_updates:
                 [bs, n_atoms, 3] updates to the atom positions from the network
@@ -144,7 +147,7 @@ class DiffusionModule(torch.nn.Module):
             [bs, n_atoms, 3] updated atom positions
         """
         noisy_pos_scale = torch.div(
-            self.sd_data**2,
+            self.sd_data ** 2,
             torch.add(timesteps ** 2, self.sd_data ** 2)
         )
 
@@ -160,8 +163,6 @@ class DiffusionModule(torch.nn.Module):
             s_inputs: Tensor,  # (bs, n_tokens, c_token)
             s_trunk: Tensor,  # (bs, n_tokens, c_token)
             z_trunk: Tensor,  # (bs, n_tokens, n_tokens, c_pair)
-            token_mask: Tensor = None,  # (bs, n_tokens)
-            atom_mask: Tensor = None,  # (bs, n_atoms)
             use_deepspeed_evo_attention: bool = True
     ) -> Tensor:
         """Diffusion module that denoises atomic coordinates based on conditioning.
@@ -172,57 +173,60 @@ class DiffusionModule(torch.nn.Module):
                 tensor of timesteps (bs, 1)
             features:
                 input feature dictionary containing the tensors:
-                    "ref_pos":
-                        [*, N_atoms, 3] atom positions in the reference conformers, with
+                    "ref_pos" ([*, N_atoms, 3]):
+                        atom positions in the reference conformers, with
                         a random rotation and translation applied. Atom positions in Angstroms.
-                    "ref_charge":
-                        [*, N_atoms] Charge for each atom in the reference conformer.
-                    "ref_mask":
-                        [*, N_atoms] Mask indicating which atom slots are used in the reference
+                    "ref_charge" ([*, N_atoms]):
+                        Charge for each atom in the reference conformer.
+                    "ref_mask" ([*, N_atoms]):
+                        Mask indicating which atom slots are used in the reference
                         conformer.
-                    "ref_element":
-                        [*, N_atoms, 128] One-hot encoding of the element atomic number for each atom
+                    "ref_element" ([*, N_atoms, 128]):
+                        One-hot encoding of the element atomic number for each atom
                         in the reference conformer, up to atomic number 128.
-                    "ref_atom_name_chars":
-                        [*, N_atom, 4, 64] One-hot encoding of the unique atom names in the reference
+                    "ref_atom_name_chars" ([*, N_atom, 4, 64]):
+                        One-hot encoding of the unique atom names in the reference
                         conformer. Each character is encoded as ord(c - 32), and names are padded to
                         length 4.
-                    "ref_space_uid":
-                        [*, N_atoms] Numerical encoding of the chain id and residue index associated
+                    "ref_space_uid" ([*, N_atoms]):
+                        Numerical encoding of the chain id and residue index associated
                         with this reference conformer. Each (chain id, residue index) tuple is assigned
                         an integer on first appearance.
-                    "atom_to_token":
-                        [*, N_atoms] Token index for each atom in the flat atom representation.
-                    "residue_index":
-                        [*, N_tokens] Residue number in the token’s original x chain.
-                    "token_index":
-                        [*, N_tokens] Token number. Increases monotonically; does not restart at 1
+                    "atom_to_token" ([*, N_atoms]):
+                        Token index for each atom in the flat atom representation.
+                    "residue_index" ([*, N_tokens]):
+                        Residue number in the token’s original x chain.
+                    "token_index" ([*, N_tokens]):
+                        Token number. Increases monotonically; does not restart at 1
                         for new chains.
-                    "asym_id":
-                        [*, N_tokens] Unique integer for each distinct chain.
-                    "entity_id":
-                        [*, N_tokens] Unique integer for each distinct sequence.
-                    "sym_id":
-                        [*, N_tokens] Unique integer within chains of this sequence. E.g. if chains
+                    "asym_id" ([*, N_tokens]):
+                        Unique integer for each distinct chain.
+                    "entity_id" ([*, N_tokens]):
+                        Unique integer for each distinct sequence.
+                    "sym_id" ([*, N_tokens]):
+                        Unique integer within chains of this sequence. E.g. if chains
                         A, B and C share a sequence but D does not, their sym_ids would be [0, 1, 2, 0]
-
+                    "token_mask" ([*, N_tokens]):
+                        [*, N_tokens] binary mask for tokens, whether token is present (not padding)
+                    "atom_mask" ([*, N_atoms]):
+                        binary mask for atoms, whether atom is present (will still be 1.0 if
+                        atom is missing from the crystal structure, only 0.0 for padding)
             s_inputs:
                 [*, n_tokens, c_token] Single conditioning x
             s_trunk:
                 [*, n_tokens, c_token] Single conditioning from Pairformer trunk
             z_trunk:
                 [*, n_tokens, n_tokens, c_pair] Pair conditioning from Pairformer trunk
-            token_mask:
-                [*, N_tokens] binary mask for tokens, whether token is present (not padding)
-            atom_mask:
-                [*, N_atoms] binary mask for atoms, whether atom is present (will still be 1.0 if
-                atom is missing from the crystal structure, only 0.0 for padding)
             use_deepspeed_evo_attention:
                 Whether to use Deepspeed's optimized kernel for attention pair bias
 
         """
         # Grab data about the inputs
         *_, n_tokens = features["asym_id"].shape
+
+        # Extract masks
+        token_mask = features["token_mask"]  # (bs, n_tokens)
+        atom_mask = features["atom_mask"]  # (bs, n_atoms)
 
         # Conditioning
         token_repr, pair_repr = self.diffusion_conditioning(
@@ -271,3 +275,136 @@ class DiffusionModule(torch.nn.Module):
         # Rescale updates to positions and combine with input positions
         output_pos = self.rescale_with_updates(atom_pos_updates, noisy_atoms, timesteps)
         return output_pos
+
+    def sample(
+            self,
+            features: Dict[str, Tensor],  # input feature dict
+            s_inputs: Tensor,  # (bs, n_tokens, c_token)
+            s_trunk: Tensor,  # (bs, n_tokens, c_token)
+            z_trunk: Tensor,  # (bs, n_tokens, n_tokens, c_token)
+            noise_schedule: Tensor,  # (n_steps, 1)
+            samples_per_trunk: int = 32,
+            gamma_0: float = 0.8,
+            gamma_min: float = 1.0,
+            noise_scale: float = 1.003,
+            step_scale: float = 1.5,
+            use_deepspeed_evo_attention: bool = False
+    ) -> Vec3Array:
+        """Implements SampleDiffusion, Algorithm 18 in AlphaFold3 Supplement.
+        Args:
+            features:
+                input feature dictionary containing the tensors:
+                    "ref_pos" ([*, N_atoms, 3]):
+                        atom positions in the reference conformers, with
+                        a random rotation and translation applied. Atom positions in Angstroms.
+                    "ref_charge" ([*, N_atoms]):
+                        Charge for each atom in the reference conformer.
+                    "ref_mask" ([*, N_atoms]):
+                        Mask indicating which atom slots are used in the reference
+                        conformer.
+                    "ref_element" ([*, N_atoms, 128]):
+                        One-hot encoding of the element atomic number for each atom
+                        in the reference conformer, up to atomic number 128.
+                    "ref_atom_name_chars" ([*, N_atom, 4, 64]):
+                        One-hot encoding of the unique atom names in the reference
+                        conformer. Each character is encoded as ord(c - 32), and names are padded to
+                        length 4.
+                    "ref_space_uid" ([*, N_atoms]):
+                        Numerical encoding of the chain id and residue index associated
+                        with this reference conformer. Each (chain id, residue index) tuple is assigned
+                        an integer on first appearance.
+                    "atom_to_token" ([*, N_atoms]):
+                        Token index for each atom in the flat atom representation.
+                    "residue_index" ([*, N_tokens]):
+                        Residue number in the token’s original x chain.
+                    "token_index" ([*, N_tokens]):
+                        Token number. Increases monotonically; does not restart at 1
+                        for new chains.
+                    "asym_id" ([*, N_tokens]):
+                        Unique integer for each distinct chain.
+                    "entity_id" ([*, N_tokens]):
+                        Unique integer for each distinct sequence.
+                    "sym_id" ([*, N_tokens]):
+                        Unique integer within chains of this sequence. E.g. if chains
+                        A, B and C share a sequence but D does not, their sym_ids would be [0, 1, 2, 0]
+                    "token_mask" ([*, N_tokens]):
+                        [*, N_tokens] binary mask for tokens, whether token is present (not padding)
+                    "atom_mask" ([*, N_atoms]):
+                        binary mask for atoms, whether atom is present (will still be 1.0 if
+                        atom is missing from the crystal structure, only 0.0 for padding)
+            s_inputs:
+                [*, N_token, c_token] Single conditioning input
+            s_trunk:
+                [*, N_token, c_token] Single conditioning from Pairformer trunk
+            z_trunk:
+                [*, N_token, N_token, c_pair] Pair conditioning from Pairformer trunk
+            samples_per_trunk:
+                the number of diffusion samples per trunk embedding.
+                Total samples = batch_size * samples_per_trunk
+            noise_schedule:
+                [*, n_steps] noise schedule for the diffusion trajectory
+            gamma_0:
+                lower bound on the gamma. Defaults to value used in the paper.
+            gamma_min:
+                threshold for the lower bound on gamma. Defaults to value used in the paper.
+            noise_scale:
+                noise scale. Defaults to value used in the paper.
+            step_scale:
+                step scale. Defaults to value used in the paper.
+            use_deepspeed_evo_attention:
+                Whether to use Deepspeed's optimized kernel for attention pair bias
+        Returns:
+            Vec3Array object of shape (bs * samples_per_trunk, n_atoms) containing the sampled
+            structures
+        """
+        # Grab data about the input
+        batch_size, n_atoms, _ = features["ref_pos"].shape
+        dtype, device = s_inputs.dtype, s_inputs.device
+        n_steps, _ = noise_schedule.shape
+
+        # Expand the batch by samples_per_trunk
+        expand_batch = lambda t: t.repeat_interleave(samples_per_trunk, dim=0)
+        feats = tensor_tree_map(expand_batch, features)
+        s_inputs = expand_batch(s_inputs)
+        s_trunk = expand_batch(s_trunk)
+        z_trunk = expand_batch(z_trunk)
+
+        # Sample random noise as the initial structure
+        x_l = Vec3Array.randn((batch_size * samples_per_trunk, n_atoms), device)  # float32
+
+        for i in range(1, n_steps):
+            # Centre random augmentation
+            x_l = centre_random_augmentation(x_l)
+
+            # Type cast noise_schedule to float32 to prevent numerical issues in sampling
+            noise_schedule = noise_schedule.to(x_l.x.dtype)
+
+            # Expand c_step and prev_step for proper broadcasting
+            c_step = noise_schedule[i].unsqueeze(0).expand(batch_size * samples_per_trunk, 1)  # (bs * samples, 1)
+            prev_step = noise_schedule[i - 1].unsqueeze(0).expand(batch_size * samples_per_trunk, 1)
+
+            gamma = gamma_0 if c_step > gamma_min else 0.0
+            t_hat = torch.mul(prev_step, torch.add(gamma, 1.0))
+            normal_noise = Vec3Array.randn((batch_size * samples_per_trunk, n_atoms), device)
+            zeta = noise_scale * torch.sqrt((t_hat ** 2 - prev_step ** 2)) * normal_noise
+            x_noisy = x_l + zeta
+
+            # Run DiffusionModule to denoise structure
+            x_denoised = self.forward(
+                noisy_atoms=x_noisy.to_tensor().to(dtype),  # revert to model dtype
+                timesteps=t_hat.to(dtype),
+                features=feats,
+                s_inputs=s_inputs,
+                s_trunk=s_trunk,
+                z_trunk=z_trunk,
+                use_deepspeed_evo_attention=use_deepspeed_evo_attention
+            )
+            # Back to Vec3Array (float32)
+            x_denoised = Vec3Array.from_array(x_denoised)
+
+            # Update the noisy structure
+            delta = (x_l - x_denoised) / t_hat
+            dt = c_step - t_hat
+            x_l = x_noisy + step_scale * dt * delta
+
+        return x_l
