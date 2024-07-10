@@ -372,18 +372,21 @@ class DiffusionModule(torch.nn.Module):
         # Sample random noise as the initial structure
         x_l = Vec3Array.randn((batch_size * samples_per_trunk, n_atoms), device)  # float32
 
+        # Type cast noise schedule to float32 to prevent numerical issues in sampling
+        noise_schedule = noise_schedule.to(x_l.x.dtype)
+
         for i in range(1, n_steps):
             # Centre random augmentation
             x_l = centre_random_augmentation(x_l)
 
-            # Type cast noise_schedule to float32 to prevent numerical issues in sampling
-            noise_schedule = noise_schedule.to(x_l.x.dtype)
+            c_step = noise_schedule[i]
+            prev_step = noise_schedule[i - 1]
+            gamma = gamma_0 if c_step > gamma_min else 0.0
 
             # Expand c_step and prev_step for proper broadcasting
-            c_step = noise_schedule[i].unsqueeze(0).expand(batch_size * samples_per_trunk, 1)  # (bs * samples, 1)
-            prev_step = noise_schedule[i - 1].unsqueeze(0).expand(batch_size * samples_per_trunk, 1)
+            c_step = c_step.unsqueeze(0).expand(batch_size * samples_per_trunk, 1)  # (bs * samples_per_trunk, 1)
+            prev_step = prev_step.unsqueeze(0).expand(batch_size * samples_per_trunk, 1)  # (bs * samples_per_trunk, 1)
 
-            gamma = gamma_0 if c_step > gamma_min else 0.0
             t_hat = torch.mul(prev_step, torch.add(gamma, 1.0))
             normal_noise = Vec3Array.randn((batch_size * samples_per_trunk, n_atoms), device)
             zeta = noise_scale * torch.sqrt((t_hat ** 2 - prev_step ** 2)) * normal_noise
