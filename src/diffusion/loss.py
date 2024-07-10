@@ -34,12 +34,12 @@ def smooth_lddt_loss(
 
     # Mask positions
     if mask is not None:
-        c_lm *= (mask[:, :, None] * mask[:, None, :])
+        c_lm = c_lm * (mask[:, :, None] * mask[:, None, :])
 
     # Compute mean, avoiding self-term
     self_mask = torch.eye(n_atoms).unsqueeze(0).expand_as(c_lm).to(c_lm.device)  # (bs, n_atoms, n_atoms)
     self_mask = torch.add(torch.neg(self_mask), 1.0)
-    c_lm *= self_mask
+    c_lm = c_lm * self_mask
     lddt = torch.mean(epsilon_lm * c_lm, dim=(1, 2)) / torch.mean(c_lm, dim=(1, 2))
     return torch.add(torch.neg(lddt), 1.0)  # (1 - lddt)
 
@@ -73,16 +73,32 @@ def diffusion_loss(
         weights: torch.Tensor,  # (bs, n_atoms)
         mask: Optional[torch.Tensor] = None,  # (bs, n_atoms)
         sd_data: float = 16.0,  # Standard deviation of the data
+        use_smooth_lddt: bool = False
 ) -> torch.Tensor:  # (bs,)
-    """Diffusion loss that scales the MSE and LDDT losses by the noise level (timestep)."""
+    """Diffusion loss that scales the MSE and LDDT losses by the noise level (timestep).
+    Args:
+        pred_atoms:
+        gt_atoms:
+        timesteps:
+        atom_is_rna:
+        atom_is_dna:
+        weights:
+        mask:
+        sd_data:
+        use_smooth_lddt:
+    """
     # Align the gt_atoms to pred_atoms
     aligned_gt_atoms = weighted_rigid_align(x=gt_atoms, x_gt=pred_atoms, weights=weights, mask=mask)
 
     # MSE loss
     mse = mean_squared_error(pred_atoms, aligned_gt_atoms, weights, mask)
-    lddt_loss = smooth_lddt_loss(pred_atoms, aligned_gt_atoms, atom_is_rna, atom_is_dna, mask)
 
     # Scale by (t**2 + σ**2) / (t + σ)**2
     scaling_factor = torch.add(timesteps ** 2, sd_data ** 2) / (torch.add(timesteps, sd_data) ** 2)
-    loss_diffusion = scaling_factor * mse + lddt_loss
+    loss_diffusion = scaling_factor * mse
+
+    # Smooth LDDT Loss
+    if use_smooth_lddt:
+        lddt_loss = smooth_lddt_loss(pred_atoms, aligned_gt_atoms, atom_is_rna, atom_is_dna, mask)
+        loss_diffusion = loss_diffusion + lddt_loss
     return loss_diffusion
