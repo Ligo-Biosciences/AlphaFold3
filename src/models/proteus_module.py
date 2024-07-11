@@ -149,14 +149,12 @@ class ProteusLitModule(LightningModule):
             self, batch: Dict[str, Any]
     ) -> torch.Tensor:
         """Perform a single model step on a batch of data.
-
-        :param batch:
-            a batch of data containing the dictionary returned by ProteinDataModule.
-
-        :return:
+        Args:
+            batch:
+                a batch of data containing the dictionary returned by ProteinDataModule.
+        Returns:
             loss tensor
         """
-
         # Record shape and device
         coordinates = batch["atom_positions"]  # (bs, n_atoms, 3)
         batch_size, n_atoms, _ = coordinates.shape
@@ -169,7 +167,7 @@ class ProteusLitModule(LightningModule):
         atom_positions = centre_random_augmentation(atom_positions)
 
         # Sample timesteps and noise atoms
-        timesteps = sample_noise_level(torch.randn(batch_size, 1, device=device, dtype=dtype))  # (bs, 1)
+        timesteps = sample_noise_level((batch_size, 1), device=device, dtype=dtype)  # (bs, 1)
         noisy_positions = noise_positions(atom_positions, timesteps)
 
         # Run the model
@@ -178,6 +176,7 @@ class ProteusLitModule(LightningModule):
                                           features=batch["features"],
                                           token_mask=batch["token_mask"],
                                           atom_mask=batch["atom_mask"])
+
         atom_nucleic_acid = batch["features"]["ref_charge"]  # zeros of shape (bs, n_atoms)
         per_example_losses = diffusion_loss(denoised_positions,
                                             atom_positions,
@@ -192,11 +191,13 @@ class ProteusLitModule(LightningModule):
             self, batch: Dict[str, torch.Tensor], batch_idx: int
     ) -> torch.Tensor:
         """Perform a single training step on a batch of data from the training set.
-
-        :param batch: A batch of data (a tuple) containing the x tensor of images and target
-            labels.
-        :param batch_idx: The index of the current batch.
-        :return: A tensor of losses between model predictions and targets.
+        Args:
+            batch:
+                A batch of data (a tuple) containing the input tensor of images and target labels.
+            batch_idx:
+                The index of the current batch.
+        Returns:
+            A tensor of losses between model predictions and targets.
         """
         # Move the EMA to the GPU if not already there
         if self.ema.device != batch["atom_positions"].device:

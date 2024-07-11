@@ -3,10 +3,12 @@ The 'sequence-local atom attention' represents the whole structure as a flat lis
 'talk' directly to each other within a certain sequence neighbourhood. e.g. each subset of 32 atoms attends to the
 subset of the nearby 128 atoms (nearby in the sequence space). This gives the network the capacity to learn general
 rules about local atom constellations, independently of the coarse-grained tokenization where each standard residue
-is represented with a single token only."""
+is represented with a single token only.
+TODO: this module could use some refactoring / cleanup.
+"""
 
 import torch
-from torch import Tensor, LongTensor
+from torch import Tensor
 from torch import nn
 from torch.nn import functional as F
 from src.models.components.primitives import AdaLN, Linear, LinearNoBias, Attention, LayerNorm
@@ -329,7 +331,7 @@ class AtomTransformer(nn.Module):
             atom_pair_repr: Tensor,
             mask: Optional[Tensor] = None,
     ):
-        """Prepare the x tensors for the AtomTransformerBlock."""
+        """Prepare the input tensors for the AtomTransformerBlock."""
         blocks = [
             partial(
                 block,

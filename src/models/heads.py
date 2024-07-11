@@ -4,6 +4,7 @@ from src.models.components.primitives import Linear, LinearNoBias
 from src.models.pairformer import PairformerStack
 from typing import Optional
 from src.utils.tensor_utils import one_hot, add
+from typing import Dict
 
 
 class DistogramHead(nn.Module):
@@ -25,8 +26,7 @@ class DistogramHead(nn.Module):
 
         self.c_z = c_z
         self.no_bins = no_bins
-
-        self.linear = Linear(self.c_z, self.no_bins, init="final")
+        self.linear = Linear(self.c_z, self.no_bins)
 
     def forward(self, z: Tensor) -> Tensor:  # [*, N, N, C_z]
         """
@@ -79,8 +79,8 @@ class ConfidenceHead(nn.Module):
             s: Tensor,  # (bs, n_tokens, c_s)
             z: Tensor,  # (bs, n_tokens, n_tokens, c_z)
             x_repr: Tensor,  # (bs, n_tokens, 3)
-            single_mask: Optional[Tensor] = None,  # (bs, n_tokens)
-            pair_mask: Optional[Tensor] = None,  # (bs, n_tokens, n_tokens)
+            single_mask: Optional[Tensor] = None,
+            pair_mask: Optional[Tensor] = None,
             chunk_size: Optional[int] = None,
             use_deepspeed_evo_attention: bool = False,
             use_lma: bool = False,
@@ -89,17 +89,17 @@ class ConfidenceHead(nn.Module):
         """
         Args:
             s_inputs:
-                [*, n_tokens, c_s] input single representation from InputEmbedder
+                [bs, n_tokens, c_s] input single representation from InputEmbedder
             s:
-                [*, n_tokens, c_s] single representation
+                [bs, n_tokens, c_s] single representation
             z:
-                [*, n_tokens, n_tokens, c_z] pair representation
+                [bs, n_tokens, n_tokens, c_z] pair representation
             x_repr:
-                [*, n_tokens, 3] predicted coordinates of representative atoms
+                [bs * samples_per_trunk, n_atoms, 3] predicted coordinates of representative atoms
             single_mask:
-                [*, n_tokens] mask for the single representation
+                [bs, n_tokens] single masking
             pair_mask:
-                [*, n_tokens, n_tokens] mask for the pair representation
+                [bs, n_tokens, n_tokens] pair masking
             chunk_size:
                 Inference-time sub-batch size. Acts as a minimum if
                 self.tune_chunk_size is True

@@ -53,7 +53,10 @@ class DiffusionTransformerBlock(nn.Module):
             mask: Optional[Tensor] = None,
             use_deepspeed_evo_attention: bool = True
     ) -> Tuple[Tensor, Tensor, Tensor]:
-        """Forward pass of the DiffusionTransformerBlock module. Algorithm 23 in AlphaFold3 supplement."""
+        """Forward pass of the DiffusionTransformerBlock module. Algorithm 23 in AlphaFold3 supplement.
+        TODO: the single_proj and pair_repr do not actually change as a result of this function.
+            Returning them here is a bit misleading. Also, saving them between blocks is unnecessary.
+        """
         b = self.attention_block(
             single_repr=single_repr,
             single_proj=single_proj,
@@ -124,7 +127,7 @@ class DiffusionTransformer(nn.Module):
             use_deepspeed_evo_attention: bool = True
     ):
         """Prepare the blocks for the forward pass."""
-        blocks = [
+        blocks = [  # TODO: saving the pair_repr and single_proj between blocks is unnecessary
             partial(
                 block,
                 mask=mask,

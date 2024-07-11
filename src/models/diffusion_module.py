@@ -460,60 +460,61 @@ class DiffusionModule(torch.nn.Module):
             Tensor of shape (bs * samples_per_trunk, n_atoms, 3) containing the sampled
             structures
         """
-        # Grab data about the input
-        batch_size, n_atoms, _ = features["ref_pos"].shape
-        dtype, device = s_inputs.dtype, s_inputs.device
+        with torch.no_grad():  # no gradients during sampling
+            # Grab data about the input
+            batch_size, n_atoms, _ = features["ref_pos"].shape
+            dtype, device = s_inputs.dtype, s_inputs.device
 
-        # Expand the batch by samples_per_trunk
-        expand_batch = lambda tensor: tensor.repeat_interleave(samples_per_trunk, dim=0)
-        feats = tensor_tree_map(expand_batch, features)
-        s_inputs = expand_batch(s_inputs)
-        s_trunk = expand_batch(s_trunk)
-        z_trunk = expand_batch(z_trunk)
+            # Expand the batch by samples_per_trunk
+            expand_batch = lambda tensor: tensor.repeat_interleave(samples_per_trunk, dim=0)
+            feats = tensor_tree_map(expand_batch, features)
+            s_inputs = expand_batch(s_inputs)
+            s_trunk = expand_batch(s_trunk)
+            z_trunk = expand_batch(z_trunk)
 
-        # Sample random noise as the initial structure
-        x_l = Vec3Array.randn((batch_size * samples_per_trunk, n_atoms), device)  # float32
+            # Sample random noise as the initial structure
+            x_l = Vec3Array.randn((batch_size * samples_per_trunk, n_atoms), device)  # float32
 
-        # Create the noise schedule with float64 dtype to prevent numerical issues
-        t = torch.linspace(0, 1, n_steps, device=device, dtype=torch.float64).unsqueeze(-1)  # (n_steps, 1)
-        s_max_root = math.pow(self.s_max, 1 / self.p)
-        s_min_root = math.pow(self.s_min, 1 / self.p)
-        noise_schedule = self.sd_data * (s_max_root + t * (s_min_root - s_max_root)) ** self.p
+            # Create the noise schedule with float64 dtype to prevent numerical issues
+            t = torch.linspace(0, 1, n_steps, device=device, dtype=torch.float64).unsqueeze(-1)  # (n_steps, 1)
+            s_max_root = math.pow(self.s_max, 1 / self.p)
+            s_min_root = math.pow(self.s_min, 1 / self.p)
+            noise_schedule = self.sd_data * (s_max_root + t * (s_min_root - s_max_root)) ** self.p
 
-        for i in range(1, n_steps):
-            # Centre random augmentation
-            x_l = centre_random_augmentation(x_l)
+            for i in range(1, n_steps):
+                # Centre random augmentation
+                x_l = centre_random_augmentation(x_l)
 
-            c_step = noise_schedule[i]
-            prev_step = noise_schedule[i - 1]
-            gamma = gamma_0 if c_step > gamma_min else 0.0
+                c_step = noise_schedule[i]
+                prev_step = noise_schedule[i - 1]
+                gamma = gamma_0 if c_step > gamma_min else 0.0
 
-            # Expand c_step and prev_step for proper broadcasting
-            c_step = c_step.unsqueeze(0).expand(batch_size * samples_per_trunk, 1)  # (bs * samples_per_trunk, 1)
-            prev_step = prev_step.unsqueeze(0).expand(batch_size * samples_per_trunk, 1)  # (bs * samples_per_trunk, 1)
+                # Expand c_step and prev_step for proper broadcasting
+                c_step = c_step.unsqueeze(0).expand(batch_size * samples_per_trunk, 1)  # (bs * samples_per_trunk, 1)
+                prev_step = prev_step.unsqueeze(0).expand(batch_size * samples_per_trunk, 1)
 
-            t_hat = torch.mul(prev_step, torch.add(gamma, 1.0))
-            normal_noise = Vec3Array.randn((batch_size * samples_per_trunk, n_atoms), device)
-            zeta_factor = (noise_scale * torch.sqrt((t_hat ** 2 - prev_step ** 2))).to(normal_noise.x.dtype)
-            zeta = zeta_factor * normal_noise
-            x_noisy = x_l + zeta
+                t_hat = torch.mul(prev_step, torch.add(gamma, 1.0))
+                normal_noise = Vec3Array.randn((batch_size * samples_per_trunk, n_atoms), device)
+                zeta_factor = (noise_scale * torch.sqrt((t_hat ** 2 - prev_step ** 2))).to(normal_noise.x.dtype)
+                zeta = zeta_factor * normal_noise
+                x_noisy = x_l + zeta
 
-            # Run DiffusionModule to denoise structure
-            x_denoised = self.forward(
-                noisy_atoms=x_noisy.to_tensor().to(dtype),  # revert to model dtype
-                timesteps=t_hat.to(dtype),
-                features=feats,
-                s_inputs=s_inputs,
-                s_trunk=s_trunk,
-                z_trunk=z_trunk,
-                use_deepspeed_evo_attention=use_deepspeed_evo_attention
-            )
-            # Back to Vec3Array (float32)
-            x_denoised = Vec3Array.from_array(x_denoised)
+                # Run DiffusionModule to denoise structure
+                x_denoised = self.forward(
+                    noisy_atoms=x_noisy.to_tensor().to(dtype),  # revert to model dtype
+                    timesteps=t_hat.to(dtype),
+                    features=feats,
+                    s_inputs=s_inputs,
+                    s_trunk=s_trunk,
+                    z_trunk=z_trunk,
+                    use_deepspeed_evo_attention=use_deepspeed_evo_attention
+                )
+                # Back to Vec3Array (float32)
+                x_denoised = Vec3Array.from_array(x_denoised)
 
-            # Update the noisy structure
-            delta = (x_l - x_denoised) / t_hat
-            dt = c_step - t_hat
-            x_l = x_noisy + step_scale * dt * delta
+                # Update the noisy structure
+                delta = (x_l - x_denoised) / t_hat
+                dt = c_step - t_hat
+                x_l = x_noisy + step_scale * dt * delta
 
-        return x_l.to_tensor().to(dtype)  # revert to model dtype
+            return x_l.to_tensor().to(dtype)  # revert to model dtype
