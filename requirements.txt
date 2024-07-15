@@ -1,11 +1,12 @@
 # --------- base --------- #
-packaging
+packaging~=23.2
+absl-py
 
 # --------- pytorch --------- #
-torch
-torchvision
-lightning
-torchmetrics
+torch~=2.2.0
+torchvision~=0.17.0
+lightning~=2.1.4
+torchmetrics~=1.3.0.post0
 
 # --------- deepspeed --------- #
 deepspeed  # works in Colab
@@ -23,18 +24,21 @@ wandb
 # aim>=3.16.2  # no lower than 3.16.2, see https://github.com/aimhubio/aim/issues/2550
 
 # --------- others --------- #
-rootutils
+rootutils~=1.0.7
 pre-commit      # hooks for applying linters on commit
-rich
-pytest
-tree
+rich~=13.7.0
+pytest~=8.0.0
+tree~=0.2.4
 # sh            # for running bash commands in some tests (linux/macos only)
+pandas
 p-tqdm
-proteinflow
+proteinflow~=2.7.0
 biopython
-omegaconf
-setuptools
-numpy
-scipy
-jax
+omegaconf~=2.3.0
+setuptools~=68.2.2
+numpy~=1.24.4
+scipy~=1.12.0
+jax~=0.4.23
 prettytable
+tqdm~=4.66.1
+pandas~=2.2.0

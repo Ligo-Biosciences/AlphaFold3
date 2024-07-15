@@ -54,37 +54,37 @@ class Cropper(nn.Module):
         """Spatially crop a token sequence about a center atom
         :param center_coords: the 3D coordinates of the center atom of the token sequence to be cropped. See forward method for a definition of protein_dict"""
 
-        ca_coords = protein_dict['X'][:, 1, :] #first need to find the coordinates of a token center atom
-        n = torch.randint(low = 0, high = ca_coords.shape[0], size = ())
+        ca_coords = protein_dict['X'][:, 1, :]  # first need to find the coordinates of a token center atom
+        n = torch.randint(low=0, high=ca_coords.shape[0], size=())
         center_coords = ca_coords[n, :]
 
         n_res = protein_dict['residue_idx'].shape[0]
-    
-        if(self.crop_size>=n_res): #only need to crop if n_res is larger than the number of tokens in the query, so return a mask of ones if no cropping is required
+
+        if (self.crop_size >= n_res):  # only need to crop if n_res is larger than the number of tokens in the query, so return a mask of ones if no cropping is required
             return torch.ones(n_res)
-        
-        coord_diffs = protein_dict['X'] - center_coords.unsqueeze(0) 
-        distances = torch.sqrt(torch.sum(coord_diffs**2, dim = -1))
-        
+
+        coord_diffs = protein_dict['X'] - center_coords.unsqueeze(0)
+        distances = torch.sqrt(torch.sum(coord_diffs ** 2, dim=-1))
+
         cutoff_distance = torch.kthvalue(distances, self.crop_size).values.item()
-        
+
         binary_mask = (distances <= cutoff_distance).float()
         return binary_mask
-    
-    def contiguous_crop(self, protein_dict: dict):
-         """Contiguously crop a token sequence about a random starting position"""
-         n_res = protein_dict['residue_idx'].shape[0]
 
-         if(self.crop_size>=n_res): #only need to crop if n_res is larger than the number of tokens in the query, so return a mask of ones if no cropping is required
+    def contiguous_crop(self, protein_dict: dict):
+        """Contiguously crop a token sequence about a random starting position"""
+        n_res = protein_dict['residue_idx'].shape[0]
+
+        if self.crop_size >= n_res:  # only need to crop if n_res is larger than the number of tokens in the query,
+            # so return a mask of ones if no cropping is required
             return torch.ones(n_res)
-            
-         n = max(n_res - self.crop_size + 1, 1) 
-         crop_start = torch.randint(low=0, high=n, size=()) #randomly select crop start from allowable positions in the chain
-         binary_mask = torch.zeros(n_res)
-         binary_mask[crop_start : crop_start + self.crop_size] = 1.0
-         return binary_mask
-    
-   
+
+        n = max(n_res - self.crop_size + 1, 1)
+        crop_start = torch.randint(low=0, high=n,
+                                   size=())  # randomly select crop start from allowable positions in the chain
+        binary_mask = torch.zeros(n_res)
+        binary_mask[crop_start: crop_start + self.crop_size] = 1.0
+        return binary_mask
 
     def crop_tokens(self, protein_dict: dict, n_tok):
         """
@@ -94,19 +94,19 @@ class Cropper(nn.Module):
         n_tok: Integer representing the number of desired tokens in the sequence post cropping
         :return: Modified protein_dict with the cropped sequences.
         """
-        num = torch.rand(()).item()  
+        num = torch.rand(()).item()
         if num <= 0.25:
             mask = self.contiguous_crop(protein_dict)
         else:
             mask = self.spatial_crop(protein_dict)
-        
-        mask = mask.bool()  
+
+        mask = mask.bool()
         for key, value in protein_dict.items():
-            if key in ["chain_id", "chain_dict"]:  #Skip non-Tensor items
+            if key in ["chain_id", "chain_dict"]:  # Skip non-Tensor items
                 continue
             if key == "pdb_id":
-                continue  #Do not change the pdb_id
-            #if n_tok < self.crop_size:
+                continue  # Do not change the pdb_id
+                # if n_tok < self.crop_size:
                 padding = torch.zeros((self.crop_size - n_res,) + value.shape[1:], dtype=value.dtype)
                 new_value = torch.cat([value, padding], dim=0)
                 protein_dict[key] = new_value
@@ -115,8 +115,6 @@ class Cropper(nn.Module):
 
         return protein_dict
 
-
-        
     def forward(self, protein_dict: dict):
         """Crop the protein
         :param protein_dict: the protein dictionary with the elements
@@ -133,7 +131,7 @@ class Cropper(nn.Module):
          - 'chain_dict': a dictionary of chain ids (keys are chain ids, e.g. `'A'`, values are the indices
                            used in `'chain_id'` and `'chain_encoding_all'` objects)
         TODO: implement spatial cropping
-        """    
+        """
         for key, value in protein_dict.items():
             if key == "chain_id" or key == "chain_dict":  # these are not Tensors, so skip
                 continue  # omit these from the new dict
@@ -156,8 +154,6 @@ class Cropper(nn.Module):
             token_mask = token_mask[crop_start:crop_start + self.crop_size]
             protein_dict['token_mask'] = token_mask
         return protein_dict
-    
-
 
 
 class AF3Featurizer(nn.Module):
