@@ -151,10 +151,10 @@ class ConfidenceHead(nn.Module):
         logits_pde = self.pde_head(z)
         logits_pae = self.linear_pae(z)
 
-        # TODO: the pseudocode is ambiguous about how these are computed.
-        #  I will simply project them from the single representation.
-        logits_plddt = self.linear_plddt(s)
         logits_p_resolved = self.linear_p_resolved(s)
+        # TODO: I learned how to compute this now, I should replace this with a proper implementation
+        # N_max_atoms_per_token = 14
+        logits_plddt = self.linear_plddt(s)
 
         output = {
             "logits_plddt": logits_plddt,  # (bs, n_tokens, no_bins_plddt)

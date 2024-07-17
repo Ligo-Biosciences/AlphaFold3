@@ -7,7 +7,7 @@ from lightning.pytorch.utilities import grad_norm
 from torchmetrics import MeanMetric
 from src.diffusion.sample import noise_positions, sample_noise_level
 from src.diffusion.augmentation import centre_random_augmentation
-from src.diffusion.loss import diffusion_loss
+from src.utils.loss import diffusion_loss
 from src.utils.geometry.vector import Vec3Array
 from src.utils.exponential_moving_average import ExponentialMovingAverage
 from src.utils.tensor_utils import tensor_tree_map

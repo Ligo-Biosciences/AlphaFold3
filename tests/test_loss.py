@@ -1,6 +1,6 @@
 import unittest
 import torch
-from src.diffusion.loss import mean_squared_error, smooth_lddt_loss, diffusion_loss
+from src.utils.loss import mean_squared_error, smooth_lddt_loss, diffusion_loss
 from src.diffusion.sample import sample_noise_level, noise_positions
 from src.utils.geometry.vector import Vec3Array
 

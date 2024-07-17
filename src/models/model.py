@@ -339,8 +339,8 @@ class AlphaFold3(nn.Module):
         is_grad_enabled = torch.is_grad_enabled()
 
         # Initialize recycling embeddings as zeros
-        s_prev = torch.zeros_like(s_init)
-        z_prev = torch.zeros_like(z_init)
+        s_prev = s_init.new_zeros(s_init.shape)  # torch.zeros_like(s_init)
+        z_prev = z_init.new_zeros(z_init.shape)  # torch.zeros_like(z_init)
 
         def get_recycling_features(index):
             """Convenience method that extracts the MSA features given the recycling index."""

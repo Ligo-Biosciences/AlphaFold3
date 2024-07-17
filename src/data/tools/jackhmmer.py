@@ -31,22 +31,22 @@ class Jackhmmer:
     """Python wrapper of the Jackhmmer binary."""
 
     def __init__(
-        self,
-        *,
-        binary_path: str,
-        database_path: str,
-        n_cpu: int = 8,
-        n_iter: int = 1,
-        e_value: float = 0.0001,
-        z_value: Optional[int] = None,
-        get_tblout: bool = False,
-        filter_f1: float = 0.0005,
-        filter_f2: float = 0.00005,
-        filter_f3: float = 0.0000005,
-        incdom_e: Optional[float] = None,
-        dom_e: Optional[float] = None,
-        num_streamed_chunks: Optional[int] = None,
-        streaming_callback: Optional[Callable[[int], None]] = None,
+            self,
+            *,
+            binary_path: str,
+            database_path: str,
+            n_cpu: int = 8,
+            n_iter: int = 1,
+            e_value: float = 0.0001,
+            z_value: Optional[int] = None,
+            get_tblout: bool = False,
+            filter_f1: float = 0.0005,
+            filter_f2: float = 0.00005,
+            filter_f3: float = 0.0000005,
+            incdom_e: Optional[float] = None,
+            dom_e: Optional[float] = None,
+            num_streamed_chunks: Optional[int] = None,
+            streaming_callback: Optional[Callable[[int], None]] = None,
     ):
         """Initializes the Python Jackhmmer wrapper.
 
@@ -73,8 +73,8 @@ class Jackhmmer:
         self.num_streamed_chunks = num_streamed_chunks
 
         if (
-            not os.path.exists(self.database_path)
-            and num_streamed_chunks is None
+                not os.path.exists(self.database_path)
+                and num_streamed_chunks is None
         ):
             logging.error("Could not find Jackhmmer database %s", database_path)
             raise ValueError(
@@ -94,10 +94,10 @@ class Jackhmmer:
         self.streaming_callback = streaming_callback
 
     def _query_chunk(
-        self, 
-        input_fasta_path: str, 
-        database_path: str,
-        max_sequences: Optional[int] = None
+            self,
+            input_fasta_path: str,
+            database_path: str,
+            max_sequences: Optional[int] = None
     ) -> Mapping[str, Any]:
         """Queries the database chunk using Jackhmmer."""
         with utils.tmpdir_manager() as query_tmp_dir:
@@ -145,9 +145,9 @@ class Jackhmmer:
                 cmd_flags.extend(["--incdomE", str(self.incdom_e)])
 
             cmd = (
-                [self.binary_path]
-                + cmd_flags
-                + [input_fasta_path, database_path]
+                    [self.binary_path]
+                    + cmd_flags
+                    + [input_fasta_path, database_path]
             )
 
             logging.info('Launching subprocess "%s"', " ".join(cmd))
@@ -155,7 +155,7 @@ class Jackhmmer:
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
             with utils.timing(
-                f"Jackhmmer ({os.path.basename(database_path)}) query"
+                    f"Jackhmmer ({os.path.basename(database_path)}) query"
             ):
                 _, stderr = process.communicate()
                 retcode = process.wait()
@@ -171,7 +171,7 @@ class Jackhmmer:
                 with open(tblout_path) as f:
                     tbl = f.read()
 
-            if(max_sequences is None):
+            if max_sequences is None:
                 with open(sto_path) as f:
                     sto = f.read()
             else:
@@ -186,17 +186,17 @@ class Jackhmmer:
         )
 
         return raw_output
-    
-    def query(self, 
-        input_fasta_path: str,
-        max_sequences: Optional[int] = None
-    ) -> Sequence[Sequence[Mapping[str, Any]]]:
+
+    def query(self,
+              input_fasta_path: str,
+              max_sequences: Optional[int] = None
+              ) -> Sequence[Sequence[Mapping[str, Any]]]:
         return self.query_multiple([input_fasta_path], max_sequences)
 
-    def query_multiple(self, 
-        input_fasta_paths: Sequence[str],
-        max_sequences: Optional[int] = None
-    ) -> Sequence[Sequence[Mapping[str, Any]]]:
+    def query_multiple(self,
+                       input_fasta_paths: Sequence[str],
+                       max_sequences: Optional[int] = None
+                       ) -> Sequence[Sequence[Mapping[str, Any]]]:
         """Queries the database using Jackhmmer."""
         if self.num_streamed_chunks is None:
             single_chunk_results = []
@@ -205,7 +205,7 @@ class Jackhmmer:
                     input_fasta_path, self.database_path, max_sequences,
                 )
                 single_chunk_results.append(single_chunk_result)
-            return single_chunk_results 
+            return single_chunk_results
 
         db_basename = os.path.basename(self.database_path)
         db_remote_chunk = lambda db_idx: f"{self.database_path}.{db_idx}"
@@ -241,8 +241,8 @@ class Jackhmmer:
                 for fasta_idx, input_fasta_path in enumerate(input_fasta_paths):
                     chunked_outputs[fasta_idx].append(
                         self._query_chunk(
-                            input_fasta_path, 
-                            db_local_chunk(i), 
+                            input_fasta_path,
+                            db_local_chunk(i),
                             max_sequences
                         )
                     )
@@ -251,7 +251,7 @@ class Jackhmmer:
                 os.remove(db_local_chunk(i))
                 # Do not set next_future for the last chunk so that this works
                 # even for databases with only 1 chunk
-                if(i < self.num_streamed_chunks):
+                if i < self.num_streamed_chunks:
                     future = next_future
                 if self.streaming_callback:
                     self.streaming_callback(i)
