@@ -28,8 +28,8 @@ from Bio.Data import PDBData
 import numpy as np
 
 from src.data.errors import MultipleChainsError
-import src.common.residue_constants as residue_constants
-
+from src.common import residue_constants
+from src.common import ligand_constants
 
 # Type aliases:
 ChainId = str
@@ -45,18 +45,31 @@ class Monomer:
     num: int
 
 
+@dataclasses.dataclass(frozen=True)
+class Ligand:
+    ligand_id: str
+    ligand_num: int
+
+
+@dataclasses.dataclass(frozen=True)
+class Bond:
+    atom1: str
+    atom2: str
+    bond_type: str
+
+
 # Note - mmCIF format provides no guarantees on the type of author-assigned
 # sequence numbers. They need not be integers.
 @dataclasses.dataclass(frozen=True)
 class AtomSite:
-    residue_name: str
-    author_chain_id: str
-    mmcif_chain_id: str
-    author_seq_num: str
-    mmcif_seq_num: int
-    insertion_code: str
-    hetatm_atom: str
-    model_num: int
+    residue_name: str  # label_comp_id
+    author_chain_id: str  # auth_asym_id
+    mmcif_chain_id: str  # label_asym_id
+    author_seq_num: str  # auth_seq_id
+    mmcif_seq_num: int  # label_seq_id
+    insertion_code: str  # pdbx_PDB_ins_code
+    hetatm_atom: str  # hetero-atom, considered not to be a part of the primary molecule (e.g. ligands)
+    model_num: int  # pdbx_PDB_model_num
 
 
 # Used to map SEQRES index to a residue in the structure.
@@ -99,6 +112,7 @@ class MmcifObject:
     chain_to_seqres: Mapping[ChainId, SeqRes]
     seqres_to_structure: Mapping[ChainId, Mapping[int, ResidueAtPosition]]
     raw_string: Any
+    # bonds:
 
 
 @dataclasses.dataclass(frozen=True)
@@ -120,7 +134,7 @@ class ParseError(Exception):
 
 
 def mmcif_loop_to_list(
-    prefix: str, parsed_info: MmCIFDict
+        prefix: str, parsed_info: MmCIFDict
 ) -> Sequence[Mapping[str, str]]:
     """Extracts loop associated with a prefix from mmCIF data as a list.
 
@@ -145,16 +159,16 @@ def mmcif_loop_to_list(
             data.append(value)
 
     assert all([len(xs) == len(data[0]) for xs in data]), (
-        "mmCIF error: Not all loops are the same length: %s" % cols
+            "mmCIF error: Not all loops are the same length: %s" % cols
     )
 
     return [dict(zip(cols, xs)) for xs in zip(*data)]
 
 
 def mmcif_loop_to_dict(
-    prefix: str,
-    index: str,
-    parsed_info: MmCIFDict,
+        prefix: str,
+        index: str,
+        parsed_info: MmCIFDict,
 ) -> Mapping[str, Mapping[str, str]]:
     """Extracts loop associated with a prefix from mmCIF data as a dictionary.
 
@@ -176,9 +190,9 @@ def mmcif_loop_to_dict(
 
 @functools.lru_cache(16, typed=False)
 def parse(
-    *, file_id: str, mmcif_string: str, catch_all_errors: bool = True
+        *, file_id: str, mmcif_string: str, catch_all_errors: bool = True
 ) -> ParsingResult:
-    """Entry point, parses an mmcif_string.
+    """Entry point, parses a mmcif_string.
 
     Args:
       file_id: A string identifier for this file. Should be unique within the
@@ -210,6 +224,7 @@ def parse(
 
         # Determine the protein chains, and their start numbers according to the
         # internal mmCIF numbering scheme (likely but not guaranteed to be 1).
+        # TODO: change to proteins & ligands
         valid_chains = _get_protein_chains(parsed_info=parsed_info)
         if not valid_chains:
             return ParsingResult(
@@ -252,7 +267,7 @@ def parse(
                     insertion_code=insertion_code,
                 )
                 seq_idx = (
-                    int(atom.mmcif_seq_num) - seq_start_num[atom.mmcif_chain_id]
+                        int(atom.mmcif_seq_num) - seq_start_num[atom.mmcif_chain_id]
                 )
                 current = seq_to_structure_mappings.get(
                     atom.author_chain_id, {}
@@ -339,9 +354,9 @@ def _get_header(parsed_info: MmCIFDict) -> PdbHeader:
 
     header["resolution"] = 0.00
     for res_key in (
-        "_refine.ls_d_res_high",
-        "_em_3d_reconstruction.resolution",
-        "_reflns.d_resolution_high",
+            "_refine.ls_d_res_high",
+            "_em_3d_reconstruction.resolution",
+            "_reflns.d_resolution_high",
     ):
         if res_key in parsed_info:
             try:
@@ -374,7 +389,7 @@ def _get_atom_site_list(parsed_info: MmCIFDict) -> Sequence[AtomSite]:
 
 
 def _get_protein_chains(
-    *, parsed_info: Mapping[str, Any]
+        *, parsed_info: Mapping[str, Any]
 ) -> Mapping[ChainId, Sequence[Monomer]]:
     """Extracts polymer information for protein chains only.
 
@@ -409,6 +424,7 @@ def _get_protein_chains(
         chain_id = struct_asym["_struct_asym.id"]
         entity_id = struct_asym["_struct_asym.entity_id"]
         entity_to_mmcif_chains[entity_id].append(chain_id)
+        # ligands are actually different entities and have different chain ids.
 
     # Identify and return the valid protein chains.
     valid_chains = {}
@@ -416,15 +432,81 @@ def _get_protein_chains(
         chain_ids = entity_to_mmcif_chains[entity_id]
 
         # Reject polymers without any peptide-like components, such as DNA/RNA.
-        if any(
-            [
-                "peptide" in chem_comps[monomer.id]["_chem_comp.type"]
-                for monomer in seq_info
-            ]
-        ):
+        has_protein = any(
+            ["peptide" in chem_comps[monomer.id]["_chem_comp.type"]
+             for monomer in seq_info])
+        if has_protein:
             for chain_id in chain_ids:
                 valid_chains[chain_id] = seq_info
+
     return valid_chains
+
+
+def _get_ligand_chains(
+        *, parsed_info: Mapping[str, Any]
+) -> Mapping[ChainId, Sequence[Ligand]]:
+    """Extracts ligand information for ligand 'chains'.
+
+        Args:
+          parsed_info: _mmcif_dict produced by the Biopython parser.
+
+        Returns:
+          A dict mapping mmcif chain id to a list of Ligands.
+    """
+    # Get non-polymer ligand information for each entity in the structure.
+    entity_nonpolymers = mmcif_loop_to_list("_pdbx_nonpoly_scheme.", parsed_info)
+
+    nonpolymers = collections.defaultdict(list)
+    for entity_nonpoly in entity_nonpolymers:
+        nonpolymers[entity_nonpoly["_pdbx_nonpoly_scheme.entity_id"]].append(
+            Ligand(
+                ligand_id=entity_nonpoly["_pdbx_nonpoly_scheme.mon_id"],
+                ligand_num=int(entity_nonpoly["_pdbx_nonpoly_scheme.num"]),  # TODO: this is wrong! .num doesn't exist
+            )
+        )
+
+    # Get chemical compositions. Will allow us to identify which of these polymers
+    # are proteins.
+    chem_comps = mmcif_loop_to_dict("_chem_comp.", "_chem_comp.id", parsed_info)
+
+    # Get chains information for each entity. Necessary so that we can return a
+    # dict keyed on chain id rather than entity.
+    struct_asyms = mmcif_loop_to_list("_struct_asym.", parsed_info)
+
+    entity_to_mmcif_chains = collections.defaultdict(list)
+    for struct_asym in struct_asyms:
+        chain_id = struct_asym["_struct_asym.id"]
+        entity_id = struct_asym["_struct_asym.entity_id"]
+        entity_to_mmcif_chains[entity_id].append(chain_id)
+        # ligands actually have different chain ids.
+        # In the case of hemoglobin that has 4 heme groups,
+        # each heme group has a different chain id but the same entity id.
+
+    # Identify and return the valid ligand chains.
+    valid_ligands = {}
+    for entity_id, ligand_info in nonpolymers.items():
+        chain_ids = entity_to_mmcif_chains[entity_id]
+
+        # Reject ligands that are crystallization aids or in the exclusion list.
+        for monomer in ligand_info:
+            is_crystal_aid = monomer.ligand_id in ligand_constants.CRYSTALLIZATION_AIDS
+            is_valid_ligand = monomer.ligand_id not in ligand_constants.LIGAND_EXCLUSION_LIST and not is_crystal_aid
+            if is_valid_ligand:
+                valid_ligands[chain_id] = ligand_info
+        # has_valid_ligand = any()
+
+        pass
+    """
+    ligand_chains = {}
+    for chem_comp in chem_comps.keys():
+        # Check if there is a valid ligand in the structure
+        is_crystal_aid = chem_comp in ligand_constants.CRYSTALLIZATION_AIDS
+        is_valid_ligand = chem_comp not in ligand_constants.LIGAND_EXCLUSION_LIST and not is_crystal_aid
+        if is_valid_ligand:
+            pass
+    """
+    # TODO: Add the ligand chains separately here. They are not polymers.
+    return None
 
 
 def _is_set(data: str) -> bool:
@@ -433,9 +515,9 @@ def _is_set(data: str) -> bool:
 
 
 def get_atom_coords(
-    mmcif_object: MmcifObject, 
-    chain_id: str, 
-    _zero_center_positions: bool = False
+        mmcif_object: MmcifObject,
+        chain_id: str,
+        _zero_center_positions: bool = False
 ) -> Tuple[np.ndarray, np.ndarray]:
     # Locate the right chain
     chains = list(mmcif_object.structure.get_chains())
@@ -447,7 +529,8 @@ def get_atom_coords(
     chain = relevant_chains[0]
 
     # Extract the coordinates
-    num_res = len(mmcif_object.chain_to_seqres[chain_id])
+    num_res = len(mmcif_object.chain_to_seqres[chain_id])  # TODO: number of tokens
+    # the ligands and water are included as residues in the chain
     all_atom_positions = np.zeros(
         [num_res, residue_constants.atom_type_num, 3], dtype=np.float32
     )
@@ -455,10 +538,10 @@ def get_atom_coords(
         [num_res, residue_constants.atom_type_num], dtype=np.float32
     )
     for res_index in range(num_res):
-        pos = np.zeros([residue_constants.atom_type_num, 3], dtype=np.float32)
+        pos = np.zeros([residue_constants.atom_type_num, 3], dtype=np.float32)  # atom37 representation
         mask = np.zeros([residue_constants.atom_type_num], dtype=np.float32)
         res_at_position = mmcif_object.seqres_to_structure[chain_id][res_index]
-        if not res_at_position.is_missing:
+        if not res_at_position.is_missing:  # TODO: switch to tokenize_residue from biomolecule.py
             res = chain[
                 (
                     res_at_position.hetflag,
@@ -476,17 +559,19 @@ def get_atom_coords(
                     # Put the coords of the selenium atom in the sulphur column
                     pos[residue_constants.atom_order["SD"]] = [x, y, z]
                     mask[residue_constants.atom_order["SD"]] = 1.0
+                # TODO: put the coords of ligand atoms here as well
 
             # Fix naming errors in arginine residues where NH2 is incorrectly
             # assigned to be closer to CD than NH1
             cd = residue_constants.atom_order['CD']
             nh1 = residue_constants.atom_order['NH1']
             nh2 = residue_constants.atom_order['NH2']
-            if(
-                res.get_resname() == 'ARG' and
-                all(mask[atom_index] for atom_index in (cd, nh1, nh2)) and
-                (np.linalg.norm(pos[nh1] - pos[cd]) > 
-                 np.linalg.norm(pos[nh2] - pos[cd]))
+            # TODO: slight indexing change e.g. pos[:, nh1]
+            if (
+                    res.get_resname() == 'ARG' and
+                    all(mask[atom_index] for atom_index in (cd, nh1, nh2)) and
+                    (np.linalg.norm(pos[nh1] - pos[cd]) >
+                     np.linalg.norm(pos[nh2] - pos[cd]))
             ):
                 pos[nh1], pos[nh2] = pos[nh2].copy(), pos[nh1].copy()
                 mask[nh1], mask[nh2] = mask[nh2].copy(), mask[nh1].copy()
@@ -494,6 +579,7 @@ def get_atom_coords(
         all_atom_positions[res_index] = pos
         all_atom_mask[res_index] = mask
 
+    # TODO: stack all the tokenized residue elements into a single array
     if _zero_center_positions:
         binary_mask = all_atom_mask.astype(bool)
         translation_vec = all_atom_positions[binary_mask].mean(axis=0)
