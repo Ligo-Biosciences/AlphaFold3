@@ -5,6 +5,7 @@ subset of the nearby 128 atoms (nearby in the sequence space). This gives the ne
 rules about local atom constellations, independently of the coarse-grained tokenization where each standard residue
 is represented with a single token only.
 TODO: this module could use some refactoring / cleanup.
+TODO: consider switching to a atom14 representation here. The gather operations might be unnecessary. (Not sure)
 """
 
 import torch
@@ -88,7 +89,6 @@ def extract_locals(
 
 
 def compute_pair_attention_mask(mask, large_number=-1e6):
-    # TODO: this should compute a local mask, not a global one from which biases are extracted
     # Compute boolean pair mask
     pair_mask = (mask[:, :, None] * mask[:, None, :]).unsqueeze(-1)  # (bs, n, n, 1)
 

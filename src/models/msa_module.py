@@ -50,13 +50,14 @@ class MSAPairWeightedAveraging(nn.Module):
 
         # MSA
         self.msa_ln = LayerNorm(c_msa)
+        split_heads = nn.Unflatten(dim=-1, unflattened_size=(no_heads, c_hidden))
         self.msa_proj = nn.Sequential(
             LinearNoBias(c_msa, c_hidden * no_heads, init='glorot'),
-            nn.Unflatten(dim=-1, unflattened_size=(no_heads, c_hidden))  # split the heads
+            split_heads  # split the heads
         )
         self.to_gamma = nn.Sequential(
             LinearNoBias(c_msa, c_hidden * no_heads, init='gating'),
-            nn.Unflatten(dim=-1, unflattened_size=(no_heads, c_hidden)),  # split the heads
+            split_heads,  # split the heads
             nn.Sigmoid()
         )
 

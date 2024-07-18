@@ -531,18 +531,19 @@ class Attention(nn.Module):
         self.gating = gating
 
         # The qkv linear layers project no_heads * c_hidden and then split the dimensions
+        split_heads = nn.Unflatten(dim=-1, unflattened_size=(self.no_heads, self.c_hidden))
         self.linear_q = nn.Sequential(
             LinearNoBias(self.c_q, self.c_hidden * self.no_heads, init="glorot"),
-            nn.Unflatten(dim=-1, unflattened_size=(self.no_heads, self.c_hidden))
+            split_heads
         )
 
         self.linear_k = nn.Sequential(
             LinearNoBias(self.c_k, self.c_hidden * self.no_heads, init="glorot"),
-            nn.Unflatten(dim=-1, unflattened_size=(self.no_heads, self.c_hidden))
+            split_heads
         )
         self.linear_v = nn.Sequential(
             LinearNoBias(self.c_v, self.c_hidden * self.no_heads, init="glorot"),
-            nn.Unflatten(dim=-1, unflattened_size=(self.no_heads, self.c_hidden))
+            split_heads
         )
         self.linear_o = Linear(
             self.c_hidden * self.no_heads, self.c_q, init="final"
@@ -552,7 +553,7 @@ class Attention(nn.Module):
         if self.gating:
             self.to_gamma = nn.Sequential(
                 Linear(self.c_q, self.c_hidden * self.no_heads, init="gating"),
-                nn.Unflatten(dim=-1, unflattened_size=(self.no_heads, self.c_hidden)),
+                split_heads,
                 nn.Sigmoid()
             )
 
