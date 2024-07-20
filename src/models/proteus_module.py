@@ -29,14 +29,14 @@ class Proteus(nn.Module):
             diffusion_module:
                 DiffusionModule to use denoise the noisy atoms."""
         super().__init__()
-        self.feature_embedder = torch.compile(feature_embedder)  # TODO: awkward, fix this
+        self.feature_embedder = feature_embedder
         self.diffusion_module = diffusion_module
 
     def forward(
             self,
             noisy_atoms: Vec3Array,  # (bs, n_atoms)
             timesteps: torch.Tensor,  # (bs, 1)
-            features: Dict[str, torch.Tensor],  # x feature dict
+            features: Dict[str, torch.Tensor],  # input feature dict
             sd_data: float = 16.0,
             token_mask: torch.Tensor = None,  # (bs, n_tokens)
             atom_mask: torch.Tensor = None  # (bs, n_atoms)
@@ -72,6 +72,8 @@ class Proteus(nn.Module):
 
         # Initial Features
         init_features = self.feature_embedder(features, atom_mask=atom_mask, token_mask=token_mask)
+
+        # TODO: use training method of diffusion module to get denoised atoms
 
         # Diffusion module
         denoised_atoms = self.diffusion_module(
@@ -167,6 +169,7 @@ class ProteusLitModule(LightningModule):
         atom_positions = centre_random_augmentation(atom_positions)
 
         # Sample timesteps and noise atoms
+        # TODO: move this to within the diffusion module with training=True
         timesteps = sample_noise_level((batch_size, 1), device=device, dtype=dtype)  # (bs, 1)
         noisy_positions = noise_positions(atom_positions, timesteps)
 

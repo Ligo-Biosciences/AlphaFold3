@@ -31,7 +31,6 @@ class TemplatePairStack(nn.Module):
             pair_mask: Tensor,
             chunk_size: Optional[int] = None,
             use_deepspeed_evo_attention: bool = False,
-            use_lma: bool = False,
             inplace_safe: bool = False
     ):
         blocks = [
@@ -40,7 +39,6 @@ class TemplatePairStack(nn.Module):
                 pair_mask=pair_mask,
                 chunk_size=chunk_size,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-                use_lma=use_lma,
                 inplace_safe=inplace_safe
             )
             for block in self.blocks
@@ -60,7 +58,6 @@ class TemplatePairStack(nn.Module):
             pair_mask: Tensor,
             chunk_size: Optional[int] = None,
             use_deepspeed_evo_attention: bool = False,
-            use_lma: bool = False,
             inplace_safe: bool = False
     ) -> Tensor:
 
@@ -69,7 +66,6 @@ class TemplatePairStack(nn.Module):
             pair_mask=pair_mask,
             chunk_size=chunk_size,
             use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-            use_lma=use_lma,
             inplace_safe=inplace_safe
         )
 

@@ -51,7 +51,7 @@ class DiffusionTransformerBlock(nn.Module):
             single_proj: Tensor,  # (bs, n_tokens, c_token)
             pair_repr: Tensor,  # (bs, n_tokens, n_tokens, c_pair)
             mask: Optional[Tensor] = None,
-            use_deepspeed_evo_attention: bool = True
+            use_flash: bool = True
     ) -> Tuple[Tensor, Tensor, Tensor]:
         """Forward pass of the DiffusionTransformerBlock module. Algorithm 23 in AlphaFold3 supplement.
         TODO: the single_proj and pair_repr do not actually change as a result of this function.
@@ -62,7 +62,7 @@ class DiffusionTransformerBlock(nn.Module):
             single_proj=single_proj,
             pair_repr=pair_repr,
             mask=mask,
-            use_deepspeed_evo_attention=use_deepspeed_evo_attention
+            use_flash=use_flash
         )
         single_repr = b + self.conditioned_transition_block(single_repr, single_proj)
         return single_repr, single_proj, pair_repr
@@ -124,14 +124,14 @@ class DiffusionTransformer(nn.Module):
             single_proj: Tensor,
             pair_repr: Tensor,
             mask: Optional[Tensor] = None,
-            use_deepspeed_evo_attention: bool = True
+            use_flash: bool = True
     ):
         """Prepare the blocks for the forward pass."""
         blocks = [  # TODO: saving the pair_repr and single_proj between blocks is unnecessary
             partial(
                 block,
                 mask=mask,
-                use_deepspeed_evo_attention=use_deepspeed_evo_attention
+                use_flash=use_flash
             )
             for block in self.blocks
         ]
@@ -152,7 +152,7 @@ class DiffusionTransformer(nn.Module):
             single_proj: Tensor,
             pair_repr: Tensor,
             mask: Optional[Tensor] = None,
-            use_deepspeed_evo_attention: bool = True
+            use_flash: bool = True
     ):
         """Forward pass of the DiffusionTransformer module. Algorithm 23 in AlphaFold3 supplement."""
         blocks = self._prep_blocks(
@@ -160,7 +160,7 @@ class DiffusionTransformer(nn.Module):
             single_proj=single_proj,
             pair_repr=pair_repr,
             mask=mask,
-            use_deepspeed_evo_attention=use_deepspeed_evo_attention
+            use_flash=use_flash
         )
         blocks_per_ckpt = self.blocks_per_ckpt
         if not torch.is_grad_enabled():

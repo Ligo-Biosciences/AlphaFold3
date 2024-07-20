@@ -237,7 +237,6 @@ class MSAModuleBlock(nn.Module):
             z_mask: Tensor,
             chunk_size: Optional[int] = None,
             use_deepspeed_evo_attention: bool = False,
-            use_lma: bool = False,
             inplace_safe: bool = False,
     ):
         """
@@ -254,9 +253,6 @@ class MSAModuleBlock(nn.Module):
                 chunk size
             use_deepspeed_evo_attention:
                 whether to use Deepspeed's optimized kernels for attention
-            use_lma:
-                whether to use low-memory attention. Mutually exclusive with
-                use_deepspeed_evo_attention.
             inplace_safe:
                 whether to perform ops inplace
         Returns:
@@ -291,7 +287,6 @@ class MSAModuleBlock(nn.Module):
             pair_mask=z_mask,
             chunk_size=chunk_size,
             use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-            use_lma=use_lma,
             inplace_safe=inplace_safe,
         )
         return m, z
@@ -378,7 +373,6 @@ class MSAModule(nn.Module):
             z_mask: Optional[Tensor] = None,
             chunk_size: Optional[int] = None,
             use_deepspeed_evo_attention: bool = False,
-            use_lma: bool = False,
             inplace_safe: bool = False,
     ):
         blocks = [
@@ -388,7 +382,6 @@ class MSAModule(nn.Module):
                 z_mask=z_mask,
                 chunk_size=chunk_size,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-                use_lma=use_lma,
                 inplace_safe=inplace_safe
             )
             for block in self.blocks
@@ -433,7 +426,6 @@ class MSAModule(nn.Module):
             z_mask: Optional[Tensor] = None,
             chunk_size: Optional[int] = None,
             use_deepspeed_evo_attention: bool = False,
-            use_lma: bool = False,
             inplace_safe: bool = False,
     ) -> Tensor:
         """
@@ -461,9 +453,6 @@ class MSAModule(nn.Module):
                 chunk size
             use_deepspeed_evo_attention:
                 whether to use Deepspeed's optimized kernels for attention
-            use_lma:
-                whether to use low-memory attention. Mutually exclusive with
-                use_deepspeed_evo_attention.
             inplace_safe:
                 whether to perform ops inplace
         """
@@ -476,7 +465,6 @@ class MSAModule(nn.Module):
             z_mask=z_mask,
             chunk_size=chunk_size,
             use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-            use_lma=use_lma,
             inplace_safe=inplace_safe
         )
         blocks_per_ckpt = self.blocks_per_ckpt

@@ -1,14 +1,13 @@
 _target_: src.models.proteus_module.ProteusLitModule
 
 optimizer:
-  _target_: deepspeed.ops.adam.FusedAdam # torch.optim.Adam
+  _target_: torch.optim.Adam  # deepspeed.ops.adam.FusedAdam
   _partial_: true
-  lr: 0.0018  # 1.8 * 1e-3  # 0.0018
+  lr: 0.0018  #  0.0018
   betas:
     - 0.9
     - 0.95
   eps: 1e-08
-  adam_w_mode: False
   weight_decay: 0.0
 
 scheduler:
@@ -25,7 +24,6 @@ model:
     c_atompair: 16
     c_token: 128  # original: 384
     c_tokenpair: 128
-    n_tokens: 384
     atom_encoder_blocks: 3
     atom_encoder_heads: 16
     dropout: 0.0
@@ -38,8 +36,7 @@ model:
     clear_cache_between_blocks: False
 
   feature_embedder:
-    _target_: src.models.input_feature_embedder.ProteusFeatureEmbedder
-    n_tokens: 384
+    _target_: src.models.embedders.ProteusFeatureEmbedder
     c_token: 128  # original: 384
     c_atom: 128
     c_atompair: 16

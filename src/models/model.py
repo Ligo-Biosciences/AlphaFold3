@@ -114,7 +114,6 @@ class AlphaFold3(nn.Module):
                     pair_mask=pair_mask,
                     chunk_size=self.globals.chunk_size,
                     use_deepspeed_evo_attention=self.globals.use_deepspeed_evo_attention,
-                    use_lma=self.globals.use_lma,
                     inplace_safe=inplace_safe
                 ),
                 inplace=inplace_safe
@@ -129,7 +128,6 @@ class AlphaFold3(nn.Module):
                     z_mask=pair_mask,
                     chunk_size=self.globals.chunk_size,
                     use_deepspeed_evo_attention=self.globals.use_deepspeed_evo_attention,
-                    use_lma=self.globals.use_lma,
                     inplace_safe=inplace_safe
                 ),
                 inplace=inplace_safe
@@ -142,7 +140,7 @@ class AlphaFold3(nn.Module):
             pair_mask=pair_mask,
             chunk_size=self.globals.chunk_size,
             use_deepspeed_evo_attention=self.globals.use_deepspeed_evo_attention,
-            use_lma=self.globals.use_lma,
+            use_flash=self.globals.use_flash,
             inplace_safe=inplace_safe
         )
         return s, z
@@ -201,7 +199,6 @@ class AlphaFold3(nn.Module):
             pair_mask=pair_mask,
             chunk_size=self.globals.chunk_size,
             use_deepspeed_evo_attention=self.globals.use_deepspeed_evo_attention,
-            use_lma=self.globals.use_lma,
             inplace_safe=inplace_safe
         )
         return confidences
@@ -405,7 +402,7 @@ class AlphaFold3(nn.Module):
                 s_trunk=s,
                 z_trunk=z,
                 samples_per_trunk=self.globals.samples_per_trunk,
-                use_deepspeed_evo_attention=self.globals.use_deepspeed_evo_attention
+                use_flash=self.globals.use_flash,
             )
             # Add the denoised atoms to the output dictionary
             outputs["denoised_atoms"] = denoised_atoms
@@ -418,7 +415,7 @@ class AlphaFold3(nn.Module):
             z_trunk=z,
             n_steps=n_steps,
             samples_per_trunk=rollout_samples_per_trunk,
-            use_deepspeed_evo_attention=self.globals.use_deepspeed_evo_attention
+            use_flash=self.globals.use_flash
         )
         outputs["sampled_positions"] = sampled_positions
 

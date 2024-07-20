@@ -78,7 +78,7 @@ class TestDiffusionModule(unittest.TestCase):
                              s_inputs=self.s_inputs,  # (bs, n_tokens, c_token)
                              s_trunk=self.s_trunk,  # (bs, n_tokens, c_token)
                              z_trunk=self.z_trunk,  # (bs, n_tokens, n_tokens, c_pair)
-                             use_deepspeed_evo_attention=False)
+                             use_flash=False)
         self.assertEqual(output.shape, (self.batch_size, self.n_atoms, 3))
 
     def test_sample(self):
@@ -88,18 +88,18 @@ class TestDiffusionModule(unittest.TestCase):
                                     s_trunk=self.s_trunk,  # (bs, n_tokens, c_token)
                                     z_trunk=self.z_trunk,  # (bs, n_tokens, n_tokens, c_pair)
                                     samples_per_trunk=self.samples_per_trunk,
-                                    use_deepspeed_evo_attention=False)
+                                    use_flash=False)
         self.assertEqual(sample.shape, (self.batch_size * self.samples_per_trunk, self.n_atoms, 3))
 
     def test_gradients_not_none(self):
         self.optimizer.zero_grad()
         output = self.module(noisy_atoms=self.noisy_atoms,  # (bs, n_atoms)
                              timesteps=self.t,
-                             features=self.features,  # x feature dict
+                             features=self.features,  # input feature dict
                              s_inputs=self.s_inputs,  # (bs, n_tokens, c_token)
                              s_trunk=self.s_trunk,  # (bs, n_tokens, c_token)
                              z_trunk=self.z_trunk,  # (bs, n_tokens, n_tokens, c_pair)
-                             use_deepspeed_evo_attention=False)
+                             use_flash=False)
         loss = torch.mean((output - torch.ones_like(output)) ** 2)
         loss.backward()
 

@@ -337,7 +337,6 @@ class ProteusFeatureEmbedder(nn.Module):
 
     def __init__(
             self,
-            n_tokens: int,
             c_token: int = 384,
             c_atom: int = 128,
             c_atompair: int = 16,
@@ -351,7 +350,6 @@ class ProteusFeatureEmbedder(nn.Module):
             dtype=None,
     ):
         super().__init__()
-        self.n_tokens = n_tokens
         self.num_blocks = num_blocks
         self.c_token = c_token
         self.c_atom = c_atom
@@ -389,16 +387,19 @@ class ProteusFeatureEmbedder(nn.Module):
         """Forward pass of the Proteus feature embedder.
         Args:
             features:
-                Dictionary containing the x features
+                Dictionary containing the input features
             atom_mask:
                 [*, N_atoms] mask indicating which atoms are valid (non-padding).
             token_mask:
                 [*, N_tokens] mask indicating which tokens are valid (non-padding).
         Returns:
-            [*, N_tokens, c_token] Embedding of the x features.
+            [*, N_tokens, c_token] Embedding of the input features.
         """
-        # Encode the x features
-        per_token_features = self.input_feature_embedder(features=features, mask=atom_mask)
+        # Grab data about the input
+        *_, n_tokens = features["token_index"].shape
+
+        # Encode the input features
+        per_token_features = self.input_feature_embedder(features=features, n_tokens=n_tokens, mask=atom_mask)
         # f_restype, f_profile, and f_deletion_mean do not exist for design
 
         # Compute s_trunk

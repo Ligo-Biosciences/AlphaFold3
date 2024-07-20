@@ -83,7 +83,7 @@ class ConfidenceHead(nn.Module):
             pair_mask: Optional[Tensor] = None,
             chunk_size: Optional[int] = None,
             use_deepspeed_evo_attention: bool = False,
-            use_lma: bool = False,
+            use_flash: bool = False,
             inplace_safe: bool = False,
     ):
         """
@@ -106,9 +106,10 @@ class ConfidenceHead(nn.Module):
             use_deepspeed_evo_attention:
                 Whether to use DeepSpeed memory efficient kernel.
                 Mutually exclusive with use_lma and use_flash.
-            use_lma:
-                Whether to use low-memory attention during inference.
-                Mutually exclusive with use_flash and use_deepspeed_evo_attention.
+            use_flash:
+                Whether to use Flash attention within Pairformer.
+                Can be used with use_deepspeed_evo_attention since DS4Science kernels are only used within
+                triangular attention.
             inplace_safe:
                 whether to use inplace ops
         Returns:
@@ -143,7 +144,7 @@ class ConfidenceHead(nn.Module):
             pair_mask=pair_mask,
             chunk_size=chunk_size,
             use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-            use_lma=use_lma,
+            use_flash=use_flash,
             inplace_safe=inplace_safe
         )
 

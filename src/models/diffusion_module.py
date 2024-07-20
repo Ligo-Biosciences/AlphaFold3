@@ -171,7 +171,7 @@ class DiffusionModule(torch.nn.Module):
             s_inputs: Tensor,  # (bs, n_tokens, c_token)
             s_trunk: Tensor,  # (bs, n_tokens, c_token)
             z_trunk: Tensor,  # (bs, n_tokens, n_tokens, c_pair)
-            use_deepspeed_evo_attention: bool = True
+            use_flash: bool = True
     ) -> Tensor:
         """Single denoising step that denoises atomic coordinates based on conditioning.
         Args:
@@ -225,8 +225,8 @@ class DiffusionModule(torch.nn.Module):
                 [*, n_tokens, c_token] Single conditioning from Pairformer trunk
             z_trunk:
                 [*, n_tokens, n_tokens, c_pair] Pair conditioning from Pairformer trunk
-            use_deepspeed_evo_attention:
-                Whether to use Deepspeed's optimized kernel for attention pair bias
+            use_flash:
+                Whether to use Flash attention
 
         """
         # Grab data about the inputs
@@ -255,7 +255,8 @@ class DiffusionModule(torch.nn.Module):
             n_tokens=n_tokens,
             s_trunk=s_trunk,
             z_trunk=z_trunk,
-            noisy_pos=r_noisy
+            noisy_pos=r_noisy,
+            use_flash=use_flash
         )
 
         # Full self-attention on token level
@@ -265,7 +266,7 @@ class DiffusionModule(torch.nn.Module):
             single_proj=token_repr,
             pair_repr=pair_repr,
             mask=token_mask,
-            use_deepspeed_evo_attention=use_deepspeed_evo_attention
+            use_flash=use_flash
         )
 
         token_single = self.token_post_layer_norm(token_single)
@@ -278,6 +279,7 @@ class DiffusionModule(torch.nn.Module):
             atom_pair_skip_repr=atom_encoder_output.atom_pair_skip_repr,  # (bs, n_atoms, n_atoms, c_atom)
             tok_idx=features["atom_to_token"],  # (bs, n_atoms)
             mask=atom_mask,  # (bs, n_atoms)
+            use_flash=use_flash
         )  # (bs, n_atoms, 3)
 
         # Rescale updates to positions and combine with input positions
@@ -292,7 +294,7 @@ class DiffusionModule(torch.nn.Module):
             s_trunk: Tensor,
             z_trunk: Tensor,
             samples_per_trunk: int,
-            use_deepspeed_evo_attention: bool = False
+            use_flash: bool = True
     ) -> Tensor:
         """Train step of DiffusionModule.
         Args:
@@ -347,8 +349,8 @@ class DiffusionModule(torch.nn.Module):
             samples_per_trunk:
                 the number of diffusion samples per trunk embedding.
                 Total samples = batch_size * samples_per_trunk
-            use_deepspeed_evo_attention:
-                Whether to use Deepspeed's optimized kernel for attention pair bias
+            use_flash:
+                Whether to use Flash attention
         """
         # Expand the batch by samples_per_trunk
         expand_batch = lambda tensor: tensor.repeat_interleave(samples_per_trunk, dim=0)
@@ -375,7 +377,7 @@ class DiffusionModule(torch.nn.Module):
             s_inputs=s_inputs,
             s_trunk=s_trunk,
             z_trunk=z_trunk,
-            use_deepspeed_evo_attention=use_deepspeed_evo_attention
+            use_flash=use_flash
         )
         return denoised_atoms
 
@@ -391,7 +393,7 @@ class DiffusionModule(torch.nn.Module):
             gamma_min: float = 1.0,
             noise_scale: float = 1.003,
             step_scale: float = 1.5,
-            use_deepspeed_evo_attention: bool = False
+            use_flash: bool = False
     ) -> Tensor:
         """Implements SampleDiffusion, Algorithm 18 in AlphaFold3 Supplement.
         Args:
@@ -419,7 +421,7 @@ class DiffusionModule(torch.nn.Module):
                     "atom_to_token" ([*, N_atoms]):
                         Token index for each atom in the flat atom representation.
                     "residue_index" ([*, N_tokens]):
-                        Residue number in the token’s original x chain.
+                        Residue number in the token’s original input chain.
                     "token_index" ([*, N_tokens]):
                         Token number. Increases monotonically; does not restart at 1
                         for new chains.
@@ -454,8 +456,8 @@ class DiffusionModule(torch.nn.Module):
                 noise scale. Defaults to value used in the paper.
             step_scale:
                 step scale. Defaults to value used in the paper.
-            use_deepspeed_evo_attention:
-                Whether to use Deepspeed's optimized kernel for attention pair bias
+            use_flash:
+                Whether to use Flash attention.
         Returns:
             Tensor of shape (bs * samples_per_trunk, n_atoms, 3) containing the sampled
             structures
@@ -507,7 +509,7 @@ class DiffusionModule(torch.nn.Module):
                     s_inputs=s_inputs,
                     s_trunk=s_trunk,
                     z_trunk=z_trunk,
-                    use_deepspeed_evo_attention=use_deepspeed_evo_attention
+                    use_flash=use_flash
                 )
                 # Back to Vec3Array (float32)
                 x_denoised = Vec3Array.from_array(x_denoised)
