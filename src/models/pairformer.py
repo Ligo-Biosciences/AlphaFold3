@@ -91,7 +91,6 @@ class PairStack(nn.Module):
             pair_mask: Tensor,
             chunk_size: Optional[int] = None,
             use_deepspeed_evo_attention: bool = False,
-            use_lma: bool = False,
             inplace_safe: bool = False,
             _attn_chunk_size: Optional[int] = None
     ) -> Tensor:
@@ -132,7 +131,6 @@ class PairStack(nn.Module):
                         mask=pair_mask,
                         chunk_size=_attn_chunk_size,
                         use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-                        use_lma=use_lma,
                         inplace_safe=inplace_safe,
                     )
                 ),
@@ -146,7 +144,6 @@ class PairStack(nn.Module):
                         mask=pair_mask,
                         chunk_size=_attn_chunk_size,
                         use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-                        use_lma=use_lma,
                         inplace_safe=inplace_safe,
                     )
                 ),
@@ -201,7 +198,7 @@ class PairformerStackBlock(nn.Module):
             pair_mask: Tensor,  # (bs, n_tokens, n_tokens)
             chunk_size: Optional[int] = None,
             use_deepspeed_evo_attention: bool = False,
-            use_lma: bool = False,
+            use_flash: bool = False,
             inplace_safe: bool = False,
     ) -> Tuple[Tensor, Tensor]:
         z = self.pair_stack(
@@ -209,14 +206,13 @@ class PairformerStackBlock(nn.Module):
             pair_mask=pair_mask,
             chunk_size=chunk_size,
             use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-            use_lma=use_lma,
             inplace_safe=inplace_safe,
         )
         s = self.attention(
             single_repr=s,
             pair_repr=z,
             mask=single_mask,
-            use_deepspeed_evo_attention=use_deepspeed_evo_attention
+            use_flash=use_flash,
         )
         s = add(s, self.transition(s), inplace=inplace_safe)
         return s, z
@@ -298,7 +294,7 @@ class PairformerStack(nn.Module):
             pair_mask: Tensor,  # (bs, n_tokens, n_tokens)
             chunk_size: Optional[int] = None,
             use_deepspeed_evo_attention: bool = False,
-            use_lma: bool = False,
+            use_flash: bool = False,
             inplace_safe: bool = False,
     ):
         blocks = [
@@ -308,7 +304,7 @@ class PairformerStack(nn.Module):
                 pair_mask=pair_mask,  # (bs, n_tokens, n_tokens)
                 chunk_size=chunk_size,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-                use_lma=use_lma,
+                use_flash=use_flash,
                 inplace_safe=inplace_safe,
             )
             for block in self.blocks
@@ -332,7 +328,7 @@ class PairformerStack(nn.Module):
             pair_mask: Tensor,  # (bs, n_tokens, n_tokens)
             chunk_size: Optional[int] = None,
             use_deepspeed_evo_attention: bool = False,
-            use_lma: bool = False,
+            use_flash: bool = False,
             inplace_safe: bool = False,
     ) -> Tuple[Tensor, Tensor]:
         """
@@ -349,11 +345,9 @@ class PairformerStack(nn.Module):
                 Inference-time sub-batch size. Acts as a minimum if
                 self.tune_chunk_size is True
             use_deepspeed_evo_attention:
-                Whether to use DeepSpeed memory efficient kernel.
-                Mutually exclusive with use_lma and use_flash.
-            use_lma:
-                Whether to use low-memory attention during inference.
-                Mutually exclusive with use_flash and use_deepspeed_evo_attention.
+                Whether to use DeepSpeed memory efficient kernel withing Triangular attention.
+            use_flash:
+                Whether to use Flash attention within AttentionPairBias.
             inplace_safe:
                 Whether to use inference time inplace operations to save memory.
         """
@@ -364,7 +358,7 @@ class PairformerStack(nn.Module):
             pair_mask=pair_mask,
             chunk_size=chunk_size,
             use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-            use_lma=use_lma,
+            use_flash=use_flash,
             inplace_safe=inplace_safe,
         )
 

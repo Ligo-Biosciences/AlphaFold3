@@ -2,46 +2,8 @@ import unittest
 import torch
 import torch.nn as nn
 from src.models.components.atom_attention import (
-    AtomAttentionPairBias, AtomAttentionEncoder, AtomAttentionDecoder
+    AtomAttentionEncoder, AtomAttentionDecoder
 )
-
-
-class TestAttentionPairBias(unittest.TestCase):
-
-    def setUp(self):
-        self.embed_dim = 128
-        self.num_heads = 8
-        self.batch_size = 2
-        self.n_atoms = 384
-        self.c_pair = 16
-        self.n_queries = 32
-        self.n_keys = 128
-
-        # Example inputs
-        self.atom_single_repr = torch.randn(self.batch_size, self.n_atoms, self.embed_dim)
-        self.atom_single_proj = torch.randn(self.batch_size, self.n_atoms, self.embed_dim)
-        self.atom_pair_local = torch.randn(self.batch_size,
-                                           self.n_atoms // self.n_queries,
-                                           self.n_queries,
-                                           self.n_keys,
-                                           self.c_pair)
-        self.mask = torch.randint(0, 2, (self.batch_size, self.n_atoms))
-
-    def test_module_instantiation(self):
-        """Test instantiation of the module with default parameters."""
-        module = AtomAttentionPairBias(c_atom=self.embed_dim)
-        self.assertIsInstance(module, nn.Module)
-
-    def test_forward_output_shape(self):
-        """Test the forward function output shape."""
-        module = AtomAttentionPairBias(c_atom=self.embed_dim, num_heads=self.num_heads)
-        output = module(self.atom_single_repr, self.atom_single_proj, self.atom_pair_local, self.mask)
-        expected_shape = (self.batch_size, self.n_atoms, self.embed_dim)
-        self.assertEqual(output.shape, expected_shape)
-
-    def test_mask(self):
-        # TODO: implement a test for masking
-        self.assertTrue(True)
 
 
 class TestAtomAttentionEncoder(unittest.TestCase):
@@ -108,15 +70,15 @@ class TestAtomAttentionEncoder(unittest.TestCase):
             s_trunk=s_trunk,
             z_trunk=z_trunk,
             noisy_pos=noisy_pos,
-            mask=mask
+            mask=mask,
+            use_flash=False
         )
         self.assertEqual(output.token_single.shape, torch.Size([self.batch_size, self.n_tokens, self.c_token]))
         self.assertEqual(output.atom_single_skip_repr.shape, torch.Size([self.batch_size, self.n_atoms, self.c_atom]))
         self.assertEqual(output.atom_single_skip_proj.shape, torch.Size([self.batch_size, self.n_atoms, self.c_atom]))
         self.assertEqual(output.atom_pair_skip_repr.shape, torch.Size([self.batch_size,
-                                                                       self.n_atoms // self.n_queries,
-                                                                       self.n_queries,
-                                                                       self.n_keys,
+                                                                       self.n_atoms,
+                                                                       self.n_atoms,
                                                                        self.c_atompair]))
 
 
@@ -154,9 +116,8 @@ class TestAtomAttentionDecoder(unittest.TestCase):
         atom_single_skip_repr = torch.randn(self.bs, self.n_atoms, self.decoder.c_atom)
         atom_single_skip_proj = torch.randn(self.bs, self.n_atoms, self.decoder.c_atom)
         atom_pair_skip_repr = torch.randn(self.bs,
-                                          self.n_atoms // self.n_queries,
-                                          self.n_queries,
-                                          self.n_keys,
+                                          self.n_atoms,
+                                          self.n_atoms,
                                           self.decoder.c_atompair)
         tok_idx = torch.randint(0, self.n_tokens, (self.bs, self.n_atoms))
         mask = torch.randint(0, 2, (self.bs, self.n_atoms))
@@ -167,7 +128,8 @@ class TestAtomAttentionDecoder(unittest.TestCase):
             atom_single_skip_proj,
             atom_pair_skip_repr,
             tok_idx,
-            mask
+            mask,
+            use_flash=False,
         )
 
         self.assertEqual(output.shape, (self.bs, self.n_atoms, 3))

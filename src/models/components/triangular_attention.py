@@ -63,7 +63,6 @@ class TriangleAttention(nn.Module):
                biases: List[torch.Tensor],
                chunk_size: int,
                use_deepspeed_evo_attention: bool = False,
-               use_lma: bool = False,
                inplace_safe: bool = False,
                ) -> torch.Tensor:
         # triangle! triangle!
@@ -77,7 +76,6 @@ class TriangleAttention(nn.Module):
             partial(
                 self.mha,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-                use_lma=use_lma
             ),
             mha_inputs,
             chunk_size=chunk_size,
@@ -90,13 +88,12 @@ class TriangleAttention(nn.Module):
                 mask: Optional[torch.Tensor] = None,
                 chunk_size: Optional[int] = None,
                 use_deepspeed_evo_attention: bool = False,
-                use_lma: bool = False,
                 inplace_safe: bool = False,
                 ) -> torch.Tensor:
         """
         Args:
             x:
-                [*, I, J, C_in] x tensor (e.g. the pair representation)
+                [*, I, J, C_in] input tensor (e.g. the pair representation)
             mask:
                 [*, I, J] mask tensor
             chunk_size:
@@ -106,9 +103,6 @@ class TriangleAttention(nn.Module):
                 number of sub-batches is the product of the batch dimensions).
             use_deepspeed_evo_attention:
                 whether to use DeepSpeed's EvoFormer attention
-            use_lma:
-                whether to use low-memory attention, mutually exclusive with
-                use_deepspeed_evo_attention
             inplace_safe:
                 in-place attention during inference and training
 
@@ -145,7 +139,6 @@ class TriangleAttention(nn.Module):
                 biases,
                 chunk_size,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-                use_lma=use_lma,
                 inplace_safe=inplace_safe,
             )
         else:
@@ -154,7 +147,6 @@ class TriangleAttention(nn.Module):
                 kv_x=x,
                 biases=biases,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-                use_lma=use_lma
             )
 
         if not self.starting:
