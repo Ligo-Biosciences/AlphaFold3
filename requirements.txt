@@ -27,7 +27,7 @@ wandb
 rootutils~=1.0.7
 pre-commit      # hooks for applying linters on commit
 rich~=13.7.0
-pytest~=8.0.0
+pytest~=8.3.1
 tree~=0.2.4
 # sh            # for running bash commands in some tests (linux/macos only)
 pandas
