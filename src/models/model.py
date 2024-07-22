@@ -340,7 +340,10 @@ class AlphaFold3(nn.Module):
         z_prev = z_init.new_zeros(z_init.shape)  # torch.zeros_like(z_init)
 
         def get_recycling_features(index):
-            """Convenience method that extracts the MSA features given the recycling index."""
+            """Convenience method that extracts the MSA features given the recycling index.
+            TODO: don't restrict this to MSA features, but all features will have a recycling dimension
+                This doesn't actually increase memory consumption since we expand with torch.expand.
+            """
             recycling_dict = {}
             special_keys = ["msa", "msa_mask", "has_deletion", "deletion_value"]
             for key, tensor in batch.items():

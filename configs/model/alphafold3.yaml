@@ -1,0 +1,57 @@
+_target_: # TODO: fill in this file with AF3 model config
+
+optimizer:
+  _target_: torch.optim.Adam  # deepspeed.ops.adam.FusedAdam
+  _partial_: true
+  lr: 0.0018  #  0.0018
+  betas:
+    - 0.9
+    - 0.95
+  eps: 1e-08
+  weight_decay: 0.0
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.StepLR
+  _partial_: true
+  step_size: 50_000
+  gamma: 0.95
+
+model:
+  _target_: src.models.model.AlphaFold3
+  diffusion_module:
+    _target_: src.models.diffusion_module.DiffusionModule
+    c_atom: 128
+    c_atompair: 16
+    c_token: 128  # original: 384
+    c_tokenpair: 128
+    atom_encoder_blocks: 3
+    atom_encoder_heads: 16
+    dropout: 0.0
+    atom_attention_n_queries: 32
+    atom_attention_n_keys: 128
+    atom_decoder_blocks: 3
+    atom_decoder_heads: 16
+    token_transformer_blocks: 12  # original: 24
+    token_transformer_heads: 16
+    clear_cache_between_blocks: False
+
+  feature_embedder:
+    _target_: src.models.embedders.ProteusFeatureEmbedder
+    c_token: 128  # original: 384
+    c_atom: 128
+    c_atompair: 16
+    c_trunk_pair: 128
+    num_blocks: 3
+    num_heads: 4
+    dropout: 0.0
+    n_queries: 32
+    n_keys: 128
+
+# Exponential moving average decay for the model weights
+ema_decay: 0.999
+
+# compile model for faster training with pytorch 2.0
+compile: False
+
+# internal precision of float32 matrix multiplications. "high" or "medium" will utilize Tensor cores
+matmul_precision: "medium"

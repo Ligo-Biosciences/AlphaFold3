@@ -42,3 +42,4 @@ jax~=0.4.23
 prettytable
 tqdm~=4.66.1
 pandas~=2.2.0
+ml_collections

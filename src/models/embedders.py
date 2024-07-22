@@ -4,11 +4,13 @@ from torch import Tensor
 from torch import nn
 from src.models.components.atom_attention import AtomAttentionEncoder
 from typing import Dict, NamedTuple, Tuple, Optional
-from src.models.components.primitives import LinearNoBias, LayerNorm
+from src.models.components.primitives import LinearNoBias, LayerNorm, Linear
 from src.models.components.relative_position_encoding import RelativePositionEncoding
 from src.models.template import TemplatePairStack
 from src.utils.tensor_utils import add
 from src.utils.checkpointing import get_checkpoint_fn
+from src.utils.geometry.vector import Vec3Array
+
 checkpoint = get_checkpoint_fn()
 
 
@@ -19,6 +21,7 @@ class InputFeatureEmbedder(nn.Module):
     - Embed per-atom features
     - Concatenate the per-token features
     """
+
     def __init__(
             self,
             c_token: int = 384,
@@ -102,6 +105,7 @@ class InputFeatureEmbedder(nn.Module):
 
 class InputEmbedder(nn.Module):
     """Input embedder for AlphaFold3 that initializes the single and pair representations."""
+
     def __init__(
             self,
             c_token: int = 384,
@@ -240,6 +244,8 @@ class TemplateEmbedder(nn.Module):
             inplace_safe: bool = False,
     ) -> Tensor:
         """
+        TODO: modify this function to take the same features as the OpenFold template embedder. That will allow
+         minimal changes in the data pipeline.
         Args:
             features:
                 Dictionary containing the template features:
@@ -323,6 +329,46 @@ class TemplateEmbedder(nn.Module):
         u = torch.div(u, n_templ)  # average
         u = self.output_proj(u)
         return u
+
+
+class TemplatePairEmbedder(nn.Module):
+    def __init__(
+            self,
+            c_in: int,
+            c_out: int,
+            c_dgram: int,
+            c_aatype: int
+    ):
+        super(TemplatePairEmbedder, self).__init__()
+
+        self.dgram_linear = Linear(c_dgram, c_out, init='relu')
+
+    def forward(
+            self,
+            template_dgram: Tensor,
+            aatype_one_hot: Tensor,
+            query_embedding: Tensor,
+            pseudo_beta_mask: Tensor,
+            backbone_mask: Tensor,
+            multichain_mask_2d: Tensor,
+            unit_vector: Vec3Array,
+    ) -> Tensor:
+        # TODO: implement pair embedder
+        pass
+
+
+class TemplateEmbedderMultimer(nn.Module):
+    """Template embedder used in AF3-Multimer, will replace the TemplateEmbedder above."""
+
+    def __init__(self, config):
+        super(TemplateEmbedderMultimer, self).__init__()
+        self.config = config
+        # pair embedder
+        # template pair stack
+
+    def forward(self):
+        # TODO: integrate pair embedder with the template pair stack
+        pass
 
 
 class ProteusFeatures(NamedTuple):

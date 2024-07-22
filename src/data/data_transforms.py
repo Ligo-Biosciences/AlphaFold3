@@ -1,564 +1,1264 @@
-from typing import Any, Dict, Optional, Tuple, List, Callable
-import os
+# Copyright 2021 AlQuraishi Laboratory
+# Copyright 2021 DeepMind Technologies Limited
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import itertools
+from functools import reduce, wraps
+from operator import add
+
+import numpy as np
 import torch
-from torch import nn
-from torch.nn import functional as F
-from lightning import LightningDataModule
-from torch.utils.data import ConcatDataset, DataLoader, Dataset
-import proteinflow
-from torchvision import transforms
-from src.data.components.protein_dataset import ProteinDataset
-from src.common import residue_constants
-from src.utils.geometry.vector import Vec3Array
+
+from src.config import NUM_RES, NUM_EXTRA_SEQ, NUM_TEMPLATES, NUM_MSA_SEQ
+from src.common import residue_constants as rc
+from src.utils.geometry.rigid_matrix_vector import Rigid3Array
 from src.utils.geometry.rotation_matrix import Rot3Array
+from src.utils.geometry.vector import Vec3Array
+from src.utils.tensor_utils import (
+    tree_map,
+    tensor_tree_map,
+    batched_gather,
+)
 
 
-class TransformDataset(torch.utils.data.Dataset):
-    """A convenience class that applies arbitrary transforms to torch.utils.data.Dataset objects."""
-
-    def __init__(
-            self,
-            dataset: Dataset,
-            transform: Callable):
-        super().__init__()
-        self.dataset = dataset
-        self.transform = transform
-
-    def __getitem__(self, idx):
-        sample = self.dataset[idx]
-        return self.transform(sample)
-
-    def __len__(self):
-        return self.dataset.__len__()
+MSA_FEATURE_NAMES = [
+    "msa",
+    "deletion_matrix",
+    "msa_mask",
+    "msa_row_mask",
+    "bert_mask",
+    "true_msa",
+]
 
 
-class Reorder(nn.Module):
-    """A transformation that reorders the 3D coordinates of backbone atoms
-    from N, C, Ca, O -> N, Ca, C, O."""
+def cast_to_64bit_ints(protein):
+    # We keep all ints as int64
+    for k, v in protein.items():
+        if v.dtype == torch.int32:
+            protein[k] = v.type(torch.int64)
 
-    def forward(self, protein_dict):
-        # Switch to N, Ca, C, ordering.
-        reordered_X = protein_dict['X'].index_select(1, torch.tensor([0, 2, 1, 3]))
-        protein_dict['X'] = reordered_X
-        return protein_dict
+    return protein
 
 
-class Cropper(nn.Module):
-    """A transformation that crops the protein elements."""
-
-    def __init__(self, crop_size: int = 384):
-        super().__init__()
-        self.crop_size = crop_size
-
-    def spatial_crop(self, protein_dict: dict):
-        """Spatially crop a token sequence about a center atom
-        :param center_coords: the 3D coordinates of the center atom of the token sequence to be cropped. See forward method for a definition of protein_dict"""
-
-        ca_coords = protein_dict['X'][:, 1, :]  # first need to find the coordinates of a token center atom
-        n = torch.randint(low=0, high=ca_coords.shape[0], size=())
-        center_coords = ca_coords[n, :]
-
-        n_res = protein_dict['residue_idx'].shape[0]
-
-        if (self.crop_size >= n_res):  # only need to crop if n_res is larger than the number of tokens in the query, so return a mask of ones if no cropping is required
-            return torch.ones(n_res)
-
-        coord_diffs = protein_dict['X'] - center_coords.unsqueeze(0)
-        distances = torch.sqrt(torch.sum(coord_diffs ** 2, dim=-1))
-
-        cutoff_distance = torch.kthvalue(distances, self.crop_size).values.item()
-
-        binary_mask = (distances <= cutoff_distance).float()
-        return binary_mask
-
-    def contiguous_crop(self, protein_dict: dict):
-        """Contiguously crop a token sequence about a random starting position"""
-        n_res = protein_dict['residue_idx'].shape[0]
-
-        if self.crop_size >= n_res:  # only need to crop if n_res is larger than the number of tokens in the query,
-            # so return a mask of ones if no cropping is required
-            return torch.ones(n_res)
-
-        n = max(n_res - self.crop_size + 1, 1)
-        crop_start = torch.randint(low=0, high=n,
-                                   size=())  # randomly select crop start from allowable positions in the chain
-        binary_mask = torch.zeros(n_res)
-        binary_mask[crop_start: crop_start + self.crop_size] = 1.0
-        return binary_mask
-
-    def crop_tokens(self, protein_dict: dict, n_tok):
-        """
-        Randomly choose a cropping method to crop the protein sequence and apply the crop.
-        
-        :param protein_dict: Dictionary containing protein data including various attributes like coordinates, residue indices, etc.
-        n_tok: Integer representing the number of desired tokens in the sequence post cropping
-        :return: Modified protein_dict with the cropped sequences.
-        """
-        num = torch.rand(()).item()
-        if num <= 0.25:
-            mask = self.contiguous_crop(protein_dict)
-        else:
-            mask = self.spatial_crop(protein_dict)
-
-        mask = mask.bool()
-        for key, value in protein_dict.items():
-            if key in ["chain_id", "chain_dict"]:  # Skip non-Tensor items
-                continue
-            if key == "pdb_id":
-                continue  # Do not change the pdb_id
-                # if n_tok < self.crop_size:
-                padding = torch.zeros((self.crop_size - n_res,) + value.shape[1:], dtype=value.dtype)
-                new_value = torch.cat([value, padding], dim=0)
-                protein_dict[key] = new_value
-            else:
-                protein_dict[key] = value[mask]
-
-        return protein_dict
-
-    def forward(self, protein_dict: dict):
-        """Crop the protein
-        :param protein_dict: the protein dictionary with the elements
-         - 'X': 3D coordinates of N, C, Ca, O, `(total_L, 4, 3)`,
-         - 'S': sequence indices (shape `(total_L)`),
-         - 'mask': residue mask (0 where coordinates are missing, 1 otherwise; with interpolation 0s are replaced
-                   with 1s), (total_L),
-         - 'mask_original': residue mask (0 where coordinates are missing, 1 otherwise; not changed with
-                              interpolation), `(total_L)`,
-         - 'residue_idx': residue indices (from 0 to length of sequence, +100 where chains change),
-                            `(total_L)`,
-         - 'chain_encoding_all': chain indices, `(total_L)`,
-         - 'chain_id': a sampled chain index,
-         - 'chain_dict': a dictionary of chain ids (keys are chain ids, e.g. `'A'`, values are the indices
-                           used in `'chain_id'` and `'chain_encoding_all'` objects)
-        TODO: implement spatial cropping
-        """
-        for key, value in protein_dict.items():
-            if key == "chain_id" or key == "chain_dict":  # these are not Tensors, so skip
-                continue  # omit these from the new dict
-            if key == "pdb_id":
-                protein_dict[key] = value
-                continue  # do not change the pdb_id
-
-            if n_res < self.crop_size:
-                padding = torch.zeros((self.crop_size - n_res,) + value.shape[1:], dtype=value.dtype)
-                new_value = torch.cat([value, padding], dim=0)
-            else:
-                new_value = value[crop_start:crop_start + self.crop_size]
-                protein_dict[key] = new_value
-
-        # Add token mask
-        if n_res < self.crop_size:
-            padding = torch.zeros((self.crop_size - n_res,), dtype=torch.float32)
-            token_mask = torch.cat([token_mask, padding], dim=0)
-        else:
-            token_mask = token_mask[crop_start:crop_start + self.crop_size]
-            protein_dict['token_mask'] = token_mask
-        return protein_dict
+def make_one_hot(x, num_classes):
+    x_one_hot = torch.zeros(*x.shape, num_classes, device=x.device)
+    x_one_hot.scatter_(-1, x.unsqueeze(-1), 1)
+    return x_one_hot
 
 
-class AF3Featurizer(nn.Module):
-    """A transformation that featurizes the protein elements to AlphaFold3 features."""
-
-    def __init__(self):
-        super().__init__()
-
-    def forward(
-            self,
-            protein_dict: Dict[str, torch.Tensor]
-    ) -> Dict[str, torch.Tensor]:
-        """Featurize the protein elements to AlphaFold3 features.
-        Args:
-            protein_dict: the protein dictionary that includes the following elements:
-                "X":
-                    3D coordinates of N, Ca, C, O, `(total_L, 4, 3)`,
-                "S":
-                    sequence indices (shape (total_L)),
-                "mask":
-                    residue mask (0 where coordinates are missing, 1 otherwise; with interpolation 0s are replaced
-                    with 1s), (total_L),
-                "mask_original":
-                    residue mask (0 where coordinates are missing, 1 otherwise; not changed with interpolation),
-                    (total_L),
-                "residue_idx":
-                    residue indices (from 0 to length of sequence, +100 where chains change), (total_L),
-                "chain_encoding_all":
-                    chain indices, (total_L),
-                "chain_id":
-                    a sampled chain index,
-                "chain_dict":
-                    a dictionary of chain ids (keys are chain ids, e.g. 'A', values are the indices
-                    used in 'chain_id' and 'chain_encoding_all' objects)
-        Returns:
-            a dictionary with the following elements:
-            "features":
-                a dictionary containing the features of AlphaFold3 containing the following elements:
-                    "residue_index":
-                        [n_tokens] Residue number in the token’s original input chain.
-                    "token_index":
-                        [n_tokens] Token number. Increases monotonically; does not restart at 1 for new chains.
-                    "asym_id":
-                        [n_tokens] Unique integer for each distinct chain.
-                    "entity_id":
-                        [n_tokens] Unique integer for each distinct entity.
-                    "sym_id":
-                        [N_tokens] Unique integer within chains of this sequence. E.g. if chains
-                        A, B and C share a sequence but D does not, their sym_ids would be [0, 1, 2, 0]
-                    "ref_pos":
-                        [N_atoms, 3] atom positions in the reference conformers, with
-                        a random rotation and translation applied. Atom positions in Angstroms.
-                    "ref_mask":
-                        [N_atoms] Mask indicating which atom slots are used in the reference
-                        conformer.
-                    "ref_element":
-                        [N_atoms, 128] One-hot encoding of the element atomic number for each atom
-                        in the reference conformer, up to atomic number 128.
-                    "ref_charge":
-                        [N_atoms] Charge for each atom in the reference conformer.
-                    "ref_atom_name_chars":
-                        [N_atom, 4, 64] One-hot encoding of the unique atom names in the reference
-                        conformer. Each character is encoded as ord(c - 32), and names are padded to
-                        length 4.
-                    "ref_space_uid":
-                        [N_atoms] Numerical encoding of the chain id and residue index associated
-                        with this reference conformer. Each (chain id, residue index) tuple is assigned
-                        an integer on first appearance.
-                    "atom_to_token":
-                        [N_atoms] Token index for each atom in the flat atom representation.
-            "atom_positions":
-                [N_atoms, 3] ground truth atom positions in Angstroms.
-            "atom_exists":
-                [N_atoms] binary mask for atoms, whether atom exists, used for loss masking
-            "token_mask":
-                [n_tokens] Mask indicating which tokens are non-padding tokens
-            "atom_mask":
-                [N_atoms] Mask indicating which atoms are non-padding atoms
-        TODO: this should return a dictionary of dictionaries, where batch["features"] returns the actual AF3 features
-         and the rest of the keys are for masks, ground truth atom positions, etc. This way, there is no danger of
-         information leakage and everything is more organized.
-        """
-        total_L = protein_dict["residue_idx"].shape[0]  # crop_size
-
-        af3_features = {
-            "residue_index": protein_dict["residue_idx"],
-            "token_index": torch.arange(total_L, dtype=torch.float32),
-            "asym_id": torch.zeros((total_L,), dtype=torch.float32),
-            "entity_id": torch.zeros((total_L,), dtype=torch.float32),
-            "sym_id": torch.zeros((total_L,), dtype=torch.float32),
-            "ref_pos": AF3Featurizer.compute_ref_residue_conformers('ALA', n_res=total_L),
-            "ref_mask": torch.ones((total_L * 4,), dtype=torch.float32),
-            "ref_element": F.one_hot(torch.tensor([7, 6, 6, 8]).unsqueeze(0).expand(total_L, 4).reshape(total_L * 4),
-                                     num_classes=128),  # N, C, C, O  atoms repeating in 4s for each residue
-            "ref_charge": torch.zeros((total_L * 4,), dtype=torch.float32),
-            "ref_atom_name_chars": AF3Featurizer.compute_atom_name_chars(
-                ["N", "CA", "C", "O"]).unsqueeze(0).expand(total_L, 4, 4, 64).reshape(total_L * 4, 4, 64),
-            "ref_space_uid": protein_dict["residue_idx"].unsqueeze(-1).expand(total_L, 4).reshape(total_L * 4),
-            "atom_to_token": torch.arange(total_L).unsqueeze(-1).expand(total_L, 4).reshape(total_L * 4),
-
-        }
-
-        # Compute masks
-        token_mask = protein_dict["token_mask"]
-        atom_mask = token_mask.unsqueeze(-1).expand(total_L, 4).reshape(total_L * 4)
-
-        # Final output dictionary
-        output_dict = {
-            "features": af3_features,
-            "atom_positions": protein_dict["X"].reshape(total_L * 4, 3).float(),
-            "atom_exists": protein_dict["mask"].unsqueeze(-1).expand(total_L, 4).reshape(total_L * 4) * atom_mask,
-            "token_mask": token_mask,
-            "atom_mask": atom_mask,
-        }
-        return output_dict
-
-    @staticmethod
-    def compute_atom_name_chars(atom_names: List[str]) -> torch.Tensor:
-        """Compute the one-hot encoding of the unique atom names in the reference conformer.
-        Each character is encoded as ord(c) - 32 and names are padded to length 4."""
-        atom_name_chars = torch.zeros((len(atom_names), 4, 64), dtype=torch.float32)
-        for i, atom_name in enumerate(atom_names):
-            for j, char in enumerate(atom_name):
-                atom_name_chars[i, j, ord(char) - 32] = 1
-        return atom_name_chars
-
-    @staticmethod
-    def compute_ref_residue_conformers(residue_name: str, n_res: int) -> torch.Tensor:
-        """Gathers the literature position of a given residue and returns residue conformers
-        a random rotation and translation applied to each conformer."""
-        positions = residue_constants.rigid_group_atom_positions[residue_name]
-        N, CA, C, O = positions[0][2], positions[1][2], positions[2][2], positions[3][2]  # extract coordinates
-        local_coordinates = torch.stack([torch.tensor(N),
-                                         torch.tensor(CA),
-                                         torch.tensor(C),
-                                         torch.tensor(O)], dim=0)  # local_coordinates.shape == (4, 3)
-
-        res_conformers = Vec3Array.from_array(local_coordinates.unsqueeze(0).expand(n_res, 4, 3))  # (n_res, 4)
-
-        # Apply random rotation and translation
-        rots = Rot3Array.uniform_random((n_res, 1))
-        trans = Vec3Array.randn((n_res, 1))
-        res_conformers = rots.apply_to_point(res_conformers) + trans
-
-        # Reshape to (n_atoms, 3) and return
-        return res_conformers.to_tensor().reshape(n_res * 4, 3)
+def make_seq_mask(protein):
+    protein["seq_mask"] = torch.ones(
+        protein["aatype"].shape, dtype=torch.float32
+    )
+    return protein
 
 
-class ProteinDataModule(LightningDataModule):
-    """`LightningDataModule` for the Protein Data Bank.
+def make_template_mask(protein):
+    protein["template_mask"] = torch.ones(
+        protein["template_aatype"].shape[0], dtype=torch.float32
+    )
+    return protein
 
-    A `LightningDataModule` implements 7 key methods:
 
-    ```python
-        def prepare_data(self):
-        # Things to do on 1 GPU/TPU (not on every GPU/TPU in DDP).
-        # Download data, pre-process, split, save to disk, etc...
+def curry1(f):
+    """Supply all arguments but the first."""
+    @wraps(f)
+    def fc(*args, **kwargs):
+        return lambda x: f(x, *args, **kwargs)
 
-        def setup(self, stage):
-        # Things to do on every process in DDP.
-        # Load data, set variables, etc...
+    return fc
 
-        def train_dataloader(self):
-        # return train dataloader
 
-        def val_dataloader(self):
-        # return validation dataloader
+def make_all_atom_aatype(protein):
+    protein["all_atom_aatype"] = protein["aatype"]
+    return protein
 
-        def test_dataloader(self):
-        # return test dataloader
 
-        def predict_dataloader(self):
-        # return predict dataloader
+def fix_templates_aatype(protein):
+    # Map one-hot to indices
+    num_templates = protein["template_aatype"].shape[0]
+    protein["template_aatype"] = torch.argmax(
+        protein["template_aatype"], dim=-1
+    )
+    # Map hhsearch-aatype to our aatype.
+    new_order_list = rc.MAP_HHBLITS_AATYPE_TO_OUR_AATYPE
+    new_order = torch.tensor(
+        new_order_list, dtype=torch.int64, device=protein["template_aatype"].device,
+    ).expand(num_templates, -1)
+    protein["template_aatype"] = torch.gather(
+        new_order, 1, index=protein["template_aatype"]
+    )
 
-        def teardown(self, stage):
-        # Called on every process in DDP.
-        # Clean up after fit or test.
-    ```
+    return protein
 
-    This allows you to share a full dataset without explaining how to download,
-    split, transform and process the data.
 
-    Read the docs:
-        https://lightning.ai/docs/pytorch/latest/data/datamodule.html
+def correct_msa_restypes(protein):
+    """Correct MSA restype to have the same order as rc."""
+    new_order_list = rc.MAP_HHBLITS_AATYPE_TO_OUR_AATYPE
+    new_order = torch.tensor(
+        [new_order_list] * protein["msa"].shape[1], 
+        device=protein["msa"].device,
+    ).transpose(0, 1)
+    protein["msa"] = torch.gather(new_order, 0, protein["msa"])
+
+    perm_matrix = np.zeros((22, 22), dtype=np.float32)
+    perm_matrix[range(len(new_order_list)), new_order_list] = 1.0
+
+    for k in protein:
+        if "profile" in k:
+            num_dim = protein[k].shape.as_list()[-1]
+            assert num_dim in [
+                20,
+                21,
+                22,
+            ], "num_dim for %s out of expected range: %s" % (k, num_dim)
+            protein[k] = torch.dot(protein[k], perm_matrix[:num_dim, :num_dim])
+    
+    return protein
+
+
+def squeeze_features(protein):
+    """Remove singleton and repeated dimensions in protein features."""
+    protein["aatype"] = torch.argmax(protein["aatype"], dim=-1)
+    for k in [
+        "domain_name",
+        "msa",
+        "num_alignments",
+        "seq_length",
+        "sequence",
+        "superfamily",
+        "deletion_matrix",
+        "resolution",
+        "between_segment_residues",
+        "residue_index",
+        "template_all_atom_mask",
+    ]:
+        if k in protein:
+            final_dim = protein[k].shape[-1]
+            if isinstance(final_dim, int) and final_dim == 1:
+                if torch.is_tensor(protein[k]):
+                    protein[k] = torch.squeeze(protein[k], dim=-1)
+                else:
+                    protein[k] = np.squeeze(protein[k], axis=-1)
+
+    for k in ["seq_length", "num_alignments"]:
+        if k in protein:
+            protein[k] = protein[k][0]
+
+    return protein
+
+
+@curry1
+def randomly_replace_msa_with_unknown(protein, replace_proportion):
+    """Replace a portion of the MSA with 'X'."""
+    msa_mask = torch.rand(protein["msa"].shape) < replace_proportion
+    x_idx = 20
+    gap_idx = 21
+    msa_mask = torch.logical_and(msa_mask, protein["msa"] != gap_idx)
+    protein["msa"] = torch.where(
+        msa_mask,
+        torch.ones_like(protein["msa"]) * x_idx,
+        protein["msa"]
+    )
+    aatype_mask = torch.rand(protein["aatype"].shape) < replace_proportion
+
+    protein["aatype"] = torch.where(
+        aatype_mask,
+        torch.ones_like(protein["aatype"]) * x_idx,
+        protein["aatype"],
+    )
+    return protein
+
+
+@curry1
+def sample_msa(protein, max_seq, keep_extra, seed=None):
+    """Sample MSA randomly, remaining sequences are stored are stored as `extra_*`."""
+    num_seq = protein["msa"].shape[0]
+
+    g = None
+    if seed is not None:
+        g = torch.Generator(device=protein["msa"].device)
+        g.manual_seed(seed)
+
+    shuffled = torch.randperm(num_seq - 1, generator=g) + 1
+    index_order = torch.cat(
+        (torch.tensor([0], device=shuffled.device), shuffled), 
+        dim=0
+    )
+    num_sel = min(max_seq, num_seq)
+    sel_seq, not_sel_seq = torch.split(
+        index_order, [num_sel, num_seq - num_sel]
+    )
+
+    for k in MSA_FEATURE_NAMES:
+        if k in protein:
+            if keep_extra:
+                protein["extra_" + k] = torch.index_select(
+                    protein[k], 0, not_sel_seq
+                )
+            protein[k] = torch.index_select(protein[k], 0, sel_seq)
+
+    return protein
+
+
+@curry1
+def add_distillation_flag(protein, distillation):
+    protein['is_distillation'] = distillation
+    return protein
+
+@curry1
+def sample_msa_distillation(protein, max_seq):
+    if(protein["is_distillation"] == 1):
+        protein = sample_msa(max_seq, keep_extra=False)(protein)
+    return protein
+
+
+@curry1
+def crop_extra_msa(protein, max_extra_msa):
+    num_seq = protein["extra_msa"].shape[0]
+    num_sel = min(max_extra_msa, num_seq)
+    select_indices = torch.randperm(num_seq)[:num_sel]
+    for k in MSA_FEATURE_NAMES:
+        if "extra_" + k in protein:
+            protein["extra_" + k] = torch.index_select(
+                protein["extra_" + k], 0, select_indices
+            )
+    
+    return protein
+
+
+def delete_extra_msa(protein):
+    for k in MSA_FEATURE_NAMES:
+        if "extra_" + k in protein:
+            del protein["extra_" + k]
+    return protein
+
+
+# Not used in inference
+@curry1
+def block_delete_msa(protein, config):
+    num_seq = protein["msa"].shape[0]
+    block_num_seq = torch.floor(
+        torch.tensor(num_seq, dtype=torch.float32, device=protein["msa"].device)
+        * config.msa_fraction_per_block
+    ).to(torch.int32)
+
+    if int(block_num_seq) == 0:
+        return protein
+
+    if config.randomize_num_blocks:
+        nb = int(torch.randint(
+            low=0,
+            high=config.num_blocks + 1,
+            size=(1,),
+            device=protein["msa"].device,
+        )[0])
+    else:
+        nb = config.num_blocks
+
+    del_block_starts = torch.randint(low=1, high=num_seq, size=(nb,), device=protein["msa"].device)
+    del_blocks = del_block_starts[:, None] + torch.arange(start=0, end=block_num_seq)
+    del_blocks = torch.clip(del_blocks, 1, num_seq - 1)
+    del_indices = torch.unique(torch.reshape(del_blocks, [-1]))
+
+    # Make sure we keep the original sequence
+    combined = torch.cat((torch.arange(start=0, end=num_seq), del_indices)).long()
+    uniques, counts = combined.unique(return_counts=True)
+    keep_indices = uniques[counts == 1]
+
+    assert int(keep_indices[0]) == 0
+    for k in MSA_FEATURE_NAMES:
+        if k in protein:
+            protein[k] = torch.index_select(protein[k], 0, keep_indices)
+
+    return protein
+
+
+@curry1
+def nearest_neighbor_clusters(protein, gap_agreement_weight=0.0):
+    weights = torch.cat(
+        [
+            torch.ones(21, device=protein["msa"].device), 
+            gap_agreement_weight * torch.ones(1, device=protein["msa"].device),
+            torch.zeros(1, device=protein["msa"].device)
+        ],
+        0,
+    )
+
+    # Make agreement score as weighted Hamming distance
+    msa_one_hot = make_one_hot(protein["msa"], 23)
+    sample_one_hot = protein["msa_mask"][:, :, None] * msa_one_hot
+    extra_msa_one_hot = make_one_hot(protein["extra_msa"], 23)
+    extra_one_hot = protein["extra_msa_mask"][:, :, None] * extra_msa_one_hot
+
+    num_seq, num_res, _ = sample_one_hot.shape
+    extra_num_seq, _, _ = extra_one_hot.shape
+
+    # Compute tf.einsum('mrc,nrc,c->mn', sample_one_hot, extra_one_hot, weights)
+    # in an optimized fashion to avoid possible memory or computation blowup.
+    agreement = torch.matmul(
+        torch.reshape(extra_one_hot, [extra_num_seq, num_res * 23]),
+        torch.reshape(
+            sample_one_hot * weights, [num_seq, num_res * 23]
+        ).transpose(0, 1),
+    )
+
+    # Assign each sequence in the extra sequences to the closest MSA sample
+    protein["extra_cluster_assignment"] = torch.argmax(agreement, dim=1).to(
+        torch.int64
+    )
+    
+    return protein
+
+
+def unsorted_segment_sum(data, segment_ids, num_segments):
     """
+    Computes the sum along segments of a tensor. Similar to 
+    tf.unsorted_segment_sum, but only supports 1-D indices.
 
-    def __init__(
-            self,
-            data_dir: str = "./data/",
-            resolution_thr: float = 3.5,
-            min_seq_id: float = 0.3,
-            crop_size: int = 384,
-            max_length: int = 10_000,
-            use_fraction: float = 1.0,
-            entry_type: str = "chain",
-            classes_to_exclude: Optional[List[str]] = None,
-            mask_residues: bool = False,
-            lower_limit: int = 15,
-            upper_limit: int = 100,
-            mask_frac: Optional[float] = None,
-            mask_sequential: bool = False,
-            mask_whole_chains: bool = False,
-            force_binding_sites_frac: float = 0.15,
-            batch_size: int = 64,
-            num_workers: int = 0,
-            pin_memory: bool = False,
-            debug: bool = False
-    ) -> None:
-        """Initialize a `ProteinDataModule`.
+    :param data: A tensor whose segments are to be summed.
+    :param segment_ids: The 1-D segment indices tensor.
+    :param num_segments: The number of segments.
+    :return: A tensor of same data type as the data argument.
+    """
+    assert (
+        len(segment_ids.shape) == 1 and
+        segment_ids.shape[0] == data.shape[0]
+    )
+    segment_ids = segment_ids.view(
+        segment_ids.shape[0], *((1,) * len(data.shape[1:]))
+    )
+    segment_ids = segment_ids.expand(data.shape)
+    shape = [num_segments] + list(data.shape[1:])
+    tensor = (
+        torch.zeros(*shape, device=segment_ids.device)
+        .scatter_add_(0, segment_ids, data.float())
+    )
+    tensor = tensor.type(data.dtype)
+    return tensor
 
-        :param resolution_thr: Resolution threshold for PDB structures
-        :param min_seq_id: Minimum sequence identity for MMSeq2 clustering
-        :param crop_size: The number of residues to crop the proteins to.
-        :param max_length: Entries with total length of chains larger than max_length will be disregarded.
-        :param use_fraction: the fraction of the clusters to use (first N in alphabetic order)
-        :param entry_type: {"biounit", "chain", "pair"} the type of entries to generate ("biounit" for biounit-level
-                            complexes, "chain" for chain-level, "pair" for chain-chain pairs (all pairs that are seen
-                            in the same biounit and have intersecting coordinate clouds))
-        :param classes_to_exclude: a list of classes to exclude from the dataset (select from "single_chains",
-                                   "heteromers", "homomers")
-        :param mask_residues: if True, the masked residues will be added to the output
-        :param lower_limit: the lower limit of the number of residues to mask
-        :param upper_limit: the upper limit of the number of residues to mask
-        :param mask_frac: if given, the number of residues to mask is mask_frac times the length of the chain
-        :param mask_sequential: if True, the masked residues will be neighbors in the sequence; otherwise a geometric
-                                mask is applied based on the coordinates.
-        :param mask_whole_chains: if True, the whole chain is masked
-        :param force_binding_sites_frac: if force_binding_sites_frac > 0 and mask_whole_chains is False, in the
-                                         fraction of cases where a chain from a polymer is sampled, the center of
-                                         the masked region will be forced to be in a binding site (in PDB datasets).
-        :param batch_size: The batch size. Defaults to `64`.
-        :param num_workers: The number of workers. Defaults to `0`.
-        :param pin_memory: Whether to pin memory. Defaults to `False`.
-        :param debug: In debugging mode or not. Defaults to 'False'
-        """
-        super().__init__()
 
-        # this line allows to access init params with 'self.hparams' attribute
-        # also ensures init params will be stored in ckpt
-        self.save_hyperparameters(logger=False)
+@curry1
+def summarize_clusters(protein):
+    """Produce profile and deletion_matrix_mean within each cluster."""
+    num_seq = protein["msa"].shape[0]
 
-        # data transformations
-        self.transforms = transforms.Compose(
-            [Cropper(crop_size=crop_size), Reorder(), AF3Featurizer()]  # crop and reorder
+    def csum(x):
+        return unsorted_segment_sum(
+            x, protein["extra_cluster_assignment"], num_seq
         )
 
-        self.data_train: Optional[Dataset] = None
-        self.data_val: Optional[Dataset] = None
-        self.data_test: Optional[Dataset] = None
+    mask = protein["extra_msa_mask"]
+    mask_counts = 1e-6 + protein["msa_mask"] + csum(mask)  # Include center
 
-        self.batch_size_per_device = batch_size
+    msa_sum = csum(mask[:, :, None] * make_one_hot(protein["extra_msa"], 23))
+    msa_sum += make_one_hot(protein["msa"], 23)  # Original sequence
+    protein["cluster_profile"] = msa_sum / mask_counts[:, :, None]
+    del msa_sum
 
-    def prepare_data(self) -> None:
-        """Download data if needed. Lightning ensures that `self.prepare_data()` is called only
-        within a single process on CPU, so you can safely add your downloading logic within. In
-        case of multi-node training, the execution of this hook depends upon
-        `self.prepare_data_per_node()`.
-
-        Do not use it to assign state (self.other = y).
-        """
-        data_path = os.path.join(self.hparams.data_dir, "proteinflow_20230102_stable")
-        if not os.path.exists(data_path):
-            # Download precomputed data, PDB cutoff date 27.02.23
-            # This is a dataset with min_res=3.5A, min_len=30, max_len=10_000, min_seq_id=0.3, train/val/test=90/5/5
-            os.system("proteinflow download --tag 20230102_stable")
-
-    def setup(self, stage: str = "test") -> None:
-        """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
-
-        This method is called by Lightning before `trainer.fit()`, `trainer.validate()`, `trainer.test()`, and
-        `trainer.predict()`, so be careful not to execute things like random split twice! Also, it is called after
-        `self.prepare_data()` and there is a barrier in between which ensures that all the processes proceed to
-        `self.setup()` once the data is prepared and available for use.
-
-        :param stage: The stage to setup. Either `"fit"`, `"validate"`, `"test"`, or `"predict"`. Defaults to ``None``.
-        """
-        # Divide batch size by the number of devices.
-        if self.trainer is not None:
-            if self.hparams.batch_size % self.trainer.world_size != 0:
-                raise RuntimeError(
-                    f"Batch size ({self.hparams.batch_size}) is not divisible by the number of devices ({self.trainer.world_size}). "
-                )
-            self.batch_size_per_device = self.hparams.batch_size // self.trainer.world_size
-
-        train_folder = os.path.join(self.hparams.data_dir, "proteinflow_20230102_stable/train")
-        test_folder = os.path.join(self.hparams.data_dir, "proteinflow_20230102_stable/test")
-        val_folder = os.path.join(self.hparams.data_dir, "proteinflow_20230102_stable/valid")
-
-        if stage == "fit" and not self.data_train:
-            train_ds = ProteinDataset(train_folder,
-                                      max_length=self.hparams.max_length,
-                                      use_fraction=self.hparams.use_fraction,
-                                      entry_type=self.hparams.entry_type,
-                                      classes_to_exclude=self.hparams.classes_to_exclude,
-                                      mask_residues=self.hparams.mask_residues,
-                                      lower_limit=self.hparams.lower_limit,
-                                      upper_limit=self.hparams.upper_limit,
-                                      mask_frac=self.hparams.mask_frac,
-                                      mask_sequential=self.hparams.mask_sequential,
-                                      mask_whole_chains=self.hparams.mask_whole_chains,
-                                      force_binding_sites_frac=self.hparams.force_binding_sites_frac,
-                                      debug=self.hparams.debug)
-            val_ds = ProteinDataset(val_folder,
-                                    max_length=self.hparams.max_length,
-                                    use_fraction=self.hparams.use_fraction,
-                                    entry_type=self.hparams.entry_type,
-                                    classes_to_exclude=self.hparams.classes_to_exclude,
-                                    mask_residues=self.hparams.mask_residues,
-                                    lower_limit=self.hparams.lower_limit,
-                                    upper_limit=self.hparams.upper_limit,
-                                    mask_frac=self.hparams.mask_frac,
-                                    mask_sequential=self.hparams.mask_sequential,
-                                    mask_whole_chains=self.hparams.mask_whole_chains,
-                                    force_binding_sites_frac=self.hparams.force_binding_sites_frac,
-                                    debug=self.hparams.debug)
-            self.data_val = TransformDataset(val_ds, transform=self.transforms)
-            self.data_train = TransformDataset(train_ds, transform=self.transforms)
-
-        elif stage == "test" and not self.data_test:
-            test_ds = ProteinDataset(test_folder,
-                                     max_length=self.hparams.max_length,
-                                     use_fraction=self.hparams.use_fraction,
-                                     entry_type=self.hparams.entry_type,
-                                     classes_to_exclude=self.hparams.classes_to_exclude,
-                                     mask_residues=self.hparams.mask_residues,
-                                     lower_limit=self.hparams.lower_limit,
-                                     upper_limit=self.hparams.upper_limit,
-                                     mask_frac=self.hparams.mask_frac,
-                                     mask_sequential=self.hparams.mask_sequential,
-                                     mask_whole_chains=self.hparams.mask_whole_chains,
-                                     force_binding_sites_frac=self.hparams.force_binding_sites_frac,
-                                     debug=self.hparams.debug)
-            self.data_test = TransformDataset(test_ds, transform=self.transforms)
-
-    def train_dataloader(self) -> DataLoader[Any]:
-        """Create and return the train dataloader.
-        :return: The train dataloader.
-        """
-        """proteinflow.ProteinLoader(self.data_train,
-                                             batch_size=self.batch_size_per_device,
-                                             num_workers=self.hparams.num_workers,
-                                             pin_memory=self.hparams.pin_memory)"""
-        return DataLoader(self.data_train,
-                          batch_size=self.batch_size_per_device,
-                          num_workers=self.hparams.num_workers,
-                          pin_memory=self.hparams.pin_memory)
-
-    def val_dataloader(self) -> DataLoader[Any]:
-        """Create and return the validation dataloader.
-
-        :return: The validation dataloader.
-        """
-        """
-        proteinflow.ProteinLoader(self.data_val,
-                                         shuffle_batches=False,
-                                         batch_size=self.batch_size_per_device,
-                                         num_workers=self.hparams.num_workers,
-                                         pin_memory=self.hparams.pin_memory)
-        """
-        return DataLoader(self.data_val,
-                          shuffle=False,
-                          batch_size=self.batch_size_per_device,
-                          num_workers=self.hparams.num_workers,
-                          pin_memory=self.hparams.pin_memory)
-
-    def test_dataloader(self) -> DataLoader[Any]:
-        """Create and return the test dataloader.
-
-        :return: The test dataloader.
-        """
-        """proteinflow.ProteinLoader(self.data_test,
-                                         shuffle_batches=False,
-                                         batch_size=self.batch_size_per_device,
-                                         num_workers=self.hparams.num_workers,
-                                         pin_memory=self.hparams.pin_memory)"""
-        return DataLoader(self.data_test,
-                          shuffle=False,
-                          batch_size=self.batch_size_per_device,
-                          num_workers=self.hparams.num_workers,
-                          pin_memory=self.hparams.pin_memory)
-
-    def teardown(self, stage: Optional[str] = None) -> None:
-        """Lightning hook for cleaning up after `trainer.fit()`, `trainer.validate()`,
-        `trainer.test()`, and `trainer.predict()`.
-
-        :param stage: The stage being torn down. Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
-            Defaults to ``None``.
-        """
-        pass
-
-    def state_dict(self) -> Dict[Any, Any]:
-        """Called when saving a checkpoint. Implement to generate and save the datamodule state.
-
-        :return: A dictionary containing the datamodule state that you want to save.
-        """
-        return {}
-
-    def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
-        """Called when loading a checkpoint. Implement to reload datamodule state given datamodule
-        `state_dict()`.
-
-        :param state_dict: The datamodule state returned by `self.state_dict()`.
-        """
-        pass
+    del_sum = csum(mask * protein["extra_deletion_matrix"])
+    del_sum += protein["deletion_matrix"]  # Original sequence
+    protein["cluster_deletion_mean"] = del_sum / mask_counts
+    del del_sum
+    
+    return protein
 
 
-if __name__ == "__main__":
-    _ = ProteinDataModule()
+def make_msa_mask(protein):
+    """Mask features are all ones, but will later be zero-padded."""
+    protein["msa_mask"] = torch.ones(protein["msa"].shape, dtype=torch.float32)
+    protein["msa_row_mask"] = torch.ones(
+        (protein["msa"].shape[0]), dtype=torch.float32
+    )
+    return protein
+
+
+def pseudo_beta_fn(aatype, all_atom_positions, all_atom_mask):
+    """Create pseudo beta features."""
+    is_gly = torch.eq(aatype, rc.restype_order["G"])
+    ca_idx = rc.atom_order["CA"]
+    cb_idx = rc.atom_order["CB"]
+    pseudo_beta = torch.where(
+        torch.tile(is_gly[..., None], [1] * len(is_gly.shape) + [3]),
+        all_atom_positions[..., ca_idx, :],
+        all_atom_positions[..., cb_idx, :],
+    )
+
+    if all_atom_mask is not None:
+        pseudo_beta_mask = torch.where(
+            is_gly, all_atom_mask[..., ca_idx], all_atom_mask[..., cb_idx]
+        )
+        return pseudo_beta, pseudo_beta_mask
+    else:
+        return pseudo_beta
+
+
+@curry1
+def make_pseudo_beta(protein, prefix=""):
+    """Create pseudo-beta (alpha for glycine) position and mask."""
+    assert prefix in ["", "template_"]
+    (
+        protein[prefix + "pseudo_beta"],
+        protein[prefix + "pseudo_beta_mask"],
+    ) = pseudo_beta_fn(
+        protein["template_aatype" if prefix else "aatype"],
+        protein[prefix + "all_atom_positions"],
+        protein["template_all_atom_mask" if prefix else "all_atom_mask"],
+    )
+    return protein
+
+
+@curry1
+def add_constant_field(protein, key, value):
+    protein[key] = torch.tensor(value, device=protein["msa"].device)
+    return protein
+
+
+def shaped_categorical(probs, epsilon=1e-10):
+    ds = probs.shape
+    num_classes = ds[-1]
+    distribution = torch.distributions.categorical.Categorical(
+        torch.reshape(probs + epsilon, [-1, num_classes])
+    )
+    counts = distribution.sample()
+    return torch.reshape(counts, ds[:-1])
+
+
+def make_hhblits_profile(protein):
+    """Compute the HHblits MSA profile if not already present."""
+    if "hhblits_profile" in protein:
+        return protein
+
+    # Compute the profile for every residue (over all MSA sequences).
+    msa_one_hot = make_one_hot(protein["msa"], 22)
+
+    protein["hhblits_profile"] = torch.mean(msa_one_hot, dim=0)
+    return protein
+
+
+@curry1
+def make_masked_msa(protein, config, replace_fraction, seed):
+    """Create data for BERT on raw MSA."""
+    device = protein["msa"].device
+
+    # Add a random amino acid uniformly.
+    random_aa = torch.tensor(
+        [0.05] * 20 + [0.0, 0.0], 
+        dtype=torch.float32, 
+        device=device
+    )
+
+    categorical_probs = (
+        config.uniform_prob * random_aa
+        + config.profile_prob * protein["hhblits_profile"]
+        + config.same_prob * make_one_hot(protein["msa"], 22)
+    )
+
+    # Put all remaining probability on [MASK] which is a new column
+    pad_shapes = list(
+        reduce(add, [(0, 0) for _ in range(len(categorical_probs.shape))])
+    )
+    pad_shapes[1] = 1
+    mask_prob = (
+        1.0 - config.profile_prob - config.same_prob - config.uniform_prob
+    )
+    assert mask_prob >= 0.0
+
+    categorical_probs = torch.nn.functional.pad(
+        categorical_probs, pad_shapes, value=mask_prob,
+    )
+
+    sh = protein["msa"].shape
+
+    g = None
+    if seed is not None:
+        g = torch.Generator(device=protein["msa"].device)
+        g.manual_seed(seed)
+    
+    sample = torch.rand(sh, device=device, generator=g)
+    mask_position = sample < replace_fraction
+
+    bert_msa = shaped_categorical(categorical_probs)
+    bert_msa = torch.where(mask_position, bert_msa, protein["msa"])
+
+    # Mix real and masked MSA
+    protein["bert_mask"] = mask_position.to(torch.float32)
+    protein["true_msa"] = protein["msa"]
+    protein["msa"] = bert_msa
+
+    return protein
+
+
+@curry1
+def make_fixed_size(
+    protein,
+    shape_schema,
+    msa_cluster_size,
+    extra_msa_size,
+    num_res=0,
+    num_templates=0,
+):
+    """Guess at the MSA and sequence dimension to make fixed size."""
+    pad_size_map = {
+        NUM_RES: num_res,
+        NUM_MSA_SEQ: msa_cluster_size,
+        NUM_EXTRA_SEQ: extra_msa_size,
+        NUM_TEMPLATES: num_templates,
+    }
+
+    for k, v in protein.items():
+        # Don't transfer this to the accelerator.
+        if k == "extra_cluster_assignment":
+            continue
+        shape = list(v.shape)
+        schema = shape_schema[k]
+        msg = "Rank mismatch between shape and shape schema for"
+        assert len(shape) == len(schema), f"{msg} {k}: {shape} vs {schema}"
+        pad_size = [
+            pad_size_map.get(s2, None) or s1 for (s1, s2) in zip(shape, schema)
+        ]
+
+        padding = [(0, p - v.shape[i]) for i, p in enumerate(pad_size)]
+        padding.reverse()
+        padding = list(itertools.chain(*padding))
+        if padding:
+            protein[k] = torch.nn.functional.pad(v, padding)
+            protein[k] = torch.reshape(protein[k], pad_size)
+    
+    return protein
+
+
+@curry1
+def make_msa_feat(protein):
+    """Create and concatenate MSA features."""
+    # Whether there is a domain break. Always zero for chains, but keeping for
+    # compatibility with domain datasets.
+    has_break = torch.clip(
+        protein["between_segment_residues"].to(torch.float32), 0, 1
+    )
+    aatype_1hot = make_one_hot(protein["aatype"], 21)
+
+    target_feat = [
+        torch.unsqueeze(has_break, dim=-1),
+        aatype_1hot,  # Everyone gets the original sequence.
+    ]
+
+    msa_1hot = make_one_hot(protein["msa"], 23)
+    has_deletion = torch.clip(protein["deletion_matrix"], 0.0, 1.0)
+    deletion_value = torch.atan(protein["deletion_matrix"] / 3.0) * (
+        2.0 / np.pi
+    )
+
+    msa_feat = [
+        msa_1hot,
+        torch.unsqueeze(has_deletion, dim=-1),
+        torch.unsqueeze(deletion_value, dim=-1),
+    ]
+
+    if "cluster_profile" in protein:
+        deletion_mean_value = torch.atan(
+            protein["cluster_deletion_mean"] / 3.0
+        ) * (2.0 / np.pi)
+        msa_feat.extend(
+            [
+                protein["cluster_profile"],
+                torch.unsqueeze(deletion_mean_value, dim=-1),
+            ]
+        )
+
+    if "extra_deletion_matrix" in protein:
+        protein["extra_has_deletion"] = torch.clip(
+            protein["extra_deletion_matrix"], 0.0, 1.0
+        )
+        protein["extra_deletion_value"] = torch.atan(
+            protein["extra_deletion_matrix"] / 3.0
+        ) * (2.0 / np.pi)
+
+    protein["msa_feat"] = torch.cat(msa_feat, dim=-1)
+    protein["target_feat"] = torch.cat(target_feat, dim=-1)
+    return protein
+
+
+@curry1
+def select_feat(protein, feature_list):
+    return {k: v for k, v in protein.items() if k in feature_list}
+
+
+@curry1
+def crop_templates(protein, max_templates):
+    for k, v in protein.items():
+        if k.startswith("template_"):
+            protein[k] = v[:max_templates]
+    return protein
+
+
+def make_atom14_masks(protein):
+    """Construct denser atom positions (14 dimensions instead of 37)."""
+    restype_atom14_to_atom37 = []
+    restype_atom37_to_atom14 = []
+    restype_atom14_mask = []
+
+    for rt in rc.restypes:
+        atom_names = rc.restype_name_to_atom14_names[rc.restype_1to3[rt]]
+        restype_atom14_to_atom37.append(
+            [(rc.atom_order[name] if name else 0) for name in atom_names]
+        )
+        atom_name_to_idx14 = {name: i for i, name in enumerate(atom_names)}
+        restype_atom37_to_atom14.append(
+            [
+                (atom_name_to_idx14[name] if name in atom_name_to_idx14 else 0)
+                for name in rc.atom_types
+            ]
+        )
+
+        restype_atom14_mask.append(
+            [(1.0 if name else 0.0) for name in atom_names]
+        )
+
+    # Add dummy mapping for restype 'UNK'
+    restype_atom14_to_atom37.append([0] * 14)
+    restype_atom37_to_atom14.append([0] * 37)
+    restype_atom14_mask.append([0.0] * 14)
+
+    restype_atom14_to_atom37 = torch.tensor(
+        restype_atom14_to_atom37,
+        dtype=torch.int32,
+        device=protein["aatype"].device,
+    )
+    restype_atom37_to_atom14 = torch.tensor(
+        restype_atom37_to_atom14,
+        dtype=torch.int32,
+        device=protein["aatype"].device,
+    )
+    restype_atom14_mask = torch.tensor(
+        restype_atom14_mask,
+        dtype=torch.float32,
+        device=protein["aatype"].device,
+    )
+    protein_aatype = protein['aatype'].to(torch.long)
+
+    # create the mapping for (residx, atom14) --> atom37, i.e. an array
+    # with shape (num_res, 14) containing the atom37 indices for this protein
+    residx_atom14_to_atom37 = restype_atom14_to_atom37[protein_aatype]
+    residx_atom14_mask = restype_atom14_mask[protein_aatype]
+
+    protein["atom14_atom_exists"] = residx_atom14_mask
+    protein["residx_atom14_to_atom37"] = residx_atom14_to_atom37.long()
+
+    # create the gather indices for mapping back
+    residx_atom37_to_atom14 = restype_atom37_to_atom14[protein_aatype]
+    protein["residx_atom37_to_atom14"] = residx_atom37_to_atom14.long()
+
+    # create the corresponding mask
+    restype_atom37_mask = torch.zeros(
+        [21, 37], dtype=torch.float32, device=protein["aatype"].device
+    )
+    for restype, restype_letter in enumerate(rc.restypes):
+        restype_name = rc.restype_1to3[restype_letter]
+        atom_names = rc.residue_atoms[restype_name]
+        for atom_name in atom_names:
+            atom_type = rc.atom_order[atom_name]
+            restype_atom37_mask[restype, atom_type] = 1
+
+    residx_atom37_mask = restype_atom37_mask[protein_aatype]
+    protein["atom37_atom_exists"] = residx_atom37_mask
+
+    return protein
+
+
+def make_atom14_masks_np(batch):
+    batch = tree_map(
+        lambda n: torch.tensor(n, device="cpu"), 
+        batch,
+        np.ndarray
+    )
+    out = make_atom14_masks(batch)
+    out = tensor_tree_map(lambda t: np.array(t), out)
+    return out
+
+
+def make_atom14_positions(protein):
+    """Constructs denser atom positions (14 dimensions instead of 37)."""
+    residx_atom14_mask = protein["atom14_atom_exists"]
+    residx_atom14_to_atom37 = protein["residx_atom14_to_atom37"]
+
+    # Create a mask for known ground truth positions.
+    residx_atom14_gt_mask = residx_atom14_mask * batched_gather(
+        protein["all_atom_mask"],
+        residx_atom14_to_atom37,
+        dim=-1,
+        no_batch_dims=len(protein["all_atom_mask"].shape[:-1]),
+    )
+
+    # Gather the ground truth positions.
+    residx_atom14_gt_positions = residx_atom14_gt_mask[..., None] * (
+        batched_gather(
+            protein["all_atom_positions"],
+            residx_atom14_to_atom37,
+            dim=-2,
+            no_batch_dims=len(protein["all_atom_positions"].shape[:-2]),
+        )
+    )
+
+    protein["atom14_atom_exists"] = residx_atom14_mask
+    protein["atom14_gt_exists"] = residx_atom14_gt_mask
+    protein["atom14_gt_positions"] = residx_atom14_gt_positions
+
+    # As the atom naming is ambiguous for 7 of the 20 amino acids, provide
+    # alternative ground truth coordinates where the naming is swapped
+    restype_3 = [rc.restype_1to3[res] for res in rc.restypes]
+    restype_3 += ["UNK"]
+
+    # Matrices for renaming ambiguous atoms.
+    all_matrices = {
+        res: torch.eye(
+            14,
+            dtype=protein["all_atom_mask"].dtype,
+            device=protein["all_atom_mask"].device,
+        )
+        for res in restype_3
+    }
+    for resname, swap in rc.residue_atom_renaming_swaps.items():
+        correspondences = torch.arange(
+            14, device=protein["all_atom_mask"].device
+        )
+        for source_atom_swap, target_atom_swap in swap.items():
+            source_index = rc.restype_name_to_atom14_names[resname].index(
+                source_atom_swap
+            )
+            target_index = rc.restype_name_to_atom14_names[resname].index(
+                target_atom_swap
+            )
+            correspondences[source_index] = target_index
+            correspondences[target_index] = source_index
+            renaming_matrix = protein["all_atom_mask"].new_zeros((14, 14))
+            for index, correspondence in enumerate(correspondences):
+                renaming_matrix[index, correspondence] = 1.0
+        all_matrices[resname] = renaming_matrix
+
+    renaming_matrices = torch.stack(
+        [all_matrices[restype] for restype in restype_3]
+    )
+
+    # Pick the transformation matrices for the given residue sequence
+    # shape (num_res, 14, 14).
+    renaming_transform = renaming_matrices[protein["aatype"]]
+
+    # Apply it to the ground truth positions. shape (num_res, 14, 3).
+    alternative_gt_positions = torch.einsum(
+        "...rac,...rab->...rbc", residx_atom14_gt_positions, renaming_transform
+    )
+    protein["atom14_alt_gt_positions"] = alternative_gt_positions
+
+    # Create the mask for the alternative ground truth (differs from the
+    # ground truth mask, if only one of the atoms in an ambiguous pair has a
+    # ground truth position).
+    alternative_gt_mask = torch.einsum(
+        "...ra,...rab->...rb", residx_atom14_gt_mask, renaming_transform
+    )
+    protein["atom14_alt_gt_exists"] = alternative_gt_mask
+
+    # Create an ambiguous atoms mask.  shape: (21, 14).
+    restype_atom14_is_ambiguous = protein["all_atom_mask"].new_zeros((21, 14))
+    for resname, swap in rc.residue_atom_renaming_swaps.items():
+        for atom_name1, atom_name2 in swap.items():
+            restype = rc.restype_order[rc.restype_3to1[resname]]
+            atom_idx1 = rc.restype_name_to_atom14_names[resname].index(
+                atom_name1
+            )
+            atom_idx2 = rc.restype_name_to_atom14_names[resname].index(
+                atom_name2
+            )
+            restype_atom14_is_ambiguous[restype, atom_idx1] = 1
+            restype_atom14_is_ambiguous[restype, atom_idx2] = 1
+
+    # From this create an ambiguous_mask for the given sequence.
+    protein["atom14_atom_is_ambiguous"] = restype_atom14_is_ambiguous[
+        protein["aatype"]
+    ]
+
+    return protein
+
+
+def atom37_to_frames(protein, eps=1e-8):
+    is_multimer = "asym_id" in protein
+    aatype = protein["aatype"]
+    all_atom_positions = protein["all_atom_positions"]
+    all_atom_mask = protein["all_atom_mask"]
+
+    if is_multimer:
+        all_atom_positions = Vec3Array.from_array(all_atom_positions)
+
+    batch_dims = len(aatype.shape[:-1])
+
+    restype_rigidgroup_base_atom_names = np.full([21, 8, 3], "", dtype=object)
+    restype_rigidgroup_base_atom_names[:, 0, :] = ["C", "CA", "N"]
+    restype_rigidgroup_base_atom_names[:, 3, :] = ["CA", "C", "O"]
+
+    for restype, restype_letter in enumerate(rc.restypes):
+        resname = rc.restype_1to3[restype_letter]
+        for chi_idx in range(4):
+            if rc.chi_angles_mask[restype][chi_idx]:
+                names = rc.chi_angles_atoms[resname][chi_idx]
+                restype_rigidgroup_base_atom_names[
+                    restype, chi_idx + 4, :
+                ] = names[1:]
+
+    restype_rigidgroup_mask = all_atom_mask.new_zeros(
+        (*aatype.shape[:-1], 21, 8),
+    )
+    restype_rigidgroup_mask[..., 0] = 1
+    restype_rigidgroup_mask[..., 3] = 1
+    restype_rigidgroup_mask[..., :20, 4:] = all_atom_mask.new_tensor(
+        rc.chi_angles_mask
+    )
+
+    lookuptable = rc.atom_order.copy()
+    lookuptable[""] = 0
+    lookup = np.vectorize(lambda x: lookuptable[x])
+    restype_rigidgroup_base_atom37_idx = lookup(
+        restype_rigidgroup_base_atom_names,
+    )
+    restype_rigidgroup_base_atom37_idx = aatype.new_tensor(
+        restype_rigidgroup_base_atom37_idx,
+    )
+    restype_rigidgroup_base_atom37_idx = (
+        restype_rigidgroup_base_atom37_idx.view(
+            *((1,) * batch_dims), *restype_rigidgroup_base_atom37_idx.shape
+        )
+    )
+
+    residx_rigidgroup_base_atom37_idx = batched_gather(
+        restype_rigidgroup_base_atom37_idx,
+        aatype,
+        dim=-3,
+        no_batch_dims=batch_dims,
+    )
+
+    if is_multimer:
+        base_atom_pos = [batched_gather(
+            pos,
+            residx_rigidgroup_base_atom37_idx,
+            dim=-1,
+            no_batch_dims=len(all_atom_positions.shape[:-1]),
+        ) for pos in all_atom_positions]
+        base_atom_pos = Vec3Array.from_array(torch.stack(base_atom_pos, dim=-1))
+    else:
+        base_atom_pos = batched_gather(
+            all_atom_positions,
+            residx_rigidgroup_base_atom37_idx,
+            dim=-2,
+            no_batch_dims=len(all_atom_positions.shape[:-2]),
+        )
+
+    if is_multimer:
+        point_on_neg_x_axis = base_atom_pos[:, :, 0]
+        origin = base_atom_pos[:, :, 1]
+        point_on_xy_plane = base_atom_pos[:, :, 2]
+        gt_rotation = Rot3Array.from_two_vectors(
+            origin - point_on_neg_x_axis, point_on_xy_plane - origin)
+
+        gt_frames = Rigid3Array(gt_rotation, origin)
+    else:
+        gt_frames = Rigid.from_3_points(
+            p_neg_x_axis=base_atom_pos[..., 0, :],
+            origin=base_atom_pos[..., 1, :],
+            p_xy_plane=base_atom_pos[..., 2, :],
+            eps=eps,
+        )
+
+    group_exists = batched_gather(
+        restype_rigidgroup_mask,
+        aatype,
+        dim=-2,
+        no_batch_dims=batch_dims,
+    )
+
+    gt_atoms_exist = batched_gather(
+        all_atom_mask,
+        residx_rigidgroup_base_atom37_idx,
+        dim=-1,
+        no_batch_dims=len(all_atom_mask.shape[:-1]),
+    )
+    gt_exists = torch.min(gt_atoms_exist, dim=-1)[0] * group_exists
+
+    rots = torch.eye(3, dtype=all_atom_mask.dtype, device=aatype.device)
+    rots = torch.tile(rots, (*((1,) * batch_dims), 8, 1, 1))
+    rots[..., 0, 0, 0] = -1
+    rots[..., 0, 2, 2] = -1
+
+    if is_multimer:
+        gt_frames = gt_frames.compose_rotation(
+            Rot3Array.from_array(rots))
+    else:
+        rots = Rotation(rot_mats=rots)
+        gt_frames = gt_frames.compose(Rigid(rots, None))
+
+    restype_rigidgroup_is_ambiguous = all_atom_mask.new_zeros(
+        *((1,) * batch_dims), 21, 8
+    )
+    restype_rigidgroup_rots = torch.eye(
+        3, dtype=all_atom_mask.dtype, device=aatype.device
+    )
+    restype_rigidgroup_rots = torch.tile(
+        restype_rigidgroup_rots,
+        (*((1,) * batch_dims), 21, 8, 1, 1),
+    )
+
+    for resname, _ in rc.residue_atom_renaming_swaps.items():
+        restype = rc.restype_order[rc.restype_3to1[resname]]
+        chi_idx = int(sum(rc.chi_angles_mask[restype]) - 1)
+        restype_rigidgroup_is_ambiguous[..., restype, chi_idx + 4] = 1
+        restype_rigidgroup_rots[..., restype, chi_idx + 4, 1, 1] = -1
+        restype_rigidgroup_rots[..., restype, chi_idx + 4, 2, 2] = -1
+
+    residx_rigidgroup_is_ambiguous = batched_gather(
+        restype_rigidgroup_is_ambiguous,
+        aatype,
+        dim=-2,
+        no_batch_dims=batch_dims,
+    )
+
+    residx_rigidgroup_ambiguity_rot = batched_gather(
+        restype_rigidgroup_rots,
+        aatype,
+        dim=-4,
+        no_batch_dims=batch_dims,
+    )
+
+    if is_multimer:
+        ambiguity_rot = Rot3Array.from_array(residx_rigidgroup_ambiguity_rot)
+
+        # Create the alternative ground truth frames.
+        alt_gt_frames = gt_frames.compose_rotation(ambiguity_rot)
+    else:
+        residx_rigidgroup_ambiguity_rot = Rotation(
+            rot_mats=residx_rigidgroup_ambiguity_rot
+        )
+        alt_gt_frames = gt_frames.compose(
+            Rigid(residx_rigidgroup_ambiguity_rot, None)
+        )
+
+    gt_frames_tensor = gt_frames.to_tensor_4x4()
+    alt_gt_frames_tensor = alt_gt_frames.to_tensor_4x4()
+
+    protein["rigidgroups_gt_frames"] = gt_frames_tensor
+    protein["rigidgroups_gt_exists"] = gt_exists
+    protein["rigidgroups_group_exists"] = group_exists
+    protein["rigidgroups_group_is_ambiguous"] = residx_rigidgroup_is_ambiguous
+    protein["rigidgroups_alt_gt_frames"] = alt_gt_frames_tensor
+
+    return protein
+
+
+def get_chi_atom_indices():
+    """Returns atom indices needed to compute chi angles for all residue types.
+
+    Returns:
+      A tensor of shape [residue_types=21, chis=4, atoms=4]. The residue types are
+      in the order specified in rc.restypes + unknown residue type
+      at the end. For chi angles which are not defined on the residue, the
+      positions indices are by default set to 0.
+    """
+    chi_atom_indices = []
+    for residue_name in rc.restypes:
+        residue_name = rc.restype_1to3[residue_name]
+        residue_chi_angles = rc.chi_angles_atoms[residue_name]
+        atom_indices = []
+        for chi_angle in residue_chi_angles:
+            atom_indices.append([rc.atom_order[atom] for atom in chi_angle])
+        for _ in range(4 - len(atom_indices)):
+            atom_indices.append(
+                [0, 0, 0, 0]
+            )  # For chi angles not defined on the AA.
+        chi_atom_indices.append(atom_indices)
+
+    chi_atom_indices.append([[0, 0, 0, 0]] * 4)  # For UNKNOWN residue.
+
+    return chi_atom_indices
+
+
+@curry1
+def atom37_to_torsion_angles(
+    protein,
+    prefix="",
+):
+    """
+    Convert coordinates to torsion angles.
+
+    This function is extremely sensitive to floating point imprecisions
+    and should be run with double precision whenever possible.
+
+    Args:
+        Dict containing:
+            * (prefix)aatype:
+                [*, N_res] residue indices
+            * (prefix)all_atom_positions:
+                [*, N_res, 37, 3] atom positions (in atom37
+                format)
+            * (prefix)all_atom_mask:
+                [*, N_res, 37] atom position mask
+    Returns:
+        The same dictionary updated with the following features:
+
+        "(prefix)torsion_angles_sin_cos" ([*, N_res, 7, 2])
+            Torsion angles
+        "(prefix)alt_torsion_angles_sin_cos" ([*, N_res, 7, 2])
+            Alternate torsion angles (accounting for 180-degree symmetry)
+        "(prefix)torsion_angles_mask" ([*, N_res, 7])
+            Torsion angles mask
+    """
+    aatype = protein[prefix + "aatype"]
+    all_atom_positions = protein[prefix + "all_atom_positions"]
+    all_atom_mask = protein[prefix + "all_atom_mask"]
+
+    aatype = torch.clamp(aatype, max=20)
+
+    pad = all_atom_positions.new_zeros(
+        [*all_atom_positions.shape[:-3], 1, 37, 3]
+    )
+    prev_all_atom_positions = torch.cat(
+        [pad, all_atom_positions[..., :-1, :, :]], dim=-3
+    )
+
+    pad = all_atom_mask.new_zeros([*all_atom_mask.shape[:-2], 1, 37])
+    prev_all_atom_mask = torch.cat([pad, all_atom_mask[..., :-1, :]], dim=-2)
+
+    pre_omega_atom_pos = torch.cat(
+        [prev_all_atom_positions[..., 1:3, :], all_atom_positions[..., :2, :]],
+        dim=-2,
+    )
+    phi_atom_pos = torch.cat(
+        [prev_all_atom_positions[..., 2:3, :], all_atom_positions[..., :3, :]],
+        dim=-2,
+    )
+    psi_atom_pos = torch.cat(
+        [all_atom_positions[..., :3, :], all_atom_positions[..., 4:5, :]],
+        dim=-2,
+    )
+
+    pre_omega_mask = torch.prod(
+        prev_all_atom_mask[..., 1:3], dim=-1
+    ) * torch.prod(all_atom_mask[..., :2], dim=-1)
+    phi_mask = prev_all_atom_mask[..., 2] * torch.prod(
+        all_atom_mask[..., :3], dim=-1, dtype=all_atom_mask.dtype
+    )
+    psi_mask = (
+        torch.prod(all_atom_mask[..., :3], dim=-1, dtype=all_atom_mask.dtype)
+        * all_atom_mask[..., 4]
+    )
+
+    chi_atom_indices = torch.as_tensor(
+        get_chi_atom_indices(), device=aatype.device
+    )
+
+    atom_indices = chi_atom_indices[..., aatype, :, :]
+    chis_atom_pos = batched_gather(
+        all_atom_positions, atom_indices, -2, len(atom_indices.shape[:-2])
+    )
+
+    chi_angles_mask = list(rc.chi_angles_mask)
+    chi_angles_mask.append([0.0, 0.0, 0.0, 0.0])
+    chi_angles_mask = all_atom_mask.new_tensor(chi_angles_mask)
+
+    chis_mask = chi_angles_mask[aatype, :]
+
+    chi_angle_atoms_mask = batched_gather(
+        all_atom_mask,
+        atom_indices,
+        dim=-1,
+        no_batch_dims=len(atom_indices.shape[:-2]),
+    )
+    chi_angle_atoms_mask = torch.prod(
+        chi_angle_atoms_mask, dim=-1, dtype=chi_angle_atoms_mask.dtype
+    )
+    chis_mask = chis_mask * chi_angle_atoms_mask
+
+    torsions_atom_pos = torch.cat(
+        [
+            pre_omega_atom_pos[..., None, :, :],
+            phi_atom_pos[..., None, :, :],
+            psi_atom_pos[..., None, :, :],
+            chis_atom_pos,
+        ],
+        dim=-3,
+    )
+
+    torsion_angles_mask = torch.cat(
+        [
+            pre_omega_mask[..., None],
+            phi_mask[..., None],
+            psi_mask[..., None],
+            chis_mask,
+        ],
+        dim=-1,
+    )
+
+    torsion_frames = Rigid.from_3_points(
+        torsions_atom_pos[..., 1, :],
+        torsions_atom_pos[..., 2, :],
+        torsions_atom_pos[..., 0, :],
+        eps=1e-8,
+    )
+
+    fourth_atom_rel_pos = torsion_frames.invert().apply(
+        torsions_atom_pos[..., 3, :]
+    )
+
+    torsion_angles_sin_cos = torch.stack(
+        [fourth_atom_rel_pos[..., 2], fourth_atom_rel_pos[..., 1]], dim=-1
+    )
+
+    denom = torch.sqrt(
+        torch.sum(
+            torch.square(torsion_angles_sin_cos),
+            dim=-1,
+            dtype=torsion_angles_sin_cos.dtype,
+            keepdims=True,
+        )
+        + 1e-8
+    )
+    torsion_angles_sin_cos = torsion_angles_sin_cos / denom
+
+    torsion_angles_sin_cos = torsion_angles_sin_cos * all_atom_mask.new_tensor(
+        [1.0, 1.0, -1.0, 1.0, 1.0, 1.0, 1.0],
+    )[((None,) * len(torsion_angles_sin_cos.shape[:-2])) + (slice(None), None)]
+
+    chi_is_ambiguous = torsion_angles_sin_cos.new_tensor(
+        rc.chi_pi_periodic,
+    )[aatype, ...]
+
+    mirror_torsion_angles = torch.cat(
+        [
+            all_atom_mask.new_ones(*aatype.shape, 3),
+            1.0 - 2.0 * chi_is_ambiguous,
+        ],
+        dim=-1,
+    )
+
+    alt_torsion_angles_sin_cos = (
+        torsion_angles_sin_cos * mirror_torsion_angles[..., None]
+    )
+
+    protein[prefix + "torsion_angles_sin_cos"] = torsion_angles_sin_cos
+    protein[prefix + "alt_torsion_angles_sin_cos"] = alt_torsion_angles_sin_cos
+    protein[prefix + "torsion_angles_mask"] = torsion_angles_mask
+
+    return protein
+
+
+def get_backbone_frames(protein):
+    # DISCREPANCY: AlphaFold uses tensor_7s here. I don't know why.
+    protein["backbone_rigid_tensor"] = protein["rigidgroups_gt_frames"][
+        ..., 0, :, :
+    ]
+    protein["backbone_rigid_mask"] = protein["rigidgroups_gt_exists"][..., 0]
+
+    return protein
+
+
+def get_chi_angles(protein):
+    dtype = protein["all_atom_mask"].dtype
+    protein["chi_angles_sin_cos"] = (
+        protein["torsion_angles_sin_cos"][..., 3:, :]
+    ).to(dtype)
+    protein["chi_mask"] = protein["torsion_angles_mask"][..., 3:].to(dtype)
+
+    return protein
+
+
+@curry1
+def random_crop_to_size(
+    protein,
+    crop_size,
+    max_templates,
+    shape_schema,
+    subsample_templates=False,
+    seed=None,
+):
+    """Crop randomly to `crop_size`, or keep as is if shorter than that."""
+    # We want each ensemble to be cropped the same way
+
+    g = None
+    if seed is not None:
+        g = torch.Generator(device=protein["seq_length"].device)
+        g.manual_seed(seed)
+
+    seq_length = protein["seq_length"]
+
+    if "template_mask" in protein:
+        num_templates = protein["template_mask"].shape[-1]
+    else:
+        num_templates = 0
+
+    # No need to subsample templates if there aren't any
+    subsample_templates = subsample_templates and num_templates
+
+    num_res_crop_size = min(int(seq_length), crop_size)
+
+    def _randint(lower, upper):
+        return int(torch.randint(
+                lower,
+                upper + 1,
+                (1,),
+                device=protein["seq_length"].device,
+                generator=g,
+        )[0])
+
+    if subsample_templates:
+        templates_crop_start = _randint(0, num_templates)
+        templates_select_indices = torch.randperm(
+            num_templates, device=protein["seq_length"].device, generator=g
+        )
+    else:
+        templates_crop_start = 0
+
+    num_templates_crop_size = min(
+        num_templates - templates_crop_start, max_templates
+    )
+
+    n = seq_length - num_res_crop_size
+    if "use_clamped_fape" in protein and protein["use_clamped_fape"] == 1.:
+        right_anchor = n
+    else:
+        x = _randint(0, n)
+        right_anchor = n - x
+
+    num_res_crop_start = _randint(0, right_anchor)
+
+    for k, v in protein.items():
+        if k not in shape_schema or (
+            "template" not in k and NUM_RES not in shape_schema[k]
+        ):
+            continue
+
+        # randomly permute the templates before cropping them.
+        if k.startswith("template") and subsample_templates:
+            v = v[templates_select_indices]
+
+        slices = []
+        for i, (dim_size, dim) in enumerate(zip(shape_schema[k], v.shape)):
+            is_num_res = dim_size == NUM_RES
+            if i == 0 and k.startswith("template"):
+                crop_size = num_templates_crop_size
+                crop_start = templates_crop_start
+            else:
+                crop_start = num_res_crop_start if is_num_res else 0
+                crop_size = num_res_crop_size if is_num_res else dim
+            slices.append(slice(crop_start, crop_start + crop_size))
+        protein[k] = v[slices]
+
+    protein["seq_length"] = protein["seq_length"].new_tensor(num_res_crop_size)
+    
+    return protein
