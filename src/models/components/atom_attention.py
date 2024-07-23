@@ -537,7 +537,7 @@ class AtomAttentionEncoder(nn.Module):
         """Forward pass for the AtomAttentionEncoder module.
         Args:
             features:
-                Dictionary containing the x features:
+                Dictionary containing the input features:
                     "ref_pos":
                         [*, N_atoms, 3] atom positions in the reference conformers, with
                         a random rotation and translation applied. Atom positions in Angstroms.

@@ -2,6 +2,7 @@
 import torch
 from torch import Tensor
 from torch import nn
+from torch.nn import functional as F
 from src.models.components.atom_attention import AtomAttentionEncoder
 from typing import Dict, NamedTuple, Tuple, Optional
 from src.models.components.primitives import LinearNoBias, LayerNorm, Linear
@@ -59,11 +60,16 @@ class InputFeatureEmbedder(nn.Module):
             trunk_conditioning=False,  # no trunk conditioning for the input feature embedder
         )
 
+        # Output projection
+        self.restype_embedding = LinearNoBias(21, c_token)  # for the restype embedding
+        self.output_ln = LayerNorm(c_token)
+
     def forward(
             self,
             features: Dict[str, Tensor],
             n_tokens: int,
-            mask: Tensor = None
+            mask: Tensor = None,
+            use_flash: bool = False,
     ) -> Tensor:
         """Forward pass of the input feature embedder.
         Args:
@@ -88,18 +94,25 @@ class InputFeatureEmbedder(nn.Module):
                         [*, N_atoms] Numerical encoding of the chain id and residue index associated
                         with this reference conformer. Each (chain id, residue index) tuple is assigned
                         an integer on first appearance.
+                    "aatype":
+                        [*, N_token] Amino acid type for each token.
                     "atom_to_token":
                         [*, N_atoms] Token index for each atom in the flat atom representation.
             n_tokens:
                 number of tokens
             mask:
                 [*, N_atoms] mask indicating which atoms are valid (non-padding).
+            use_flash:
+                Whether to use Flash attention within AtomAttentionEncoder.
         Returns:
             [*, N_tokens, c_token] Embedding of the input features.
         """
         # Encode the input features
-        output = self.encoder(features=features, mask=mask, n_tokens=n_tokens)
-        per_token_features = output.token_single  # f_restype, f_profile, and f_deletion_mean do not exist for design
+        output = self.encoder(features=features, mask=mask, n_tokens=n_tokens, use_flash=use_flash)
+        per_token_features = output.token_single  # TODO: add f_profile, and f_deletion_mean
+        f_restype = F.one_hot(features["aatype"], num_classes=21).to(per_token_features.dtype)
+        per_token_features = per_token_features + self.restype_embedding(f_restype)
+        per_token_features = self.output_ln(per_token_features)
         return per_token_features
 
 
@@ -135,7 +148,8 @@ class InputEmbedder(nn.Module):
     def forward(
             self,
             features: Dict[str, Tensor],
-            inplace_safe: bool = False
+            inplace_safe: bool = False,
+            use_flash: bool = False,
     ) -> Tuple[Tensor, Tensor, Tensor]:
         """
         Args:
@@ -162,15 +176,14 @@ class InputEmbedder(nn.Module):
                         an integer on first appearance.
                     "atom_to_token" ([*, N_atoms]):
                         Token index for each atom in the flat atom representation.
-                    "token_bonds" ([*, N_tokens, N_token]):
-                        feature indicating which tokens are bonded to each other.
-                        Only includes polymer-ligand and ligand-ligand bonds
                     "atom_mask" ([*, n_atoms]):
                         mask indicating which atoms are valid (non-padding).
                     "token_mask" ([*, N_token]):
                         mask indicating which tokens are valid (non-padding).
             inplace_safe:
                 whether to use inplace operations
+            use_flash:
+                whether to use Flash attention within AtomAttentionEncoder.
         """
         *_, n_tokens, _ = features["token_bonds"].shape
 
@@ -179,7 +192,12 @@ class InputEmbedder(nn.Module):
         token_mask = features["token_mask"]
 
         # Single representation with input feature embedder
-        s_inputs = self.input_feature_embedder(features, n_tokens=n_tokens, mask=atom_mask)
+        s_inputs = self.input_feature_embedder(
+            features,
+            n_tokens=n_tokens,
+            mask=atom_mask,
+            use_flash=use_flash
+        )
 
         # Projections
         s_init = self.linear_single(s_inputs)
@@ -197,11 +215,11 @@ class InputEmbedder(nn.Module):
         )
 
         # Add token bond information
-        z_init = add(
-            z_init,
-            self.linear_bonds(features["token_bonds"][..., None]),
-            inplace=inplace_safe
-        )
+        # z_init = add(
+        #    z_init,
+        #    self.linear_bonds(features["token_bonds"][..., None]),
+        #    inplace=inplace_safe
+        # )
         return s_inputs, s_init, z_init
 
 

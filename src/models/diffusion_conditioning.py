@@ -81,7 +81,7 @@ class DiffusionConditioning(nn.Module):
             timesteps:
                 [*, 1] timestep tensor
             features:
-                x feature dictionary for the RelativePositionEncoding containing:
+                input feature dictionary for the RelativePositionEncoding containing:
                     "residue_index":
                         [*, n_tokens] Residue number in the token's original x chain.
                     "token_index":
@@ -94,7 +94,7 @@ class DiffusionConditioning(nn.Module):
                         [*, n_tokens] Unique integer within chains of this sequence. e.g. if chains A, B and C
                         share a sequence but D does not, their sym_ids would be [0, 1, 2, 0]
             s_inputs:
-                [*, n_tokens, c_token] Single conditioning x
+                [*, n_tokens, c_token] Single conditioning input
             s_trunk:
                 [*, n_tokens, c_token] Single conditioning from Pairformer trunk
             z_trunk:

@@ -199,8 +199,8 @@ def model_config(
 
         # TODO: Change max_msa_clusters and max_extra_msa to multimer feats within model
         if re.fullmatch("^model_[1-5]_multimer(_v2)?$", name):
-            #c.model.input_embedder.num_msa = 252
-            #c.model.extra_msa.extra_msa_embedder.num_extra_msa = 1152
+            # c.model.input_embedder.num_msa = 252
+            # c.model.extra_msa.extra_msa_embedder.num_extra_msa = 1152
             c.data.train.crop_size = 384
 
             c.data.train.max_msa_clusters = 252
@@ -215,12 +215,12 @@ def model_config(
             c.model.extra_msa.extra_msa_stack.fuse_projection_weights = False
             c.model.template.template_pair_stack.fuse_projection_weights = False
         elif name == 'model_4_multimer_v3':
-            #c.model.extra_msa.extra_msa_embedder.num_extra_msa = 1152
+            # c.model.extra_msa.extra_msa_embedder.num_extra_msa = 1152
             c.data.train.max_extra_msa = 1152
             c.data.eval.max_extra_msa = 1152
             c.data.predict.max_extra_msa = 1152
         elif name == 'model_5_multimer_v3':
-            #c.model.extra_msa.extra_msa_embedder.num_extra_msa = 1152
+            # c.model.extra_msa.extra_msa_embedder.num_extra_msa = 1152
             c.data.train.max_extra_msa = 1152
             c.data.eval.max_extra_msa = 1152
             c.data.predict.max_extra_msa = 1152

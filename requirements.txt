@@ -29,11 +29,12 @@ pre-commit      # hooks for applying linters on commit
 rich~=13.7.0
 pytest~=8.0.0
 tree~=0.2.4
+dm-tree~=0.1.8
 # sh            # for running bash commands in some tests (linux/macos only)
 pandas
 p-tqdm
 proteinflow~=2.7.0
-biopython
+biopython~=1.81
 omegaconf~=2.3.0
 setuptools~=68.2.2
 numpy~=1.24.4

@@ -362,7 +362,7 @@ class MSAModule(nn.Module):
         ])
 
         # MSA featurization
-        self.linear_msa_feat = LinearNoBias(34, c_msa)
+        self.linear_msa_feat = LinearNoBias(49, c_msa)
         self.proj_s_inputs = LinearNoBias(c_token, c_msa, init='final')
         self.blocks_per_ckpt = blocks_per_ckpt
         self.clear_cache_between_blocks = clear_cache_between_blocks
@@ -405,11 +405,12 @@ class MSAModule(nn.Module):
             inplace_safe: bool = False,
     ) -> Tensor:
         """Initializes the MSA representation."""
-        msa_feats = torch.cat([
-            feats["msa"],
-            feats["has_deletion"][..., None],
-            feats["deletion_value"][..., None]],
-            dim=-1)
+        msa_feats = feats["msa_feat"]
+        # torch.cat([
+        #    feats["msa"],
+        #    feats["has_deletion"][..., None],
+        #    feats["deletion_value"][..., None]],
+        #    dim=-1)
         m = self.linear_msa_feat(msa_feats)
         m = add(m,
                 self.proj_s_inputs(s_inputs[..., None, :, :]),
@@ -432,15 +433,8 @@ class MSAModule(nn.Module):
         Args:
             feats:
                 Dictionary containing the MSA features with the following features:
-                    "msa":
-                        [*, N_msa, N_token, 32] One-hot encoding of the processed MSA, using the same classes
-                        as restype.
-                    "has_deletion":
-                        [*, N_msa, N_token] Binary feature indicating if there is a deletion to the left of
-                        each position in the MSA.
-                    "deletion_value":
-                        [*, N_msa, N_token] Raw deletion counts (the number of deletions to the left of each MSA
-                        position) are transformed to [0, 1] using 2/π * arctan(d/3).
+                    "msa_feat":
+                        [*, N_msa, N_token, 49] Concatenated MSA features from AF2
                     "msa_mask":
                         [*, N_seq, N_token] MSA mask
             z:

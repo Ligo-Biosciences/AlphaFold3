@@ -33,6 +33,9 @@ ModelOutput = Mapping[str, Any]  # Is a nested dict.
 PDB_CHAIN_IDS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
 PDB_MAX_CHAINS = len(PDB_CHAIN_IDS)  # := 62.
 
+# Create a dictionary to map each chain ID to an integer based on its position
+chain_id_to_int = {chain_id: idx for idx, chain_id in enumerate(PDB_CHAIN_IDS)}
+
 # Data to fill the _chem_comp table when writing mmCIFs.
 _CHEM_COMP: Mapping[str, Tuple[Tuple[str, str], ...]] = {
     'L-peptide linking': (

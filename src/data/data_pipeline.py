@@ -131,21 +131,91 @@ def make_sequence_features(
     return features
 
 
-def make_atom_features(sequence: str, chain_id: int, num_res: int) -> FeatureDict:
+def get_ref_space_uid(chain_id: str, aa_index: int):
+    """Calculate a unique identifier for the (chain_id, aa_index) pair."""
+    # Assuming a max aa_index, let's say 10000 (you can adjust this based on the actual maximum aa_index you expect)
+    max_aa_index = 10_000
+
+    # Get the integer value of the chain_id
+    chain_index = protein.chain_id_to_int[chain_id]
+
+    # Calculate the red_space_uid using a formula that ensures uniqueness
+    ref_space_uid = chain_index * max_aa_index + aa_index
+    return ref_space_uid
+
+
+def make_atom_features(sequence: str, chain_id: str) -> FeatureDict:
     """Construct a feature dict of atom features for AlphaFold3."""
     atom_feats = {}
-    # For each residue:
-    #   extract reference positions for all atoms including side chains
-    #   extract ref mask (still not sure what this indicates exactly)
-    #   extract reference element for all atoms including side chains
-    #   extract reference charge for each atom in the reference conformer
-    #   ref_atom_name_chars - one-hot encoding of unique atom names
-    #   ref_space_uid
-    atom_feats["ref_pos"] = np.zeros((num_res, 3), dtype=np.float32)
-    atom_feats["ref_mask"] = None
-    atom_feats["ref_element"] = None
-    atom_feats["ref_charge"] = None
+
+    # Extract atom-wise features per residue
+    ref_pos_ls = []
+    ref_charge_ls = []
+    ref_atom_name_chars_ls = []
+    ref_element_ls = []
+    ref_space_uid_ls = []
+    atom_to_res_ls = []
+    for aa_index, aa_type in enumerate(sequence):
+        if aa_type == "X":
+            continue  # skip unknown amino acids for now
+        resname = residue_constants.restype_1to3[aa_type]
+        res_idx = residue_constants.resname_to_idx[resname]
+
+        # Extract the reference mask associated with the residue atom14 representation
+        res_mask = residue_constants.restype_atom14_mask[res_idx]  # shape: (14,)
+        atom14_crop_idx = int(np.sum(res_mask))
+
+        # Extract reference positions for the atom
+        ref_pos = residue_constants.restype_atom14_rigid_group_positions[res_idx]  # shape: (14, 3)
+        ref_pos = ref_pos[:atom14_crop_idx]  # crop to only include valid atoms shape: (atom14_crop_idx, 3)
+
+        # Reference charge (0 for all residues, only relevant for ligands)
+        ref_charge = np.zeros_like(ref_pos[:, 0], dtype=np.float32)  # shape: (atom14_crop_idx,)
+
+        # Reference atom name chars and element
+        atom_names = residue_constants.restype_name_to_atom14_names[resname]
+        atom_orders = []
+        atom_elements = []
+        for atom_name in atom_names:
+            if atom_name == '':
+                break
+            atom_orders.append(residue_constants.atom_order[atom_name])
+            element = residue_constants.atom_id_to_type(atom_name)
+            element_one_hot = residue_constants.element_to_onehot(element)  # shape: (4,)
+            atom_elements.append(np.expand_dims(element_one_hot, axis=0))  # shape: (1, 4)
+
+        # Reference element
+        ref_element = np.stack(atom_elements, axis=0)  # shape: (atom14_crop_idx, 4)
+
+        # Reference atom name chars as a one hot encoding of the atom37 atom names
+        atom_orders = np.array(atom_orders, dtype=np.int32)  # would fail for unknown atoms
+        ref_atom_name_chars = np.eye(37)[atom_orders]  # shape: (atom14_crop_idx, 37), one-hot encoding of atom names
+
+        # Reference space uid, each (chain id and residue index) tuple assigned a unique identifier on appearance.
+        ref_space_uid = get_ref_space_uid(chain_id, aa_index)  # int
+        ref_space_uid = np.full_like(ref_charge, fill_value=ref_space_uid, dtype=np.float32)  # (atom14_crop_idx,)
+
+        # Calculate an atom_to_residue mapping that will later be converted to atom_to_token mapping
+        atom_to_res = np.full_like(ref_charge, fill_value=aa_index, dtype=np.int64)
+
+        # Add features to the list
+        ref_pos_ls.append(ref_pos)
+        ref_charge_ls.append(ref_charge)
+        ref_element_ls.append(ref_element)
+        ref_atom_name_chars_ls.append(ref_atom_name_chars)
+        ref_space_uid_ls.append(ref_space_uid)
+        atom_to_res_ls.append(atom_to_res)
+    atom_feats["ref_pos"] = np.concatenate(ref_pos_ls, axis=0)  # shape: (num_atoms, 3)
+    atom_feats["ref_charge"] = np.concatenate(ref_charge_ls, axis=0)  # shape: (num_atoms,)
+    atom_feats["ref_element"] = np.concatenate(ref_element_ls, axis=0)  # (num_atoms, 4)
+    atom_feats["ref_atom_name"] = np.concatenate(ref_atom_name_chars_ls, axis=0)  # (num_atoms, 37)
+    atom_feats["ref_space_uid"] = np.concatenate(ref_space_uid_ls, axis=0)  # (num_atoms,)
+    atom_feats["atom_to_res"] = np.concatenate(atom_to_res_ls, axis=0)  # (num_atoms,)
     return atom_feats
+
+
+def make_mapping_features(sequence: str, chain_id: str) -> FeatureDict:
+    pass
 
 
 def make_mmcif_features(

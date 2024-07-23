@@ -523,7 +523,6 @@ restype_name_to_atom14_names = {
     'TYR': ['N', 'CA', 'C', 'O', 'CB', 'CG', 'CD1', 'CD2', 'CE1', 'CE2', 'CZ', 'OH', '', ''],
     'VAL': ['N', 'CA', 'C', 'O', 'CB', 'CG1', 'CG2', '', '', '', '', '', '', ''],
     'UNK': ['', '', '', '', '', '', '', '', '', '', '', '', '', ''],
-
 }
 # pylint: enable=line-too-long
 # pylint: enable=bad-whitespace
@@ -543,30 +542,56 @@ restypes_with_x = restypes + ['X']
 restype_order_with_x = {restype: i for i, restype in enumerate(restypes_with_x)}
 
 
+# Elements that appear in proteins to an index (used for one-hot encoding).
+element_to_index = {
+    'N': 0,
+    'C': 1,
+    'O': 2,
+    'S': 3,
+}
+
+
+def element_to_onehot(element: str) -> np.ndarray:
+    """Maps the given element to a one-hot encoded vector.
+
+    Args:
+        element: An element str in a protein.
+        'N' for nitrogen, 'C' for carbon, 'O' for oxygen, 'S' for sulfur.
+    Returns:
+        A numpy array of shape (num_elements,) with one-hot encoding of the element.
+
+    Raises:
+        ValueError: If the element is not in the mapping.
+    """
+    num_elements = len(element_to_index)
+    onehot = np.zeros(num_elements)
+    onehot[element_to_index[element]] = 1
+    return onehot
+
+
 def sequence_to_onehot(
         sequence: str,
         mapping: Mapping[str, int],
         map_unknown_to_x: bool = False) -> np.ndarray:
     """Maps the given sequence into a one-hot encoded matrix.
 
-  Args:
-    sequence: An amino acid sequence.
-    mapping: A dictionary mapping amino acids to integers.
-    map_unknown_to_x: If True, any amino acid that is not in the mapping will be
-      mapped to the unknown amino acid 'X'. If the mapping doesn'timesteps contain
-      amino acid 'X', an error will be thrown. If False, any amino acid not in
-      the mapping will throw an error.
+    Args:
+        sequence: An amino acid sequence.
+        mapping: A dictionary mapping amino acids to integers.
+        map_unknown_to_x: If True, any amino acid that is not in the mapping will be
+            mapped to the unknown amino acid 'X'. If the mapping doesn'timesteps contain
+            amino acid 'X', an error will be thrown. If False, any amino acid not in
+            the mapping will throw an error.
 
-  Returns:
-    A numpy array of shape (seq_len, num_unique_aas) with one-hot encoding of
-    the sequence.
+    Returns:
+        A numpy array of shape (seq_len, num_unique_aas) with one-hot encoding of
+        the sequence.
 
-  Raises:
-    ValueError: If the mapping doesn'timesteps contain values from 0 to
-      num_unique_aas - 1 without any gaps.
-  """
+    Raises:
+        ValueError: If the mapping doesn'timesteps contain values from 0 to
+          num_unique_aas - 1 without any gaps.
+    """
     num_entries = max(mapping.values()) + 1
-
     if sorted(set(mapping.values())) != list(range(num_entries)):
         raise ValueError('The mapping must have values from 0 to num_unique_aas-1 '
                          'without any gaps. Got: %s' % sorted(mapping.values()))
@@ -814,8 +839,7 @@ def _make_rigid_group_constants():
     """Fill the arrays above."""
     for restype, restype_letter in enumerate(restypes):
         resname = restype_1to3[restype_letter]
-        for atomname, group_idx, atom_position in rigid_group_atom_positions[
-            resname]:
+        for atomname, group_idx, atom_position in rigid_group_atom_positions[resname]:
             atomtype = atom_order[atomname]
             restype_atom37_to_rigid_group[restype, atomtype] = group_idx
             restype_atom37_mask[restype, atomtype] = 1
@@ -824,8 +848,7 @@ def _make_rigid_group_constants():
             atom14idx = restype_name_to_atom14_names[resname].index(atomname)
             restype_atom14_to_rigid_group[restype, atom14idx] = group_idx
             restype_atom14_mask[restype, atom14idx] = 1
-            restype_atom14_rigid_group_positions[restype,
-            atom14idx, :] = atom_position
+            restype_atom14_rigid_group_positions[restype, atom14idx, :] = atom_position
 
     for restype, restype_letter in enumerate(restypes):
         resname = restype_1to3[restype_letter]

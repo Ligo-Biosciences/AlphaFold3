@@ -25,6 +25,7 @@ from src.common import residue_constants as rc
 from src.utils.geometry.rigid_matrix_vector import Rigid3Array
 from src.utils.geometry.rotation_matrix import Rot3Array
 from src.utils.geometry.vector import Vec3Array
+from src.utils.rigid_utils import Rigids, Rotations
 from src.utils.tensor_utils import (
     tree_map,
     tensor_tree_map,
@@ -792,6 +793,8 @@ def make_atom14_positions(protein):
 
 
 def atom37_to_frames(protein, eps=1e-8):
+    # TODO: this is_multimer condition is not working properly. The method
+    #  is likely
     is_multimer = "asym_id" in protein
     aatype = protein["aatype"]
     all_atom_positions = protein["all_atom_positions"]
@@ -871,7 +874,7 @@ def atom37_to_frames(protein, eps=1e-8):
 
         gt_frames = Rigid3Array(gt_rotation, origin)
     else:
-        gt_frames = Rigid.from_3_points(
+        gt_frames = Rigids.from_3_points(
             p_neg_x_axis=base_atom_pos[..., 0, :],
             origin=base_atom_pos[..., 1, :],
             p_xy_plane=base_atom_pos[..., 2, :],
@@ -902,8 +905,8 @@ def atom37_to_frames(protein, eps=1e-8):
         gt_frames = gt_frames.compose_rotation(
             Rot3Array.from_array(rots))
     else:
-        rots = Rotation(rot_mats=rots)
-        gt_frames = gt_frames.compose(Rigid(rots, None))
+        rots = Rotations(rot_mats=rots)
+        gt_frames = gt_frames.compose(Rigids(rots, None))
 
     restype_rigidgroup_is_ambiguous = all_atom_mask.new_zeros(
         *((1,) * batch_dims), 21, 8
@@ -943,11 +946,11 @@ def atom37_to_frames(protein, eps=1e-8):
         # Create the alternative ground truth frames.
         alt_gt_frames = gt_frames.compose_rotation(ambiguity_rot)
     else:
-        residx_rigidgroup_ambiguity_rot = Rotation(
+        residx_rigidgroup_ambiguity_rot = Rotations(
             rot_mats=residx_rigidgroup_ambiguity_rot
         )
         alt_gt_frames = gt_frames.compose(
-            Rigid(residx_rigidgroup_ambiguity_rot, None)
+            Rigids(residx_rigidgroup_ambiguity_rot, None)
         )
 
     gt_frames_tensor = gt_frames.to_tensor_4x4()
@@ -1105,7 +1108,7 @@ def atom37_to_torsion_angles(
         dim=-1,
     )
 
-    torsion_frames = Rigid.from_3_points(
+    torsion_frames = Rigids.from_3_points(
         torsions_atom_pos[..., 1, :],
         torsions_atom_pos[..., 2, :],
         torsions_atom_pos[..., 0, :],

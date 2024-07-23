@@ -62,9 +62,7 @@ class TestMSAModule(unittest.TestCase):
         z = torch.randn((self.batch_size, self.n_tokens, self.n_tokens, self.c_z))
         z_mask = torch.randint(0, 2, (self.batch_size, self.n_tokens, self.n_tokens))
         feats = {
-            "msa": torch.randn((self.batch_size, self.n_seq, self.n_tokens, 32)),
-            "has_deletion": torch.randn((self.batch_size, self.n_seq, self.n_tokens)),
-            "deletion_value": torch.randn((self.batch_size, self.n_seq, self.n_tokens)),
+            "msa_feat": torch.randn((self.batch_size, self.n_seq, self.n_tokens, 49)),
             "msa_mask": torch.randint(0, 2, (self.batch_size, self.n_seq, self.n_tokens))
         }
         z_out = self.module(feats, z, s_inputs, z_mask)

@@ -216,7 +216,7 @@ class DiffusionModule(torch.nn.Module):
                         A, B and C share a sequence but D does not, their sym_ids would be [0, 1, 2, 0]
                     "token_mask" ([*, N_tokens]):
                         [*, N_tokens] binary mask for tokens, whether token is present (not padding)
-                    "atom_mask" ([*, N_atoms]):
+                    "all_atom_mask" ([*, N_atoms]):
                         binary mask for atoms, whether atom is present (will still be 1.0 if
                         atom is missing from the crystal structure, only 0.0 for padding)
             s_inputs:
@@ -234,7 +234,7 @@ class DiffusionModule(torch.nn.Module):
 
         # Extract masks
         token_mask = features["token_mask"]  # (bs, n_tokens)
-        atom_mask = features["atom_mask"]  # (bs, n_atoms)
+        atom_mask = features["all_atom_mask"]  # (bs, n_atoms)
 
         # Conditioning
         token_repr, pair_repr = self.diffusion_conditioning(

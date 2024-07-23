@@ -106,18 +106,18 @@ class AlphaFold3(nn.Module):
 
         del s_prev, z_prev, s_init, z_init
 
-        # Embed the templates
-        z = add(z,
-                self.template_embedder(
-                    feats,
-                    z,
-                    pair_mask=pair_mask,
-                    chunk_size=self.globals.chunk_size,
-                    use_deepspeed_evo_attention=self.globals.use_deepspeed_evo_attention,
-                    inplace_safe=inplace_safe
-                ),
-                inplace=inplace_safe
-                )
+        # Embed the templates  TODO: add the templates
+        # z = add(z,
+        #        self.template_embedder(
+        #            feats,
+        #            z,
+        #            pair_mask=pair_mask,
+        #            chunk_size=self.globals.chunk_size,
+        #            use_deepspeed_evo_attention=self.globals.use_deepspeed_evo_attention,
+        #            inplace_safe=inplace_safe
+        #        ),
+        #        inplace=inplace_safe
+        #        )
 
         # Process the MSA
         z = add(z,
@@ -211,8 +211,9 @@ class AlphaFold3(nn.Module):
                 information. Keys must include the official names of the features in the
                 supplement subsection 2.8, Table 5.
 
-                Certain MSA features have their final dimension N_cycle, since they have
-                a different set of features for every recycling iteration.
+                The final dimension of each input must have length equal to
+                the number of recycling iterations.
+                Features (without the recycling dimension):
 
                 # Token-wise features
                 "residue_index" ([*, N_token]):
@@ -227,10 +228,8 @@ class AlphaFold3(nn.Module):
                 "sym_id" ([*, N_token]):
                     Unique integer within chains of this sequence. E.g. if chains A, B
                     and C share a sequence but D does not, their sym_ids would be [0, 1, 2, 0].
-                "restype" ([*, N_token, 32]):
-                    One-hot encoding of the sequence. 32 possible values: 20 amino acids + unknown,
-                    4 RNA nucleotides + unknown, 4 DNA nucleotides + un- known, and gap. Ligands
-                    represented as “unknown amino acid”.
+                "aatype" ([*, N_token]):
+                    Encoding of the sequence. 21 possible values: 20 amino acids + unknown.
                 "is_protein" ([*, N_token]):
                     mask indicating is protein
                 "is_rna" ([*, N_token]):
@@ -258,56 +257,14 @@ class AlphaFold3(nn.Module):
                     Each character is encoded as ord(c) − 32, and names are padded to length 4.
                 "ref_space_uid" ([*, N_atom]):
                     Numerical encoding of the chain id and residue index associated with this
-                    reference conformer. Each (chain id, residue index) tuple is as- signed an
+                    reference conformer. Each (chain id, residue index) tuple is assigned an
                     integer on first appearance.
-                "atom_mask" ([*, N_atom]):
-                    Binary mask indicating which atoms are valid (non-padding).
-                "atom_exists" ([*, N_atom]):
-                    Binary mask indicating which atoms exist in the ground truth structure, used for
-                    loss masking. It is different from the atom_mask because an atom can be valid but
-                    not exist in the crystal structure.
 
                 # MSA features
-                "msa" ([*, N_msa, N_token, 32, N_cycle]):
-                    One-hot encoding of the processed MSA, using the same classes as restype.
-                "has_deletion" ([*, N_msa, N_token, N_cycle]):
-                    Binary feature indicating if there is a deletion to the left of each position
-                    in the MSA.
-                "deletion_value" ([*, N_msa, N_token, N_cycle]):
-                    Raw deletion counts (the number of deletions to the left of each MSA position)
-                    are transformed to [0, 1] using 2/π * arctan(d/3).
-                "msa_mask" ([*, N_msa, N_token, N_cycle]):
+                "msa_feat" ([*, N_msa, N_token, 49]):
+                    Concatenated MSA features that are the same as in AlphaFold2.
+                "msa_mask" ([*, N_msa, N_token]):
                     Binary mask indicating which positions in the MSA are valid.
-
-                "profile" ([*, N_token, 32]):
-                    Distribution across restypes in the main MSA. Computed before MSA processing.
-                "deletion_mean" ([*, N_token]):
-                    Mean number of deletions at each position in the main MSA. Computed before MSA
-                    processing
-
-
-                # Template features
-                "template_restype" ([*, N_templ, N_token]):
-                    One-hot encoding of the template sequence, see restype.
-                "template_pseudo_beta_mask" ([*, N_templ, N_token]):
-                    Mask indicating if the Cβ (Cα for glycine) has coordinates for the template
-                    at this residue.
-                "template_backbone_frame_mask" ([*, N_templ, N_token]):
-                    Mask indicating if coordinates exist for all atoms required to compute the
-                    backbone frame (used in the template_unit_vector feature).
-                "template_distogram" ([*, N_templ, N_token, N_token, 39]):
-                    A one-hot pairwise feature indicating the distance between Cß atoms. Pairwise
-                    distances are discretized into 38 bins of equal width between 3.25 Å and 50.75 Å;
-                    one more bin contains any larger distances.
-                "template_unit_vector" ([*, N_templ, N_token, N_token, 3]):
-                    The unit vector of the displacement of the Cα atom of all residues within the
-                    local frame of each residue. Local frames are computed as in [1].
-
-                # Bonds
-                "token_bonds" ([*, N_token, N_token]):
-                    A 2D matrix indicating if there is a bond between any atom in token i and token j,
-                    restricted to just polymer-ligand and ligand-ligand bonds and bonds less than 2.4 Å
-                    during training.
 
                 # Mapping features
                 "atom_to_token" ([*, N_atoms]):
@@ -318,20 +275,28 @@ class AlphaFold3(nn.Module):
                     Index of the representative atom in the flat atom representation for each token.
 
                 # Training time features
-                "atom_positions" ([*, N_atoms, 3]):
+                "all_atom_positions" ([*, N_atoms, 3]):
                     Ground truth atom positions in Å.
+                "all_atom_mask" ([*, N_atoms]):
+                    Mask indicating which atom slots are used in the ground truth structure.
+                "all_atom_exists" ([*, N_atoms, 3]):
+                    Mask indicating which atom slots exist in the ground truth structure.
             training:
                 Whether the model is in training mode.
         """
         # Extract number of recycles
-        n_cycle = batch['msa'].shape[-1]
+        n_cycle = batch['msa_feat'].shape[-1]
 
         # Controls whether the model uses in-place operations throughout
         # The dual condition accounts for activation checkpoints
         inplace_safe = not (self.training or torch.is_grad_enabled())  # TODO: self.training is None
 
         # Embed input features: relpos encoding, token_bonds etc.
-        s_inputs, s_init, z_init = self.input_embedder(batch, inplace_safe=inplace_safe)
+        s_inputs, s_init, z_init = self.input_embedder(
+            batch,
+            inplace_safe=inplace_safe,
+            use_flash=self.globals.use_flash
+        )
 
         is_grad_enabled = torch.is_grad_enabled()
 
@@ -340,20 +305,10 @@ class AlphaFold3(nn.Module):
         z_prev = z_init.new_zeros(z_init.shape)  # torch.zeros_like(z_init)
 
         def get_recycling_features(index):
-            """Convenience method that extracts the MSA features given the recycling index.
-            TODO: don't restrict this to MSA features, but all features will have a recycling dimension
-                This doesn't actually increase memory consumption since we expand with torch.expand.
-            """
+            """Convenience method that extracts the MSA features given the recycling index."""
             recycling_dict = {}
-            special_keys = ["msa", "msa_mask", "has_deletion", "deletion_value"]
             for key, tensor in batch.items():
-                if key in special_keys:
-                    # Get a view of the tensor for the current cycle
-                    recycling_dict[key] = tensor[..., index]
-                else:
-                    # Use the original tensor
-                    recycling_dict[key] = tensor
-
+                recycling_dict[key] = tensor[..., index]
             return recycling_dict
 
         # Main recycling loop
@@ -399,7 +354,7 @@ class AlphaFold3(nn.Module):
 
             # Run the diffusion module once for denoising during training
             denoised_atoms = self.diffusion_module.training(
-                ground_truth_atoms=batch["atom_positions"],
+                ground_truth_atoms=batch["all_atom_positions"],
                 features=batch,
                 s_inputs=s_inputs,
                 s_trunk=s,
