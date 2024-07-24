@@ -37,6 +37,7 @@ def nonensembled_transform_fns():
     """Input pipeline data transformers that are not ensembled."""
     transforms = [
         data_transforms.cast_to_64bit_ints,
+        data_transforms.make_msa_mask,
         data_transforms_multimer.make_msa_profile,
         data_transforms_multimer.create_target_feat,
         data_transforms.make_atom14_masks

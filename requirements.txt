@@ -34,7 +34,7 @@ dm-tree~=0.1.8
 pandas
 p-tqdm
 proteinflow~=2.7.0
-biopython~=1.81
+biopython~=1.79
 omegaconf~=2.3.0
 setuptools~=68.2.2
 numpy~=1.24.4

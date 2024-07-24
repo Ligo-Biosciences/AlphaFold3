@@ -242,14 +242,14 @@ class AlphaFold3(nn.Module):
                     binary mask indicating valid (non-padding) tokens
 
                 # Atom-wise features
-                "ref_pos" ([*, N_atom]):
+                "ref_pos" ([*, N_atom, 3]):
                     Atom positions in the reference conformer, with a random rotation and translation
                     applied. Atom positions are given in Å.
                 "ref_mask" ([*, N_atom]):
                     Mask indicating which atom slots are used in the reference conformer.
-                "ref_element" ([*, N_atom, 128]):
+                "ref_element" ([*, N_atom, 4]):
                     One-hot encoding of the element atomic number for each atom in the reference
-                    conformer, up to atomic number 128.
+                    conformer, limited to the 4 elements in proteins for now.
                 "ref_charge" ([*, N_atom]):
                     Charge for each atom in the reference conformer.
                 "ref_atom_name_chars" ([*, N_atom, 4, 64]):
@@ -289,7 +289,7 @@ class AlphaFold3(nn.Module):
 
         # Controls whether the model uses in-place operations throughout
         # The dual condition accounts for activation checkpoints
-        inplace_safe = not (self.training or torch.is_grad_enabled())  # TODO: self.training is None
+        inplace_safe = not (training or torch.is_grad_enabled())
 
         # Embed input features: relpos encoding, token_bonds etc.
         s_inputs, s_init, z_init = self.input_embedder(

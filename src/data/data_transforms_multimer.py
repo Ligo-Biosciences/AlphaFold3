@@ -296,10 +296,9 @@ def sample_msa(batch, max_seq, max_extra_msa_seq, seed, inf=1e6):
 
 def make_msa_profile(batch):
     """Compute the MSA profile."""
-
     # Compute the profile for every residue (over all MSA sequences).
     batch["msa_profile"] = masked_mean(
-        batch['msa_mask'][..., None], 
+        batch['msa_mask'][..., None],   # msa_mask
         torch.nn.functional.one_hot(batch['msa'], 22), 
         dim=-3,
     )

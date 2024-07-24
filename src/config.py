@@ -275,11 +275,12 @@ chunk_size = mlc.FieldReference(4, field_type=int)
 aux_distogram_bins = mlc.FieldReference(64, field_type=int)
 tm_enabled = mlc.FieldReference(False, field_type=bool)
 eps = mlc.FieldReference(1e-8, field_type=float)
-templates_enabled = mlc.FieldReference(True, field_type=bool)
-embed_template_torsion_angles = mlc.FieldReference(True, field_type=bool)
+templates_enabled = mlc.FieldReference(False, field_type=bool)  # skip templates for now
+embed_template_torsion_angles = mlc.FieldReference(False, field_type=bool)
 tune_chunk_size = mlc.FieldReference(True, field_type=bool)
 
 NUM_RES = "num residues placeholder"
+NUM_ATOMS = "num atoms placeholder"
 NUM_MSA_SEQ = "msa placeholder"
 NUM_EXTRA_SEQ = "extra msa placeholder"
 NUM_TEMPLATES = "num templates placeholder"
@@ -290,45 +291,53 @@ config = mlc.ConfigDict(
             "common": {
                 "feat": {
                     "aatype": [NUM_RES],
-                    "all_atom_mask": [NUM_RES, None],
-                    "all_atom_positions": [NUM_RES, None, None],
-                    "alt_chi_angles": [NUM_RES, None],
-                    "atom14_alt_gt_exists": [NUM_RES, None],
-                    "atom14_alt_gt_positions": [NUM_RES, None, None],
-                    "atom14_atom_exists": [NUM_RES, None],
-                    "atom14_atom_is_ambiguous": [NUM_RES, None],
-                    "atom14_gt_exists": [NUM_RES, None],
-                    "atom14_gt_positions": [NUM_RES, None, None],
-                    "atom37_atom_exists": [NUM_RES, None],
-                    "backbone_rigid_mask": [NUM_RES],
-                    "backbone_rigid_tensor": [NUM_RES, None, None],
-                    "bert_mask": [NUM_MSA_SEQ, NUM_RES],
-                    "chi_angles_sin_cos": [NUM_RES, None, None],
-                    "chi_mask": [NUM_RES, None],
-                    "extra_deletion_value": [NUM_EXTRA_SEQ, NUM_RES],
-                    "extra_has_deletion": [NUM_EXTRA_SEQ, NUM_RES],
-                    "extra_msa": [NUM_EXTRA_SEQ, NUM_RES],
-                    "extra_msa_mask": [NUM_EXTRA_SEQ, NUM_RES],
-                    "extra_msa_row_mask": [NUM_EXTRA_SEQ],
+                    "all_atom_mask": [NUM_RES, None],  # [NUM_ATOMS],
+                    "all_atom_positions": [NUM_RES, None, None],  # [NUM_ATOMS, None],
+                    # "alt_chi_angles": [NUM_RES, None],
+                    # "atom14_alt_gt_exists": [NUM_RES, None],
+                    # "atom14_alt_gt_positions": [NUM_RES, None, None],
+                    # "atom14_atom_exists": [NUM_RES, None],
+                    # "atom14_atom_is_ambiguous": [NUM_RES, None],
+                    # "atom14_gt_exists": [NUM_RES, None],
+                    # "atom14_gt_positions": [NUM_RES, None, None],
+                    # "atom37_atom_exists": [NUM_RES, None],
+
+                    "ref_pos": [NUM_RES, None, None],  # [NUM_ATOMS, None],
+                    "ref_mask": [NUM_RES, None],
+                    "ref_element": [NUM_RES, None, None],
+                    "ref_charge": [NUM_RES, None],
+                    "ref_atom_name_chars": [NUM_RES, None, None],
+                    "ref_space_uid": [NUM_RES, None],
+                    "atom_to_token": [NUM_RES, None],
+                    # "backbone_rigid_mask": [NUM_RES],
+                    # "backbone_rigid_tensor": [NUM_RES, None, None],
+                    # "bert_mask": [NUM_MSA_SEQ, NUM_RES],
+                    # "chi_angles_sin_cos": [NUM_RES, None, None],
+                    # "chi_mask": [NUM_RES, None],
+                    # "extra_deletion_value": [NUM_EXTRA_SEQ, NUM_RES],
+                    # "extra_has_deletion": [NUM_EXTRA_SEQ, NUM_RES],
+                    # "extra_msa": [NUM_EXTRA_SEQ, NUM_RES],
+                    # "extra_msa_mask": [NUM_EXTRA_SEQ, NUM_RES],
+                    # "extra_msa_row_mask": [NUM_EXTRA_SEQ],
                     "is_distillation": [],
                     "msa_feat": [NUM_MSA_SEQ, NUM_RES, None],
                     "msa_mask": [NUM_MSA_SEQ, NUM_RES],
-                    "msa_row_mask": [NUM_MSA_SEQ],
+                    # "msa_row_mask": [NUM_MSA_SEQ],
                     "no_recycling_iters": [],
-                    "pseudo_beta": [NUM_RES, None],
-                    "pseudo_beta_mask": [NUM_RES],
+                    # "pseudo_beta": [NUM_RES, None],
+                    # "pseudo_beta_mask": [NUM_RES],
                     "residue_index": [NUM_RES],
                     "residx_atom14_to_atom37": [NUM_RES, None],
                     "residx_atom37_to_atom14": [NUM_RES, None],
                     "resolution": [],
-                    "rigidgroups_alt_gt_frames": [NUM_RES, None, None, None],
-                    "rigidgroups_group_exists": [NUM_RES, None],
-                    "rigidgroups_group_is_ambiguous": [NUM_RES, None],
-                    "rigidgroups_gt_exists": [NUM_RES, None],
-                    "rigidgroups_gt_frames": [NUM_RES, None, None, None],
+                    # "rigidgroups_alt_gt_frames": [NUM_RES, None, None, None],
+                    # "rigidgroups_group_exists": [NUM_RES, None],
+                    # "rigidgroups_group_is_ambiguous": [NUM_RES, None],
+                    # "rigidgroups_gt_exists": [NUM_RES, None],
+                    # "rigidgroups_gt_frames": [NUM_RES, None, None, None],
                     "seq_length": [],
                     "seq_mask": [NUM_RES],
-                    "target_feat": [NUM_RES, None],
+                    # "target_feat": [NUM_RES, None],
                     "template_aatype": [NUM_TEMPLATES, NUM_RES],
                     "template_all_atom_mask": [NUM_TEMPLATES, NUM_RES, None],
                     "template_all_atom_positions": [
@@ -351,7 +360,7 @@ config = mlc.ConfigDict(
                     "template_torsion_angles_sin_cos": [
                         NUM_TEMPLATES, NUM_RES, None, None,
                     ],
-                    "true_msa": [NUM_MSA_SEQ, NUM_RES],
+                    # "true_msa": [NUM_MSA_SEQ, NUM_RES],
                     "use_clamped_fape": [],
                 },
                 "block_delete_msa": {
@@ -387,8 +396,8 @@ config = mlc.ConfigDict(
                 "use_templates": templates_enabled,
                 "use_template_torsion_angles": embed_template_torsion_angles,
             },
-            "seqemb_mode": { # Configuration for sequence embedding mode
-                "enabled": False, # If True, use seq emb instead of MSA
+            "seqemb_mode": {  # Configuration for sequence embedding mode
+                "enabled": False,  # If True, use seq emb instead of MSA
             },
             "supervised": {
                 "clamp_prob": 0.9,
@@ -435,7 +444,7 @@ config = mlc.ConfigDict(
             "train": {
                 "fixed_size": True,
                 "subsample_templates": True,
-                "block_delete_msa": True,
+                "block_delete_msa": False,  # True
                 "masked_msa_replace_fraction": 0.15,
                 "max_msa_clusters": 128,
                 "max_extra_msa": 1024,
@@ -455,7 +464,7 @@ config = mlc.ConfigDict(
             "data_module": {
                 "use_small_bfd": False,
                 "data_loaders": {
-                    "batch_size": 1,
+                    "batch_size": 1,  # TODO: is this the global batch size?
                     "num_workers": 16,
                     "pin_memory": True,
                 },
@@ -483,7 +492,7 @@ config = mlc.ConfigDict(
             "c_s": c_s,
             "eps": eps,
             "is_multimer": False,
-            "seqemb_mode_enabled": False, # Global flag for enabling seq emb mode
+            "seqemb_mode_enabled": False,  # Global flag for enabling seq emb mode
         },
         "model": {
             "_mask_trans": False,

@@ -14,9 +14,7 @@
 # limitations under the License.
 
 import random
-
 import torch
-
 from src.data import data_transforms
 
 
@@ -61,6 +59,8 @@ def nonensembled_transform_fns(common_cfg, mode_cfg):
                 data_transforms.make_pseudo_beta(""),
                 data_transforms.get_backbone_frames,
                 data_transforms.get_chi_angles,
+                data_transforms.make_atom_features,  # the last two are added for simple AlphaFold3 training
+                data_transforms.convert_to_af3_simple_features
             ]
         )
 

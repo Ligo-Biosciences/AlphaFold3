@@ -5,7 +5,6 @@ subset of the nearby 128 atoms (nearby in the sequence space). This gives the ne
 rules about local atom constellations, independently of the coarse-grained tokenization where each standard residue
 is represented with a single token only.
 """
-
 import torch
 from torch import Tensor
 from torch import nn
@@ -374,7 +373,7 @@ class AtomAttentionEncoder(nn.Module):
         self.clear_cache_between_blocks = clear_cache_between_blocks
 
         # Embedding per-atom metadata, concat(ref_pos, ref_charge, ref_mask, ref_element, ref_atom_name_chars)
-        self.linear_atom_embedding = LinearNoBias(3 + 1 + 1 + 128 + 4 * 64, c_atom)
+        self.linear_atom_embedding = LinearNoBias(3 + 1 + 1 + 4 + 4, c_atom)
 
         # Embedding offsets between atom reference positions
         self.linear_atom_offsets = LinearNoBias(3, c_atompair)
@@ -550,7 +549,7 @@ class AtomAttentionEncoder(nn.Module):
                         [*, N_atoms, 128] One-hot encoding of the element atomic number for each atom
                         in the reference conformer, up to atomic number 128.
                     "ref_atom_name_chars":
-                        [*, N_atom, 4, 64] One-hot encoding of the unique atom names in the reference
+                        [*, N_atom, 4] One-hot encoding of the unique atom names in the reference
                         conformer. Each character is encoded as ord(c - 32), and names are padded to
                         length 4.
                     "ref_space_uid":
