@@ -360,7 +360,6 @@ config = mlc.ConfigDict(
                     "template_torsion_angles_sin_cos": [
                         NUM_TEMPLATES, NUM_RES, None, None,
                     ],
-                    # "true_msa": [NUM_MSA_SEQ, NUM_RES],
                     "use_clamped_fape": [],
                 },
                 "block_delete_msa": {
@@ -660,6 +659,57 @@ config = mlc.ConfigDict(
                     "c_out": 37,
                 },
             },
+            "pairformer_stack": {
+                "opm_first": True,
+                "fuse_projection_weights": True
+                # c_s: int,
+                #             c_z: int,
+                #             no_blocks: int = 48,
+                #             c_hidden_mul: int = 128,
+                #             c_hidden_pair_att: int = 32,
+                #             no_heads_pair: int = 4,
+                #             no_heads_single_att: int = 16,
+                #             transition_n: int = 4,
+                #             pair_dropout: float = 0.25,
+                #             fuse_projection_weights: bool = False,
+                #             blocks_per_ckpt: int = 1,
+                #             clear_cache_between_blocks: bool = False,
+                #             inf: float = 1e8,
+            },
+            "diffusion_module": {
+                "trans_scale_factor": 20
+                # c_atom: int = 128,
+                #             c_atompair: int = 16,
+                #             c_token: int = 768,
+                #             c_tokenpair: int = 128,
+                #             atom_encoder_blocks: int = 3,
+                #             atom_encoder_heads: int = 16,
+                #             dropout: float = 0.0,
+                #             atom_attention_n_queries: int = 32,
+                #             atom_attention_n_keys: int = 128,
+                #             atom_decoder_blocks: int = 3,
+                #             atom_decoder_heads: int = 16,
+                #             token_transformer_blocks: int = 24,
+                #             token_transformer_heads: int = 16,
+                #             sd_data: float = 16.0,
+                #             s_max: float = 160.0,
+                #             s_min: float = 4e-4,
+                #             p: float = 7.0,
+                #             clear_cache_between_blocks: bool = False,
+                #             compile_model: bool = True,
+            },
+            "confidence_head": {
+                # c_s: int,
+                #             c_z: int,
+                #             no_blocks: int = 4,
+                #             no_bins_pde: int = 64,
+                #             no_bins_plddt: int = 64,
+                #             no_bins_pae: int = 64
+            },
+            "distogram_head": {
+                # c_z: int,
+                # no_bins: int
+            },
             # A negative value indicates that no early stopping will occur, i.e.
             # the model will always run `max_recycling_iters` number of recycling
             # iterations. A positive value will enable early stopping if the
@@ -844,13 +894,6 @@ multimer_config_update = mlc.ConfigDict({
         },
     },
     "model": {
-        "input_embedder": {
-            "tf_dim": 21,
-            #"num_msa": 508,
-            "max_relative_chain": 2,
-            "max_relative_idx": 32,
-            "use_chain_relative": True
-        },
         "template": {
             "template_single_embedder": {
                 "c_in": 34,
@@ -870,6 +913,23 @@ multimer_config_update = mlc.ConfigDict({
             "c_z": c_z,
             "use_unit_vector": True
         },
+        "msa_module": {
+            # no_blocks: int = 4,
+            #             c_msa: int = 64,
+            #             c_token: int = 384,
+            #             c_z: int = 128,
+            #             c_hidden: int = 32,
+            #             no_heads: int = 8,
+            #             c_hidden_tri_mul: int = 128,
+            #             c_hidden_pair_attn: int = 32,
+            #             no_heads_tri_attn: int = 4,
+            #             transition_n: int = 4,
+            #             pair_dropout: float = 0.25,
+            #             fuse_projection_weights: bool = False,
+            #             clear_cache_between_blocks: bool = False,
+            #             blocks_per_ckpt: int = 1,
+            #             inf: float = 1e8
+        },
         "extra_msa": {
             # "extra_msa_embedder": {
             #     "num_extra_msa": 2048
@@ -879,24 +939,6 @@ multimer_config_update = mlc.ConfigDict({
                 "fuse_projection_weights": True
             }
         },
-        "evoformer_stack": {
-            "opm_first": True,
-            "fuse_projection_weights": True
-        },
-        "structure_module": {
-            "trans_scale_factor": 20
-        },
-        "heads": {
-            "tm": {
-                "ptm_weight": 0.2,
-                "iptm_weight": 0.8,
-                "enabled": True
-            },
-            "masked_msa": {
-                "c_out": 22
-            },
-        },
-        "recycle_early_stop_tolerance": 0.5  # For training, value is -1.
     },
     "loss": {
         "fape": {
@@ -916,7 +958,7 @@ multimer_config_update = mlc.ConfigDict({
         },
         "violation": {
             "average_clashes": True,
-            "weight": 0.03 # Not finetuning
+            "weight": 0.03  # Not finetuning
         },
         "tm": {
             "weight": 0.1,

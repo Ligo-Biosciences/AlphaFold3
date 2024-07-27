@@ -50,12 +50,13 @@ def mean_squared_error(
         pred_atoms: Vec3Array,  # (bs, n_atoms)
         gt_atoms: Vec3Array,  # (bs, n_atoms)
         weights: Tensor,  # (bs, n_atoms)
-        mask: Tensor = None  # (bs, n_atoms)
+        mask: Tensor = None,  # (bs, n_atoms)
+        epsilon: Optional[float] = 1e-5
 ) -> Tensor:  # (bs,)
     """Weighted MSE loss as the main training objective for diffusion."""
 
     # Compute atom-wise MSE
-    atom_mse = square_euclidean_distance(pred_atoms, gt_atoms, epsilon=None)  # (bs, n_atoms)
+    atom_mse = square_euclidean_distance(pred_atoms, gt_atoms, epsilon=epsilon)  # (bs, n_atoms)
 
     # Mask positions
     if mask is not None:

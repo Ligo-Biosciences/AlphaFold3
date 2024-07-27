@@ -22,9 +22,9 @@ class AlphaFold3(nn.Module):
             **self.config["input_embedder"]
         )
 
-        self.template_embedder = TemplateEmbedder(
-            **self.config["template_embedder"]
-        )
+        # self.template_embedder = TemplateEmbedder(
+        #     **self.config["template_embedder"]
+        # )
 
         self.msa_module = MSAModule(
             **self.config["msa_module"]

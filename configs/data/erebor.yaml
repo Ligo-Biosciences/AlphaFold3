@@ -1,0 +1,120 @@
+_target_: src.data.data_modules.OpenFoldDataModule
+
+# Train data paths
+template_mmcif_dir: "pdb_data/mmcif_files"
+max_template_date: "2021-10-10"
+train_data_dir: "pdb_data/mmcif_files"
+train_alignment_dir: "alignment_data/alignments"
+train_chain_data_cache_path: "pdb_data/chain_data_cache.json"
+template_release_dates_cache_path: "pdb_data/mmcif_cache.json"
+train_mmcif_data_cache_path: "pdb_data/mmcif_cache.json"
+alignment_index_path: "alignment_data/alignment_dbs/alignment_db.index"
+obsolete_pdbs_file_path: "pdb_data/obsolete.dat"
+train_filter_path: null
+
+# Distillation data paths
+distillation_data_dir: None
+distillation_alignment_dir: None
+distillation_chain_data_cache_path: None
+distillation_filter_path: None
+distillation_alignment_index_path: None
+
+# Validation data paths
+val_data_dir: None
+val_alignment_dir: None
+predict_data_dir: None
+predict_alignment_dir: None
+kalign_binary_path: '/usr/bin/kalign'
+
+
+config:
+  common:
+    feat: backbone
+    block_delete_msa:
+      msa_fraction_per_block: 0.3
+      randomize_num_blocks: false
+      num_blocks: 5
+    masked_msa:
+      profile_prob: 0.1
+      same_prob: 0.1
+      uniform_prob: 0.1
+    max_recycling_iters: 3
+    msa_cluster_features: true
+    reduce_msa_clusters_by_max_templates: false
+    resample_msa_in_recycling: true
+    unsupervised_features:
+      - "aatype"
+      - "residue_index"
+      - "msa"
+      - "num_alignments"
+      - "seq_length"
+      - "between_segment_residues"
+      - "deletion_matrix"
+      - "no_recycling_iters"
+    use_templates: false
+    use_template_torsion_angles: false
+  seqemb_mode:
+    enabled: false
+  supervised:
+    clamp_prob: 0.9
+    supervised_features:
+      - "all_atom_mask"
+      - "all_atom_positions"
+      - "resolution"
+      - "use_clamped_fape"
+      - "is_distillation"
+  predict:
+    fixed_size: true,
+    subsample_templates: false  # We want top templates.
+    block_delete_msa: false
+    masked_msa_replace_fraction: 0.15
+    max_msa_clusters: 512
+    max_extra_msa: 1024
+    max_template_hits: 4
+    max_templates: 4
+    crop: False
+    crop_size: None
+    spatial_crop_prob: None
+    interface_threshold: None
+    supervised: false
+    uniform_recycling: false
+  eval:
+    fixed_size: true
+    subsample_templates: false  # We want top templates.
+    block_delete_msa: false
+    masked_msa_replace_fraction: 0.15
+    max_msa_clusters: 128
+    max_extra_msa: 1024
+    max_template_hits: 4
+    max_templates: 4
+    crop: false
+    crop_size: None
+    spatial_crop_prob: None
+    interface_threshold": None
+    supervised: true
+    uniform_recycling: false
+  train:
+    fixed_size: true
+    subsample_templates: true
+    block_delete_msa: false
+    masked_msa_replace_fraction: 0.15
+    max_msa_clusters: 128
+    max_extra_msa: 1024
+    max_template_hits: 4
+    max_templates: 4
+    shuffle_top_k_prefiltered: 20
+    crop: true
+    crop_size: 256
+    spatial_crop_prob: 0.
+    interface_threshold: None
+    supervised: true
+    clamp_prob: 0.9
+    max_distillation_msa_clusters: 1000
+    uniform_recycling: true
+    distillation_prob: 0.75
+  data_module:
+    use_small_bfd: false
+    data_loaders:
+        batch_size: 1
+        num_workers: 16
+        pin_memory: true
