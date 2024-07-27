@@ -329,6 +329,7 @@ class AtomAttentionEncoder(nn.Module):
             n_keys: int = 128,
             trunk_conditioning: bool = False,
             clear_cache_between_blocks: bool = False,
+            blocks_per_ckpt: int = 1,
     ):
         """Initialize the AtomAttentionEncoder module.
         Args:
@@ -371,6 +372,7 @@ class AtomAttentionEncoder(nn.Module):
         self.n_keys = n_keys
         self.trunk_conditioning = trunk_conditioning
         self.clear_cache_between_blocks = clear_cache_between_blocks
+        self.blocks_per_ckpt = blocks_per_ckpt
 
         # Embedding per-atom metadata, concat(ref_pos, ref_charge, ref_mask, ref_element, ref_atom_name_chars)
         self.linear_atom_embedding = LinearNoBias(3 + 1 + 1 + 4 + 4, c_atom)
@@ -416,6 +418,7 @@ class AtomAttentionEncoder(nn.Module):
             n_queries=n_queries,
             n_keys=n_keys,
             clear_cache_between_blocks=clear_cache_between_blocks,
+            blocks_per_ckpt=blocks_per_ckpt
         )
 
         # Final linear
@@ -622,6 +625,7 @@ class AtomAttentionDecoder(nn.Module):
             n_queries: int = 32,
             n_keys: int = 128,
             clear_cache_between_blocks: bool = False,
+            blocks_per_ckpt: int = 1,
     ):
         """Initialize the AtomAttentionDecoder module.
         Args:
@@ -645,6 +649,8 @@ class AtomAttentionDecoder(nn.Module):
             clear_cache_between_blocks:
                 Whether to clear CUDA's GPU memory cache between blocks of the
                 stack. Slows down each block but can reduce fragmentation
+            blocks_per_ckpt:
+                Number of blocks per checkpoint. Defaults to 1.
 
         """
         super().__init__()
@@ -657,6 +663,7 @@ class AtomAttentionDecoder(nn.Module):
         self.n_queries = n_queries
         self.n_keys = n_keys
         self.clear_cache_between_blocks = clear_cache_between_blocks
+        self.blocks_per_ckpt = blocks_per_ckpt
 
         self.atom_transformer = AtomTransformer(
             c_atom=c_atom,
@@ -667,6 +674,7 @@ class AtomAttentionDecoder(nn.Module):
             n_queries=n_queries,
             n_keys=n_keys,
             clear_cache_between_blocks=clear_cache_between_blocks,
+            blocks_per_ckpt=blocks_per_ckpt,
         )
 
         self.linear_atom = LinearNoBias(c_token, c_atom, init='default')

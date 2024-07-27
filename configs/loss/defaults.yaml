@@ -1,4 +1,4 @@
-# _target_: # TODO: fill in this file with AF3 model config
+# _target_: # the loss object maybe?
 
 diffusion_loss:
     mse:
@@ -7,7 +7,7 @@ diffusion_loss:
         weight_ligand: 10.0
         weight_protein: 1.0
     smooth_lddt:
-        weight: 0.1
+        weight: 1.0
 
 distogram:
     min_bin: 2.3125

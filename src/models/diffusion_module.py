@@ -44,6 +44,7 @@ class DiffusionModule(torch.nn.Module):
             s_min: float = 4e-4,
             p: float = 7.0,
             clear_cache_between_blocks: bool = False,
+            blocks_per_ckpt: int = 1,
             compile_model: bool = True,
     ):
         super(DiffusionModule, self).__init__()
@@ -63,6 +64,7 @@ class DiffusionModule(torch.nn.Module):
         self.s_min = s_min
         self.p = p
         self.clear_cache_between_blocks = clear_cache_between_blocks
+        self.blocks_per_ckpt = blocks_per_ckpt
 
         # Conditioning
         self.diffusion_conditioning = DiffusionConditioning(
@@ -83,7 +85,8 @@ class DiffusionModule(torch.nn.Module):
             n_queries=atom_attention_n_queries,
             n_keys=atom_attention_n_keys,
             trunk_conditioning=True,
-            clear_cache_between_blocks=clear_cache_between_blocks
+            clear_cache_between_blocks=clear_cache_between_blocks,
+            blocks_per_ckpt=blocks_per_ckpt
         )
 
         # Full self-attention on token level
@@ -97,7 +100,8 @@ class DiffusionModule(torch.nn.Module):
             num_blocks=token_transformer_blocks,
             num_heads=token_transformer_heads,
             dropout=dropout,
-            clear_cache_between_blocks=clear_cache_between_blocks
+            clear_cache_between_blocks=clear_cache_between_blocks,
+            blocks_per_ckpt=blocks_per_ckpt
         )
         self.token_post_layer_norm = LayerNorm(c_token)
 
@@ -111,6 +115,7 @@ class DiffusionModule(torch.nn.Module):
             dropout=dropout,
             n_queries=atom_attention_n_queries,
             n_keys=atom_attention_n_keys,
+            blocks_per_ckpt=blocks_per_ckpt
         )
         if compile_model:
             self.diffusion_conditioning = torch.compile(self.diffusion_conditioning)
@@ -220,7 +225,7 @@ class DiffusionModule(torch.nn.Module):
                         binary mask for atoms, whether atom is present (will still be 1.0 if
                         atom is missing from the crystal structure, only 0.0 for padding)
             s_inputs:
-                [*, n_tokens, c_token] Single conditioning x
+                [*, n_tokens, c_token] Single conditioning input
             s_trunk:
                 [*, n_tokens, c_token] Single conditioning from Pairformer trunk
             z_trunk:

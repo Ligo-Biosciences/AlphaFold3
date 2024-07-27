@@ -50,7 +50,16 @@ class ConfidenceHead(nn.Module):
             no_blocks: int = 4,
             no_bins_pde: int = 64,
             no_bins_plddt: int = 64,
-            no_bins_pae: int = 64
+            no_bins_pae: int = 64,
+            c_hidden_mul: int = 128,
+            c_hidden_pair_attn: int = 32,
+            no_heads_tri_attn: int = 4,
+            no_heads_single_attn: int = 16,
+            transition_n: int = 4,
+            pair_dropout: float = 0.25,
+            fuse_projection_weights: bool = False,
+            blocks_per_ckpt: int = 1,
+            clear_cache_between_blocks: bool = False,
     ):
         super(ConfidenceHead, self).__init__()
         self.no_bins_pde = no_bins_pde
@@ -66,6 +75,15 @@ class ConfidenceHead(nn.Module):
             c_s=c_s,
             c_z=c_z,
             no_blocks=no_blocks,
+            c_hidden_mul=c_hidden_mul,
+            c_hidden_pair_attn=c_hidden_pair_attn,
+            no_heads_tri_attn=no_heads_tri_attn,
+            no_heads_single_attn=no_heads_single_attn,
+            transition_n=transition_n,
+            pair_dropout=pair_dropout,
+            fuse_projection_weights=fuse_projection_weights,
+            blocks_per_ckpt=blocks_per_ckpt,
+            clear_cache_between_blocks=clear_cache_between_blocks,
         )
 
         self.pde_head = DistogramHead(c_z, no_bins=64)

@@ -160,9 +160,9 @@ class PairformerStackBlock(nn.Module):
             c_s: int,
             c_z: int,
             c_hidden_mul: int = 128,
-            c_hidden_pair_att: int = 32,
-            no_heads_pair: int = 4,
-            no_heads_single_att: int = 16,
+            c_hidden_pair_attn: int = 32,
+            no_heads_tri_attn: int = 4,
+            no_heads_single_attn: int = 16,
             transition_n: int = 4,
             pair_dropout: float = 0.25,
             fuse_projection_weights: bool = False,
@@ -172,8 +172,8 @@ class PairformerStackBlock(nn.Module):
         self.pair_stack = PairStack(
             c_z=c_z,
             c_hidden_tri_mul=c_hidden_mul,
-            c_hidden_pair_attn=c_hidden_pair_att,
-            no_heads_tri_attn=no_heads_pair,
+            c_hidden_pair_attn=c_hidden_pair_attn,
+            no_heads_tri_attn=no_heads_tri_attn,
             transition_n=transition_n,
             pair_dropout=pair_dropout,
             fuse_projection_weights=fuse_projection_weights,
@@ -182,7 +182,7 @@ class PairformerStackBlock(nn.Module):
         self.attention = AttentionPairBias(
             dim=c_s,
             c_pair=c_z,
-            no_heads=no_heads_single_att,
+            no_heads=no_heads_single_attn,
             input_gating=False,  # no single representation gating within Pairformer
         )
         self.transition = Transition(
@@ -225,9 +225,9 @@ class PairformerStack(nn.Module):
             c_z: int,
             no_blocks: int = 48,
             c_hidden_mul: int = 128,
-            c_hidden_pair_att: int = 32,
-            no_heads_pair: int = 4,
-            no_heads_single_att: int = 16,
+            c_hidden_pair_attn: int = 32,
+            no_heads_tri_attn: int = 4,
+            no_heads_single_attn: int = 16,
             transition_n: int = 4,
             pair_dropout: float = 0.25,
             fuse_projection_weights: bool = False,
@@ -245,11 +245,11 @@ class PairformerStack(nn.Module):
                 Number of Evoformer blocks in the stack
             c_hidden_mul:
                 Hidden dimension in multiplicative updates
-            c_hidden_pair_att:
+            c_hidden_pair_attn:
                 Hidden dimension in triangular attention
-            no_heads_pair:
+            no_heads_tri_attn:
                 Number of heads in triangular attention
-            no_heads_single_att:
+            no_heads_single_attn:
                 Number of heads in AttentionPairBias for the single representation
             transition_n:
                 Expansion factor for the transition layers
@@ -276,9 +276,9 @@ class PairformerStack(nn.Module):
                 c_s=c_s,
                 c_z=c_z,
                 c_hidden_mul=c_hidden_mul,
-                c_hidden_pair_att=c_hidden_pair_att,
-                no_heads_pair=no_heads_pair,
-                no_heads_single_att=no_heads_single_att,
+                c_hidden_pair_attn=c_hidden_pair_attn,
+                no_heads_tri_attn=no_heads_tri_attn,
+                no_heads_single_attn=no_heads_single_attn,
                 transition_n=transition_n,
                 pair_dropout=pair_dropout,
                 fuse_projection_weights=fuse_projection_weights,

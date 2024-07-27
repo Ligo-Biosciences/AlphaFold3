@@ -7,60 +7,109 @@ common:
   c_atom: 128  # the atom representation dim
   c_atompair: 16  # the atom pair representation dim
 
-# Input Embedder
-input_embedder:
-  c_token: ${common.c_token}
-  c_pair: ${common.c_pair}
-  c_atom: ${common.c_atom}
-  c_atompair: ${common.c_atompair}
-
-# PairformerStack
-pairformer_stack:
-  c_s: ${common.c_token}
-  c_z: ${common.c_pair}
-  no_blocks: 48
-  c_hidden_mul: 128
-  c_hidden_pair_att: 32
-  no_heads_pair: 4
-  no_heads_single_att: 16
+  # Pair stack parameters (used in Pairformer, MSA module, and Confidence head)
+  c_hidden_tri_mul: 128  # the hidden dim for the triangle multiplicative update
+  c_hidden_pair_attn: 32  # the hidden dim for the pair attention ${common.c_hidden_pair_attn}
+  no_heads_tri_attn: 4
   transition_n: 4
   pair_dropout: 0.25
-  fuse_projection_weights: False
-  blocks_per_ckpt: 1
-  clear_cache_between_blocks: False
-  inf: 1e8
+  fuse_projection_weights: false
+  blocks_per_ckpt: 1  # number of blocks per checkpoint, if none, no checkpointing
+  clear_cache_between_blocks: false  # whether to clear GPU memory cache between blocks
 
-# Diffusion module
-diffusion_module:
-  c_atom: ${common.c_atom}
-  c_atompair: ${common.c_atompair}
-  c_token: ${common.c_token}
-  c_tokenpair: ${common.c_pair}
-  atom_encoder_blocks: 3
-  atom_encoder_heads: 16
-  dropout: 0.0
-  atom_attention_n_queries: 32  # TODO: with sliding window attention this is not used.
-  atom_attention_n_keys: 128
-  atom_decoder_blocks: 3
-  atom_decoder_heads: 16
-  token_transformer_blocks: 24
-  token_transformer_heads: 16
-  sd_data: 16.0
-  s_max: 160.0
-  s_min: 4e-4
-  p: 7.0
-  clear_cache_between_blocks: False
-  blocks_per_ckpt: 1
-  compile_model: False  # TODO: this parameter does not belong here, will be removed in future iterations.
+  # Pairformer attention pair bias
+  no_heads_single_attn: 16
 
-confidence_head:
-  c_s: ${common.c_token}
-  c_z: ${common.c_pair}
-  no_blocks: 4
-  no_bins_pde: 64
-  no_bins_plddt: 64
-  no_bins_pae: 64
+model:
+  # Input Embedder
+  input_embedder:
+    c_token: ${common.c_token}
+    c_trunk_pair: ${common.c_pair}
+    c_atom: ${common.c_atom}
+    c_atompair: ${common.c_atompair}
 
-distogram_head:
-  c_z: ${common.c_pair}
-  no_bins: 64
+  # MSA module
+  msa_module:
+    no_blocks: 4
+    c_msa: 64
+    c_token: ${common.c_token}
+    c_z: ${common.c_pair}
+    c_hidden: 32
+    no_heads: 8
+    c_hidden_tri_mul: ${common.c_hidden_tri_mul}
+    c_hidden_pair_attn: ${common.c_hidden_pair_attn}
+    no_heads_tri_attn: ${common.no_heads_tri_attn}
+    transition_n: ${common.transition_n}
+    pair_dropout: ${common.pair_dropout}
+    fuse_projection_weights: ${common.fuse_projection_weights}
+    clear_cache_between_blocks: ${common.clear_cache_between_blocks}
+    blocks_per_ckpt: ${common.blocks_per_ckpt}
+    inf: 1e8
+
+  # PairformerStack
+  pairformer_stack:
+    c_s: ${common.c_token}
+    c_z: ${common.c_pair}
+    no_blocks: 48
+    c_hidden_mul: ${common.c_hidden_tri_mul}
+    c_hidden_pair_attn: ${common.c_hidden_pair_attn}
+    no_heads_tri_attn: ${common.no_heads_tri_attn}
+    no_heads_single_attn: ${common.no_heads_single_attn}
+    transition_n: ${common.transition_n}
+    pair_dropout: ${common.pair_dropout}
+    fuse_projection_weights: ${common.fuse_projection_weights}
+    blocks_per_ckpt: ${common.blocks_per_ckpt}
+    clear_cache_between_blocks: false
+    inf: 1e8
+
+  # Diffusion module
+  diffusion_module:
+    c_atom: ${common.c_atom}
+    c_atompair: ${common.c_atompair}
+    c_token: ${common.c_token}
+    c_tokenpair: ${common.c_pair}
+    atom_encoder_blocks: 3
+    atom_encoder_heads: 16
+    dropout: 0.0
+    atom_attention_n_queries: 32  # TODO: with sliding window attention this is not used.
+    atom_attention_n_keys: 128
+    atom_decoder_blocks: 3
+    atom_decoder_heads: 16
+    token_transformer_blocks: 24
+    token_transformer_heads: 16
+    sd_data: 16.0
+    s_max: 160.0
+    s_min: 4e-4
+    p: 7.0
+    clear_cache_between_blocks: ${common.clear_cache_between_blocks}
+    blocks_per_ckpt: ${common.blocks_per_ckpt}
+    compile_model: false  # TODO: this parameter does not belong here, will be removed in future iterations.
+
+  confidence_head:
+    c_s: ${common.c_token}
+    c_z: ${common.c_pair}
+    no_blocks: 4
+    no_bins_pde: 64
+    no_bins_plddt: 64
+    no_bins_pae: 64
+    c_hidden_mul: ${common.c_hidden_tri_mul}
+    c_hidden_pair_attn: ${common.c_hidden_pair_attn}
+    no_heads_tri_attn: ${common.no_heads_tri_attn}
+    no_heads_single_attn: ${common.no_heads_single_attn}
+    transition_n: ${common.transition_n}
+    pair_dropout: ${common.pair_dropout}
+    fuse_projection_weights: ${common.fuse_projection_weights}
+
+  distogram_head:
+    c_z: ${common.c_pair}
+    no_bins: 64
+
+globals:
+  blocks_per_ckpt: ${common.blocks_per_ckpt}
+  chunk_size: None  # 4
+  # Use DeepSpeed memory-efficient attention kernel in supported modules.
+  use_deepspeed_evo_attention: false
+  # Use FlashAttention in selected modules.
+  use_flash: false
+  samples_per_trunk: 48  # Number of diffusion module replicas per trunk
+  # is_multimer: false
