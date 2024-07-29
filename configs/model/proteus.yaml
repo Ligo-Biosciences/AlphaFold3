@@ -16,6 +16,32 @@ scheduler:
   step_size: 50_000
   gamma: 0.95
 
+#scheduler:
+#  _target_: src.utils.lr_schedulers.AlphaFoldLRScheduler
+#  _partial_: true
+#  last_epoch: -1
+#  verbose: false
+#  base_lr: 0.0  # the starting learning rate
+#  max_lr: 0.0018
+#  warmup_no_steps: 1000
+#  start_decay_after_n_steps: 50_000
+#  decay_every_n_steps: 50_000
+#  decay_factor: 0.95
+
+# Loss configs
+loss:
+  diffusion_loss:
+      # mse:
+      #    weight_dna: 5.0
+      #    weight_rna: 5.0
+      #    weight_ligand: 10.0
+      #    weight_protein: 1.0
+      # smooth_lddt:
+      #    weight: 1.0
+      use_smooth_lddt: false
+      sd_data: 16.0
+      weight: 1.0
+
 model:
   _target_: src.models.proteus_module.Proteus
   diffusion_module:
@@ -33,7 +59,8 @@ model:
     atom_decoder_heads: 16
     token_transformer_blocks: 12  # original: 24
     token_transformer_heads: 16
-    clear_cache_between_blocks: False
+    clear_cache_between_blocks: false
+    compile_model: false
 
   feature_embedder:
     _target_: src.models.embedders.ProteusFeatureEmbedder
@@ -51,7 +78,17 @@ model:
 ema_decay: 0.999
 
 # compile model for faster training with pytorch 2.0
-compile: False
+compile: false
 
 # internal precision of float32 matrix multiplications. "high" or "medium" will utilize Tensor cores
 matmul_precision: "medium"
+
+globals:
+  chunk_size: null  # 4
+  # Use DeepSpeed memory-efficient attention kernel in supported modules.
+  use_deepspeed_evo_attention: true
+  # Use FlashAttention in selected modules.
+  use_flash: true
+  samples_per_trunk: 1  # Number of diffusion module replicas per trunk
+  rollout_samples_per_trunk: 1  # Number of mini rollouts per trunk
+  eps: 0.00000001

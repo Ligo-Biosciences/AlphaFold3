@@ -109,8 +109,8 @@ def diffusion_loss(
     pred_atoms = Vec3Array.from_array(pred_atoms)
     gt_atoms = Vec3Array.from_array(gt_atoms)
 
-    # Align the gt_atoms to pred_atoms  TODO: add this back
-    aligned_gt_atoms = gt_atoms  # weighted_rigid_align(x=gt_atoms, x_gt=pred_atoms, weights=weights, mask=mask)
+    # Align the gt_atoms to pred_atoms
+    aligned_gt_atoms = weighted_rigid_align(x=gt_atoms, x_gt=pred_atoms, weights=weights, mask=mask)
 
     # MSE loss
     mse = mean_squared_error(pred_atoms, aligned_gt_atoms, weights, mask)
@@ -249,7 +249,7 @@ class AlphaFold3Loss(nn.Module):
                 pred_atoms=out["denoised_atoms"],
                 gt_atoms=batch["all_atom_positions"],
                 timesteps=out["timesteps"],
-                weights=batch["ref_mask"].new_ones(batch["ref_mask"].shape),  # (bs, n_atoms)
+                weights=batch["atom_exists"],
                 atom_is_rna=batch["ref_mask"].new_zeros(batch["ref_mask"].shape),  # (bs, n_atoms)
                 atom_is_dna=batch["ref_mask"].new_zeros(batch["ref_mask"].shape),  # (bs, n_atoms)
                 mask=batch["atom_exists"],
@@ -274,9 +274,9 @@ class AlphaFold3Loss(nn.Module):
 
     def forward(self, out, batch, _return_breakdown=False):
         if not _return_breakdown:
-            cum_loss = self.loss(out, batch, _return_breakdown)
-            return cum_loss
+            cumulative_loss = self.loss(out, batch, _return_breakdown)
+            return cumulative_loss
         else:
-            cum_loss, losses = self.loss(out, batch, _return_breakdown)
-            return cum_loss, losses
+            cumulative_loss, losses = self.loss(out, batch, _return_breakdown)
+            return cumulative_loss, losses
 

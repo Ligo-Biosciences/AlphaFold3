@@ -1,0 +1,23 @@
+# @package _global_
+
+# to execute this experiment run:
+# python train.py experiment=example
+
+defaults:
+  - override /data: protein
+  - override /model: proteus
+  - override /callbacks: default
+  - override /trainer: gpu
+
+# all parameters below will be merged with parameters from default configurations set above
+# this allows you to overwrite only specified parameters
+
+tags: ["proteus", "test"]
+
+seed: 12345
+
+trainer:
+  gradient_clip_val: 10.0
+
+data:
+  batch_size: 12

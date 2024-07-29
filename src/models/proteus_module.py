@@ -2,6 +2,7 @@ from typing import Any, Dict
 
 import torch
 from torch import nn
+import hydra
 from lightning import LightningModule
 from lightning.pytorch.utilities import grad_norm
 from torchmetrics import MeanMetric
@@ -11,17 +12,18 @@ from src.utils.loss import diffusion_loss
 from src.utils.geometry.vector import Vec3Array
 from src.utils.exponential_moving_average import ExponentialMovingAverage
 from src.utils.tensor_utils import tensor_tree_map
+from src.utils.loss import AlphaFold3Loss
 
 
 class Proteus(nn.Module):
     """Convenience class that consists of a simple feature embedder and diffusion module.
-    This is used to make the ProteusLitModule receiving a single nn.Module as x."""
+    This is used to make the ProteusLitModule receiving a single nn.Module as input."""
 
     def __init__(
             self,
             feature_embedder: torch.nn.Module,
             diffusion_module: torch.nn.Module
-    ) -> None:
+    ):
         """
         Args:
             feature_embedder:
@@ -34,94 +36,65 @@ class Proteus(nn.Module):
 
     def forward(
             self,
-            noisy_atoms: Vec3Array,  # (bs, n_atoms)
-            timesteps: torch.Tensor,  # (bs, 1)
+            gt_atoms: torch.Tensor,  # (bs, n_atoms)
             features: Dict[str, torch.Tensor],  # input feature dict
-            sd_data: float = 16.0,
-            token_mask: torch.Tensor = None,  # (bs, n_tokens)
-            atom_mask: torch.Tensor = None  # (bs, n_atoms)
-    ) -> Vec3Array:
+            samples_per_trunk: int,
+            use_flash: bool = False,
+    ) -> Dict[str, torch.Tensor]:
         """Perform a forward pass through the model.
         Args:
-            noisy_atoms:
-                vector of noisy atom positions (bs, n_atoms)
-            timesteps:
-                tensor of timesteps (bs, 1)
+            gt_atoms:
+                vector of ground truth atom positions (bs, n_atoms)
             features:
-                x feature dictionary containing the tensors
-            sd_data:
-                Scaling factor for the timesteps before fourier embedding
-            token_mask:
-                [*, N_tokens] binary mask for tokens, whether token is present (not padding)
-            atom_mask:
-                [*, N_atoms] binary mask for atoms, whether atom is present (will still be 1.0 if
-                atom is missing from the crystal structure, only 0.0 for padding)
+                input feature dictionary containing the tensors
+            samples_per_trunk:
+                Number of samples to per trunk conditioning.
+            use_flash:
+                Whether to use flash attention.
 
         Returns:
             [*, n_atoms] The denoised positions of the atoms
         """
-        # This needs to be done manually for DeepSpeed's sake
-        dtype = next(self.parameters()).dtype
-        for feature in features.keys():
-            if features[feature].dtype == torch.float32:
-                features[feature] = features[feature].to(dtype=dtype)
-        noisy_atoms = noisy_atoms.to_tensor().to(dtype=dtype)
-        timesteps = timesteps.to(dtype=dtype)
-        token_mask = token_mask.to(dtype=dtype) if token_mask is not None else None
-        atom_mask = atom_mask.to(dtype=dtype) if atom_mask is not None else None
+        atom_mask = features["atom_mask"]
+        token_mask = features["token_mask"]
 
         # Initial Features
-        init_features = self.feature_embedder(features, atom_mask=atom_mask, token_mask=token_mask)
-
-        # TODO: use training method of diffusion module to get denoised atoms
-
-        # Diffusion module
-        denoised_atoms = self.diffusion_module(
-            noisy_atoms=noisy_atoms,
-            timesteps=timesteps,
-            features=features,
-            s_inputs=init_features[0],  # TODO: do named accession
-            s_trunk=init_features[1],
-            z_trunk=init_features[2],
-            sd_data=sd_data,
-            token_mask=token_mask,
-            atom_mask=atom_mask,
+        s_inputs, s_trunk, z_trunk = self.feature_embedder(
+            features, atom_mask=atom_mask, token_mask=token_mask, use_flash=use_flash
         )
 
-        return Vec3Array.from_array(denoised_atoms)
+        # Diffusion module
+        denoised_atoms, timesteps = self.diffusion_module.train_step(
+            ground_truth_atoms=gt_atoms,
+            features=features,
+            s_inputs=s_inputs,
+            s_trunk=s_trunk,
+            z_trunk=z_trunk,
+            samples_per_trunk=samples_per_trunk,
+            use_flash=use_flash
+        )
+        # Return the denoised atoms and timesteps
+        outputs = {
+            "denoised_atoms": denoised_atoms,  # (b * samples_per_trunk, n_atoms, 3)
+            "timesteps": timesteps  # (b * samples_per_trunk, 1)
+        }
+        return outputs
 
 
 class ProteusLitModule(LightningModule):
     """A small unconditional backbone generation module that is meant as a test fire for AlphaFold3 components."""
 
-    def __init__(
-            self,
-            model: nn.Module,
-            optimizer: torch.optim.Optimizer,
-            scheduler: torch.optim.lr_scheduler,
-            matmul_precision: str = "medium",
-            compile: bool = False,
-            ema_decay: float = 0.999,
-    ) -> None:
-        """Initialize a ProteusLitModule
-        Args:
-            optimizer:
-                The optimizer to use for training.
-            scheduler:
-                The learning rate scheduler to use for training.
-
-        TODO: change the initialization to take a config file instead of individual arguments,
-         especially for the model since these will have to be initialized separately when loading
-         from a checkpoint.
-        """
+    def __init__(self, config):
+        """Initialize a ProteusLitModule"""
         super().__init__()
+        self.config = config
 
         # Simplest diffusion model possible for testing
-        self.model = model
+        self.model = hydra.utils.instantiate(config.model)  # model
 
         # Maintain an EMA of model parameters
         self.ema = ExponentialMovingAverage(
-            model=self.model, decay=ema_decay
+            model=self.model, decay=config.ema_decay
         )
 
         self.cached_weights = None
@@ -134,17 +107,18 @@ class ProteusLitModule(LightningModule):
         self.train_loss = MeanMetric()
         self.val_loss = MeanMetric()
         self.test_loss = MeanMetric()
+        self.loss_fn = AlphaFold3Loss(config.loss)
 
         # Set matmul precision
-        torch.set_float32_matmul_precision(matmul_precision)
+        torch.set_float32_matmul_precision(config.matmul_precision)
 
-    def forward(self, *args: Any, **kwargs: Any) -> Vec3Array:
+    def forward(self, *args: Any, **kwargs: Any) -> Dict[str, torch.Tensor]:
         return self.model(*args, **kwargs)
 
     def on_train_start(self) -> None:
         """Lightning hook that is called when training begins."""
         # by default lightning executes validation step sanity checks before training starts,
-        # so it's worth to make sure validation metrics don'timesteps store results from these checks
+        # so it's worth to make sure validation metrics don't store results from these checks
         self.val_loss.reset()
 
     def model_step(
@@ -157,38 +131,20 @@ class ProteusLitModule(LightningModule):
         Returns:
             loss tensor
         """
-        # Record shape and device
-        coordinates = batch["atom_positions"]  # (bs, n_atoms, 3)
-        batch_size, n_atoms, _ = coordinates.shape
-        device, dtype = coordinates.device, coordinates.dtype
-
-        # Convert to Vec3Array
-        atom_positions = Vec3Array.from_array(coordinates)  # (bs, n_atoms)
-
-        # Centre random augmentation
-        atom_positions = centre_random_augmentation(atom_positions)
-
-        # Sample timesteps and noise atoms
-        # TODO: move this to within the diffusion module with training=True
-        timesteps = sample_noise_level((batch_size, 1), device=device, dtype=dtype)  # (bs, 1)
-        noisy_positions = noise_positions(atom_positions, timesteps)
+        batch = reshape_features(batch)  # temporary
+        # Remove the recycling dimension
+        batch = tensor_tree_map(lambda t: t[..., -1], batch)
 
         # Run the model
-        denoised_positions = self.forward(noisy_positions,
-                                          timesteps,
-                                          features=batch["features"],
-                                          token_mask=batch["token_mask"],
-                                          atom_mask=batch["atom_mask"])
-
-        atom_nucleic_acid = batch["features"]["ref_charge"]  # zeros of shape (bs, n_atoms)
-        per_example_losses = diffusion_loss(denoised_positions,
-                                            atom_positions,
-                                            timesteps,
-                                            atom_is_rna=atom_nucleic_acid,
-                                            atom_is_dna=atom_nucleic_acid,
-                                            weights=torch.ones_like(atom_nucleic_acid, device=device, dtype=dtype),
-                                            mask=batch["atom_mask"])
-        return torch.mean(per_example_losses)
+        outputs = self.forward(
+            gt_atoms=batch["all_atom_positions"],
+            features=batch,
+            samples_per_trunk=self.config.globals.samples_per_trunk,
+            use_flash=self.config.globals.use_flash
+        )
+        # Compute loss
+        loss = self.loss_fn(outputs, batch, _return_breakdown=False)
+        return loss
 
     def training_step(
             self, batch: Dict[str, torch.Tensor], batch_idx: int
@@ -203,8 +159,8 @@ class ProteusLitModule(LightningModule):
             A tensor of losses between model predictions and targets.
         """
         # Move the EMA to the GPU if not already there
-        if self.ema.device != batch["atom_positions"].device:
-            self.ema.to(batch["atom_positions"].device)
+        if self.ema.device != batch["residue_index"].device:
+            self.ema.to(batch["residue_index"].device)
 
         loss = self.model_step(batch)
 
@@ -294,23 +250,23 @@ class ProteusLitModule(LightningModule):
 
         :param stage: Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
         """
-        if self.hparams.compile and stage == "fit":
+        if self.config.compile and stage == "fit":
             self.model = torch.compile(self.model)
 
-    def configure_optimizers(self) -> Dict[str, Any]:
-        optimizer = self.hparams.optimizer(self.trainer.model.parameters())
-        if self.hparams.scheduler is not None:
-            scheduler = self.hparams.scheduler(optimizer=optimizer)
-            return {
-                "optimizer": optimizer,
-                "lr_scheduler": {
-                    "scheduler": scheduler,
-                    "interval": "step",
-                    "name": "AlphaFold3LRScheduler"
-                    # "frequency": 1,
-                },
-            }
-        return {"optimizer": optimizer}
+    def configure_optimizers(self):
+        partial_optimizer = hydra.utils.instantiate(self.config.optimizer)
+        partial_scheduler = hydra.utils.instantiate(self.config.scheduler)
+        optimizer = partial_optimizer(self.trainer.model.parameters())
+        scheduler = partial_scheduler(optimizer=optimizer)
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "interval": "step",
+                "name": "AlphaFold3LRScheduler"
+                # "frequency": 1,
+            },
+        }
 
     def on_load_checkpoint(self, checkpoint: Dict[str, Any]):
         """Lightning hook that is called when loading a checkpoint."""
@@ -322,5 +278,18 @@ class ProteusLitModule(LightningModule):
         checkpoint["ema"] = self.ema.state_dict()
 
 
-if __name__ == "__main__":
-    _ = ProteusLitModule(None, None, None, None)
+def reshape_features(batch):
+    """Temporary function that converts the features in the
+    batch to the correct shapes for the model. Assumes only 4 backbone atoms per residue."""
+    bs, n_res, _, n_cycle = batch["ref_mask"].shape
+    batch["all_atom_positions"] = batch["all_atom_positions"].reshape(-1, n_res * 4, 3, n_cycle)
+    batch["ref_pos"] = batch["ref_pos"].reshape(-1, n_res * 4, 3, n_cycle)
+    batch["ref_mask"] = batch["ref_mask"].reshape(-1, n_res * 4, n_cycle)
+    batch["ref_element"] = batch["ref_element"].reshape(-1, n_res * 4, 4, n_cycle)
+    batch["ref_charge"] = batch["ref_charge"].reshape(-1, n_res * 4, n_cycle)
+    batch["ref_atom_name_chars"] = batch["ref_atom_name_chars"].reshape(-1, n_res * 4, 4, n_cycle)
+    batch["ref_space_uid"] = batch["ref_space_uid"].reshape(-1, n_res * 4, n_cycle)
+    batch["atom_to_token"] = batch["atom_to_token"].reshape(-1, n_res * 4, n_cycle)
+    batch["atom_exists"] = batch["atom_exists"].reshape(-1, n_res * 4, n_cycle)
+    batch["atom_mask"] = batch["atom_mask"].reshape(-1, n_res * 4, n_cycle)
+    return batch

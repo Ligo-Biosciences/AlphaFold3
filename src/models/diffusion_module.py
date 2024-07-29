@@ -45,7 +45,7 @@ class DiffusionModule(torch.nn.Module):
             p: float = 7.0,
             clear_cache_between_blocks: bool = False,
             blocks_per_ckpt: int = 1,
-            compile_model: bool = True,
+            compile_model: bool = False,
     ):
         super(DiffusionModule, self).__init__()
         self.c_atom = c_atom
@@ -329,7 +329,7 @@ class DiffusionModule(torch.nn.Module):
                     "atom_to_token" ([*, N_atoms]):
                         Token index for each atom in the flat atom representation.
                     "residue_index" ([*, N_tokens]):
-                        Residue number in the token’s original x chain.
+                        Residue number in the token’s original input chain.
                     "token_index" ([*, N_tokens]):
                         Token number. Increases monotonically; does not restart at 1
                         for new chains.
@@ -372,7 +372,12 @@ class DiffusionModule(torch.nn.Module):
         # Create samples_per_trunk noisy versions of the ground truth atoms
         timesteps = sample_noise_level((exp_batch_size, 1), device=device, dtype=dtype)
         ground_truth_atoms = Vec3Array.from_array(ground_truth_atoms)
-        noisy_atoms = noise_positions(ground_truth_atoms, timesteps)
+
+        # Randomly rotate each replica of the ground truth atoms
+        aug_gt_atoms = centre_random_augmentation(ground_truth_atoms)
+
+        # Noise the ground truth atoms
+        noisy_atoms = noise_positions(aug_gt_atoms, timesteps)
 
         # Run the denoising step
         denoised_atoms = self.forward(
