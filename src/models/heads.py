@@ -176,10 +176,10 @@ class ConfidenceHead(nn.Module):
         logits_plddt = self.linear_plddt(s)
 
         output = {
-            "logits_plddt": logits_plddt,  # (bs, n_tokens, no_bins_plddt)
-            "logits_pae": logits_pae,  # (bs, n_tokens, n_tokens, no_bins_pae)
-            "logits_pde": logits_pde,  # (bs, n_tokens, no_bins_pde)
-            "logits_p_resolved": logits_p_resolved  # (bs, n_tokens, 2)
+            "plddt_logits": logits_plddt,  # (bs, n_tokens, no_bins_plddt)
+            "pae_logits": logits_pae,  # (bs, n_tokens, n_tokens, no_bins_pae)
+            "pde_logits": logits_pde,  # (bs, n_tokens, no_bins_pde)
+            "experimentally_resolved_logits": logits_p_resolved  # (bs, n_tokens, 2)
         }
 
         return output

@@ -57,9 +57,9 @@ def make_data_config(
 ) -> Tuple[ml_collections.ConfigDict, List[str]]:
     cfg = copy.deepcopy(config)
     mode_cfg = cfg[mode]
-    with cfg.unlocked():
-        if mode_cfg.crop_size is None:
-            mode_cfg.crop_size = num_res
+    # with cfg.unlocked():
+    if mode_cfg.crop_size is None:
+        mode_cfg.crop_size = num_res
 
     feature_names = cfg.common.unsupervised_features
 

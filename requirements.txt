@@ -10,6 +10,7 @@ torchmetrics~=1.3.0.post0
 
 # --------- deepspeed --------- #
 deepspeed  # works in Colab
+# flash-attn~=2.6.3
 
 # --------- hydra --------- #
 hydra-core

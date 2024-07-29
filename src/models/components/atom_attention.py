@@ -496,7 +496,7 @@ class AtomAttentionEncoder(nn.Module):
             noisy_pos:
                 [*, n_atoms, 3] the noisy atom positions
         """
-        batch_size, n_atoms, _ = features['ref_pos'].size()
+        batch_size, n_atoms, _ = features['ref_pos'].shape
 
         # Embed atom metadata
         atom_single_conditioning = self.linear_atom_embedding(
@@ -505,7 +505,7 @@ class AtomAttentionEncoder(nn.Module):
                  features['ref_charge'].unsqueeze(-1),
                  features['ref_mask'].unsqueeze(-1),
                  features['ref_element'],
-                 features['ref_atom_name_chars'].reshape(batch_size, n_atoms, 4 * 64)],
+                 features['ref_atom_name_chars'].reshape(batch_size, n_atoms, 4)],  # * 64
                 dim=2
             )
         )

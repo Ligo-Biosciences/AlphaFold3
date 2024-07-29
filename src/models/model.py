@@ -8,7 +8,7 @@ from src.models.msa_module import MSAModule
 from src.models.diffusion_module import DiffusionModule
 from src.models.heads import DistogramHead, ConfidenceHead
 from src.models.components.primitives import LinearNoBias, LayerNorm
-from src.utils.tensor_utils import add
+from src.utils.tensor_utils import add, tensor_tree_map
 from typing import Tuple, Dict
 
 
@@ -146,20 +146,23 @@ class AlphaFold3(nn.Module):
         return s, z
 
     def _disable_activation_checkpointing(self):
-        self.template_embedder.template_pair_stack.blocks_per_ckpt = None
-        self.paiformer.blocks_per_ckpt = None
+        # self.template_embedder.template_pair_stack.blocks_per_ckpt = None
+        self.pairformer.blocks_per_ckpt = None
         self.msa_module.blocks_per_ckpt = None
+        self.diffusion_module.blocks_per_ckpt = None
 
     def _enable_activation_checkpointing(self):
-        self.template_embedder.template_pair_stack.blocks_per_ckpt = (
-            self.config.template.template_pair_stack.blocks_per_ckpt
-        )
+        # self.template_embedder.template_pair_stack.blocks_per_ckpt = (
+        #    self.config.template.template_pair_stack.blocks_per_ckpt
+        # )
         self.pairformer.blocks_per_ckpt = (
             self.config.pairformer_stack.blocks_per_ckpt
         )
-
         self.msa_module.blocks_per_ckpt = (
             self.config.msa_module.blocks_per_ckpt
+        )
+        self.diffusion_module.blocks_per_ckpt = (
+            self.config.diffusion_module.blocks_per_ckpt
         )
 
     def run_confidence_head(
@@ -181,9 +184,9 @@ class AlphaFold3(nn.Module):
         z_trunk = z_trunk.detach()
 
         # Gather representative atoms for the confidence head
-        batch_indices = torch.arange(batch_size).unsqueeze(1).expand(batch_size, n_tokens)
+        batch_indices = torch.arange(batch_size).reshape(batch_size, 1)
         token_repr_atom_indices = batch["token_repr_atom"]
-        representative_atoms = atom_positions[batch_indices, token_repr_atom_indices]
+        representative_atoms = atom_positions[batch_indices, token_repr_atom_indices, :]
 
         # Compute masks for the confidence head
         single_mask = batch["token_mask"]  # [bs, N_token]
@@ -203,7 +206,7 @@ class AlphaFold3(nn.Module):
         )
         return confidences
 
-    def forward(self, batch, training: bool = True) -> Dict[str, Tensor]:
+    def forward(self, batch, train: bool = True) -> Dict[str, Tensor]:
         """
         Args:
             batch:
@@ -277,23 +280,27 @@ class AlphaFold3(nn.Module):
                 # Training time features
                 "all_atom_positions" ([*, N_atoms, 3]):
                     Ground truth atom positions in Å.
-                "all_atom_mask" ([*, N_atoms]):
+                "atom_mask" ([*, N_atoms]):
                     Mask indicating which atom slots are used in the ground truth structure.
-                "all_atom_exists" ([*, N_atoms, 3]):
+                "atom_exists" ([*, N_atoms, 3]):
                     Mask indicating which atom slots exist in the ground truth structure.
-            training:
+            train:
                 Whether the model is in training mode.
         """
+
         # Extract number of recycles
         n_cycle = batch['msa_feat'].shape[-1]
 
         # Controls whether the model uses in-place operations throughout
         # The dual condition accounts for activation checkpoints
-        inplace_safe = not (training or torch.is_grad_enabled())
+        inplace_safe = not (train or torch.is_grad_enabled())
+
+        # Extract features without the recycling dimension
+        feats = tensor_tree_map(lambda t: t[..., -1], batch)
 
         # Embed input features: relpos encoding, token_bonds etc.
         s_inputs, s_init, z_init = self.input_embedder(
-            batch,
+            feats,
             inplace_safe=inplace_safe,
             use_flash=self.globals.use_flash
         )
@@ -304,17 +311,11 @@ class AlphaFold3(nn.Module):
         s_prev = s_init.new_zeros(s_init.shape)  # torch.zeros_like(s_init)
         z_prev = z_init.new_zeros(z_init.shape)  # torch.zeros_like(z_init)
 
-        def get_recycling_features(index):
-            """Convenience method that extracts the MSA features given the recycling index."""
-            recycling_dict = {}
-            for key, tensor in batch.items():
-                recycling_dict[key] = tensor[..., index]
-            return recycling_dict
-
         # Main recycling loop
         for cycle_no in range(n_cycle):
             # Select the features for the current recycling cycle
-            feats = get_recycling_features(cycle_no)
+            feats = tensor_tree_map(lambda t: t[..., cycle_no], batch)  # Remove recycling dimension
+            # feats = get_recycling_features(cycle_no)
 
             # Enable grad if we're training, and it's the final recycling layer
             is_final_iter = cycle_no == (n_cycle - 1)
@@ -338,6 +339,9 @@ class AlphaFold3(nn.Module):
                     s_prev = s
                     z_prev = z
 
+        # Remove the recycling dimension from the batch
+        batch = tensor_tree_map(lambda t: t[..., -1], batch)
+
         # Output dictionary
         outputs = {}
 
@@ -347,13 +351,11 @@ class AlphaFold3(nn.Module):
 
         # Run the diffusion module
         n_steps = 200
-        rollout_samples_per_trunk = self.globals.samples_per_trunk
-        if training:
+        if train:
             n_steps = 20  # Mini roll-out for training
-            rollout_samples_per_trunk = 1  # only do a single rollout sample per trunk during training
 
             # Run the diffusion module once for denoising during training
-            denoised_atoms = self.diffusion_module.training(
+            denoised_atoms, timesteps = self.diffusion_module.train_step(
                 ground_truth_atoms=batch["all_atom_positions"],
                 features=batch,
                 s_inputs=s_inputs,
@@ -362,8 +364,10 @@ class AlphaFold3(nn.Module):
                 samples_per_trunk=self.globals.samples_per_trunk,
                 use_flash=self.globals.use_flash,
             )
-            # Add the denoised atoms to the output dictionary
-            outputs["denoised_atoms"] = denoised_atoms
+            # Add the denoised atoms and timesteps to the output dictionary
+            # for loss calculation
+            outputs["denoised_atoms"] = denoised_atoms  # (bs * samples_per_trunk, n_atoms, 3)
+            outputs["timesteps"] = timesteps  # (bs * samples_per_trunk, 1)
 
         # Diffusion roll-out
         sampled_positions = self.diffusion_module.sample(
@@ -372,23 +376,24 @@ class AlphaFold3(nn.Module):
             s_trunk=s,
             z_trunk=z,
             n_steps=n_steps,
-            samples_per_trunk=rollout_samples_per_trunk,
+            samples_per_trunk=self.globals.rollout_samples_per_trunk,
             use_flash=self.globals.use_flash
         )
         outputs["sampled_positions"] = sampled_positions
 
         # Run heads
-        outputs["logits_distogram"] = self.distogram_head.forward(z)
+        outputs["distogram_logits"] = self.distogram_head.forward(z)
 
-        # Run confidence head with stop-gradient
-        confidences = self.run_confidence_head(
-            batch=batch,
-            atom_positions=sampled_positions,
-            s_inputs=s_inputs,
-            s_trunk=s,
-            z_trunk=z,
-            inplace_safe=inplace_safe
-        )
+        # Run confidence head with stop-gradient  # TODO: there is a bug in the confidence head
+        # confidences = self.run_confidence_head(
+        #    batch=batch,
+        #    atom_positions=sampled_positions,
+        #    s_inputs=s_inputs,
+        #    s_trunk=s,
+        #    z_trunk=z,
+        #    inplace_safe=inplace_safe
+        # )
         # update the outputs dictionary with the confidence head outputs
-        outputs.update(confidences)
+        # outputs.update(confidences)
         return outputs
+

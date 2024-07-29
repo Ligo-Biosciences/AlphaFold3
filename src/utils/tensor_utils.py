@@ -25,9 +25,9 @@ def add(m1, m2, inplace):
     # The first operation in a checkpoint can'timesteps be in-place, but it's
     # nice to have in-place addition during inference. Thus...
     if not inplace:
-        m1 = m1 + m2
+        m1 = torch.add(m1, m2)
     else:
-        m1 += m2
+        m1.add_(m2.expand_as(m1))  # expand for proper broadcasting
 
     return m1
 

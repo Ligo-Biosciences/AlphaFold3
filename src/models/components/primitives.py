@@ -515,9 +515,9 @@ class Attention(nn.Module):
         v = self.linear_v(kv_x)
 
         # [*, H, Q/K, C_hidden]
-        q = q.transpose(-2, -3)
-        k = k.transpose(-2, -3)
-        v = v.transpose(-2, -3)
+        # q = q.transpose(-2, -3)
+        # k = k.transpose(-2, -3)
+        # v = v.transpose(-2, -3)
 
         if apply_scale:
             q /= math.sqrt(self.c_hidden)
@@ -598,6 +598,7 @@ class Attention(nn.Module):
             if len(biases) > 1:
                 raise ValueError(
                     "If use_flash is True, you may only provide one bias term")
+
             o = _flash_attn_bias(q, k, v, biases[0], window_size=window_size)
         else:
             o = _attention(q, k, v, biases)
@@ -644,11 +645,11 @@ def _deepspeed_evo_attn(
         return x
 
     # [*, Q/K, H, C_hidden]
-    q = q.transpose(-2, -3)
-    k = k.transpose(-2, -3)
-    v = v.transpose(-2, -3)
+    # q = q.transpose(-2, -3)
+    # k = k.transpose(-2, -3)
+    # v = v.transpose(-2, -3)
 
-    # Reshape tensors to match expected x shape [B, N, Q/K, H, C_hidden]
+    # Reshape tensors to match expected input shape [B, N, Q/K, H, C_hidden]
     # for DS4Sci_EvoformerAttention() by adding or flattening batch dims as needed.
     orig_shape = q.shape
     if len(orig_shape[:-3]) != 2:

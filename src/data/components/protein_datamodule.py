@@ -64,7 +64,6 @@ class Cropper(nn.Module):
          - 'chain_id': a sampled chain index,
          - 'chain_dict': a dictionary of chain ids (keys are chain ids, e.g. `'A'`, values are the indices
                            used in `'chain_id'` and `'chain_encoding_all'` objects)
-        TODO: implement spatial cropping
         """
         n_res = protein_dict['residue_idx'].shape[0]
         n = max(n_res - self.crop_size, 1)
@@ -141,71 +140,79 @@ class AF3Featurizer(nn.Module):
                     "sym_id":
                         [N_tokens] Unique integer within chains of this sequence. E.g. if chains
                         A, B and C share a sequence but D does not, their sym_ids would be [0, 1, 2, 0]
-                    "ref_pos":
-                        [N_atoms, 3] atom positions in the reference conformers, with
-                        a random rotation and translation applied. Atom positions in Angstroms.
-                    "ref_mask":
-                        [N_atoms] Mask indicating which atom slots are used in the reference
-                        conformer.
-                    "ref_element":
+                    "ref_pos": ([N_res, 4, 3])
+                        atom positions in the reference conformers, with a random rotation and
+                        translation applied. Atom positions in Angstroms.
+                    "ref_mask": ([N_res, 4])
+                        Mask indicating which atom slots are used in the reference conformer.
+                    "ref_element": ([N_res, 4, 4])
                         [N_atoms, 128] One-hot encoding of the element atomic number for each atom
                         in the reference conformer, up to atomic number 128.
-                    "ref_charge":
+                    "ref_charge": ([N_res, 4])
                         [N_atoms] Charge for each atom in the reference conformer.
-                    "ref_atom_name_chars":
-                        [N_atom, 4, 64] One-hot encoding of the unique atom names in the reference
+                    "ref_atom_name_chars": ([N_atom, 4, 64])
+                        One-hot encoding of the unique atom names in the reference
                         conformer. Each character is encoded as ord(c - 32), and names are padded to
                         length 4.
-                    "ref_space_uid":
+                    "ref_space_uid" ([N_res, 4]):
                         [N_atoms] Numerical encoding of the chain id and residue index associated
                         with this reference conformer. Each (chain id, residue index) tuple is assigned
                         an integer on first appearance.
-                    "atom_to_token":
+                    "atom_to_token": ([N_res, 4])
                         [N_atoms] Token index for each atom in the flat atom representation.
-            "atom_positions":
-                [N_atoms, 3] ground truth atom positions in Angstroms.
-            "atom_exists":
-                [N_atoms] binary mask for atoms, whether atom exists, used for loss masking
-            "token_mask":
-                [n_tokens] Mask indicating which tokens are non-padding tokens
-            "atom_mask":
-                [N_atoms] Mask indicating which atoms are non-padding atoms
-        TODO: this should return a dictionary of dictionaries, where batch["features"] returns the actual AF3 features
-         and the rest of the keys are for masks, ground truth atom positions, etc. This way, there is no danger of
-         information leakage and everything is more organized.
+            "all_atom_positions": ([N_res, 4, 3])
+                ground truth atom positions in Angstroms.
+            "all_atom_mask": ([N_res, 4])
+                Mask indicating which atom slots are used in the ground truth atom positions.
+            "token_mask" ([N_res]):
+                Mask indicating which tokens are non-padding tokens
+            "atom_mask": ([N_res, 4])
+                Mask indicating which atoms are non-padding atoms
         """
         total_L = protein_dict["residue_idx"].shape[0]  # crop_size
 
         af3_features = {
+            "aatype": protein_dict['S'],
             "residue_index": protein_dict["residue_idx"],  # int
             "token_index": torch.arange(total_L),  # dtype=torch.float32
             "asym_id": torch.zeros((total_L,)),  # int
             "entity_id": torch.zeros((total_L,)),  # int
             "sym_id": torch.zeros((total_L,)),  # , dtype=torch.float32
             "ref_pos": AF3Featurizer.compute_ref_residue_conformers('ALA', n_res=total_L),
-            "ref_mask": torch.ones((total_L * 4,)),  # , dtype=torch.float32
-            "ref_element": F.one_hot(torch.tensor([7, 6, 6, 8]).unsqueeze(0).expand(total_L, 4).reshape(total_L * 4),
-                                     num_classes=128),  # N, C, C, O  atoms repeating in 4s for each residue
-            "ref_charge": torch.zeros((total_L * 4,)),  # , dtype=torch.float32
-            "ref_atom_name_chars": AF3Featurizer.compute_atom_name_chars(
-                ["N", "CA", "C", "O"]).unsqueeze(0).expand(total_L, 4, 4, 64).reshape(total_L * 4, 4, 64),
-            "ref_space_uid": protein_dict["residue_idx"].unsqueeze(-1).expand(total_L, 4).reshape(total_L * 4),
-            "atom_to_token": torch.arange(total_L).unsqueeze(-1).expand(total_L, 4).reshape(total_L * 4).long(),
+            "ref_mask": torch.ones((total_L, 4)),  # , dtype=torch.float32
+            "ref_element": F.one_hot(torch.tensor([0, 1, 1, 2]).unsqueeze(0).expand(total_L, 4),
+                                     num_classes=4),  # N, C, C, O  atoms repeating in 4s for each residue
+            "ref_charge": torch.zeros((total_L, 4)),  # , dtype=torch.float32
+            "ref_atom_name_chars": F.one_hot(torch.tensor([0, 1, 2, 3]).unsqueeze(0).expand(total_L, 4),
+                                             num_classes=4),  # each atom name gets a unique one-hot encoding
+            # AF3Featurizer.compute_atom_name_chars(
+            # ["N", "CA", "C", "O"]).unsqueeze(0).expand(total_L, 4, 4, 64).reshape(total_L * 4, 4, 64),
+            "ref_space_uid": protein_dict["residue_idx"].unsqueeze(-1).expand(total_L, 4),  # .reshape(total_L * 4),
+            "atom_to_token": torch.arange(total_L).unsqueeze(-1).expand(total_L, 4).long(),  # reshape(total_L * 4)
+            "msa_feat": torch.randn((128, total_L, 49)),
+            "msa_mask": torch.ones((128, total_L)),
+            "token_repr_atom": (torch.arange(total_L) * 4 + 1).long(),  # indices of the CA atoms
         }
 
         # Compute masks
         token_mask = protein_dict["token_mask"]
-        atom_mask = token_mask.unsqueeze(-1).expand(total_L, 4).reshape(total_L * 4)
+        atom_mask = token_mask.unsqueeze(-1).expand(total_L, 4)  # .reshape(total_L * 4)
 
         # Final output dictionary
-        output_dict = {
-            "features": af3_features,
-            "atom_positions": protein_dict["X"].reshape(total_L * 4, 3),  # .float(),
-            "atom_exists": protein_dict["mask"].unsqueeze(-1).expand(total_L, 4).reshape(total_L * 4) * atom_mask,
+        additional_feat = {
+            "all_atom_positions": protein_dict["X"],  # .reshape(total_L * 4, 3),  # .float(),
+            "atom_exists": protein_dict["mask"].unsqueeze(-1).expand(total_L, 4) * atom_mask,  # .reshape(total_L * 4)
             "token_mask": token_mask,
             "atom_mask": atom_mask,
         }
-        return output_dict
+        af3_features.update(additional_feat)
+
+        # Add the recycling dimensions
+        n_cycle = 3
+        for key, item in af3_features.items():
+            new_shape = (*item.shape, n_cycle)
+            af3_features[key] = item.unsqueeze(-1).expand(new_shape)
+        return af3_features
 
     @staticmethod
     def compute_atom_name_chars(atom_names: List[str]) -> torch.Tensor:
@@ -234,9 +241,7 @@ class AF3Featurizer(nn.Module):
         rots = Rot3Array.uniform_random((n_res, 1))
         trans = Vec3Array.randn((n_res, 1))
         res_conformers = rots.apply_to_point(res_conformers) + trans
-
-        # Reshape to (n_atoms, 3) and return
-        return res_conformers.to_tensor().reshape(n_res * 4, 3)
+        return res_conformers.to_tensor()  # (n_res, 4, 3)
 
 
 class ProteinDataModule(LightningDataModule):

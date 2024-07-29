@@ -8,7 +8,7 @@ precision: 'bf16-true' # 'transformer-engine', 'transformer-engine-float16', '16
 # 'bf16-mixed', '32-true',
 
 # DeepSpeedStrategy
-strategy: "fsdp"
+strategy: "ddp_find_unused_parameters_true"  # fsdp
   # _target_: lightning.pytorch.strategies.DeepSpeedStrategy
 
   # ZeRO optimization

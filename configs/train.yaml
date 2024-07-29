@@ -6,8 +6,7 @@ defaults:
   - _self_
   - callbacks: default
   - data: protein
-  - model: proteus
-
+  - model: alphafold3  # proteus
   - logger: wandb  # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
   - trainer: gpu
   - paths: default

@@ -38,18 +38,25 @@ def weighted_rigid_align(
             x *= mask
             x_gt *= mask
 
-        # Find optimal rotation from singular value decomposition
-        U, S, Vh = torch.linalg.svd(compute_covariance_matrix(x_gt.to_tensor(), x.to_tensor()))  # shapes: (bs, 3, 3)
+        # Find optimal rotation from singular value decomposition in float32 precision
+        U, S, Vh = torch.linalg.svd(
+           compute_covariance_matrix(
+               x_gt.to_tensor().float(),
+               x.to_tensor().float()
+           )
+        )  # shapes: (bs, 3, 3)
         R = U @ Vh
 
         # Remove reflection
-        if torch.linalg.det(R) < 0:
-            reflection_matrix = torch.diag((torch.tensor([1, 1, -1], device=U.device, dtype=U.dtype)))
-            reflection_matrix = reflection_matrix.unsqueeze(0).expand_as(R)
-            R = U @ reflection_matrix @ Vh  # (bs, 3, 3)
+        d = torch.sign(torch.linalg.det(R))  # (bs,)
+        reflection_matrix = torch.eye(3, device=U.device, dtype=U.dtype).unsqueeze(0).expand_as(R)  # (bs, 3, 3)
+        reflection_matrix = reflection_matrix.clone()  # avoid a memory issue
+        reflection_matrix[:, 2, 2] = d  # replace the bottom right element with the sign of the determinant
+        R = U @ reflection_matrix @ Vh  # (bs, 3, 3)
 
-        R = Rot3Array.from_array(R)
+        R = Rot3Array.from_array(R).unsqueeze(-1)  # (bs, 1)
 
         # Apply alignment
         x_aligned = R.apply_to_point(x) + mu
         return x_aligned
+

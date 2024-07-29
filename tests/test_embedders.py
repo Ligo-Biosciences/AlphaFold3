@@ -50,8 +50,8 @@ class TestInputEmbedder(unittest.TestCase):
             'ref_pos': torch.randn(self.batch_size, self.n_atoms, 3),
             'ref_charge': torch.randn(self.batch_size, self.n_atoms),
             'ref_mask': torch.ones(self.batch_size, self.n_atoms),
-            'ref_element': torch.randn(self.batch_size, self.n_atoms, 128),
-            'ref_atom_name_chars': torch.randint(0, 2, (self.batch_size, self.n_atoms, 4, 64)),
+            'ref_element': torch.randn(self.batch_size, self.n_atoms, 4),
+            'ref_atom_name_chars': torch.randint(0, 2, (self.batch_size, self.n_atoms, 4)),
             'ref_space_uid': torch.ones((self.batch_size, self.n_atoms)).float(),
             "residue_index": torch.randint(0, self.n_tokens, (self.batch_size, self.n_tokens)),
             "aatype": torch.randint(0, 21, (self.batch_size, self.n_tokens)),
@@ -64,7 +64,7 @@ class TestInputEmbedder(unittest.TestCase):
             'token_mask': torch.randint(0, 2, (self.batch_size, self.n_tokens)),
             'atom_mask': torch.randint(0, 2, (self.batch_size, self.n_atoms))
         }
-        s_inputs, s_init, z_init = self.module(features, use_flash=False)
+        s_inputs, s_init, z_init = self.module(features, use_flash=False, inplace_safe=True)
         self.assertEqual(s_inputs.shape, (self.batch_size, self.n_tokens, self.c_token))
         self.assertEqual(s_init.shape, (self.batch_size, self.n_tokens, self.c_token))
         self.assertEqual(z_init.shape, (self.batch_size, self.n_tokens, self.n_tokens, self.c_z))

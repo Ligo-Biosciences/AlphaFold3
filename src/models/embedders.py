@@ -185,7 +185,7 @@ class InputEmbedder(nn.Module):
             use_flash:
                 whether to use Flash attention within AtomAttentionEncoder.
         """
-        *_, n_tokens, _ = features["token_bonds"].shape
+        *_, n_tokens = features["token_mask"].shape
 
         # Extract masks
         atom_mask = features["atom_mask"]
@@ -204,7 +204,7 @@ class InputEmbedder(nn.Module):
         z_init = add(
             self.linear_proj_i(s_inputs[..., None, :]),
             self.linear_proj_j(s_inputs[..., None, :, :]),
-            inplace=inplace_safe
+            inplace=False  # inplace_safe
         )  # (*, n_tokens, n_tokens, c_trunk_pair)
 
         # Add relative position encoding

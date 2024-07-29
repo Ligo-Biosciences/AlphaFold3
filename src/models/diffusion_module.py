@@ -11,7 +11,7 @@ but with several modifications to make it more amenable to the task. The main ch
 import torch
 from torch import nn
 from torch import Tensor
-from typing import Dict, Optional
+from typing import Dict, Tuple
 from src.models.diffusion_conditioning import DiffusionConditioning
 from src.models.diffusion_transformer import DiffusionTransformer
 from src.models.components.atom_attention import AtomAttentionEncoder, AtomAttentionDecoder
@@ -239,7 +239,7 @@ class DiffusionModule(torch.nn.Module):
 
         # Extract masks
         token_mask = features["token_mask"]  # (bs, n_tokens)
-        atom_mask = features["all_atom_mask"]  # (bs, n_atoms)
+        atom_mask = features["atom_mask"]  # (bs, n_atoms)
 
         # Conditioning
         token_repr, pair_repr = self.diffusion_conditioning(
@@ -291,7 +291,7 @@ class DiffusionModule(torch.nn.Module):
         output_pos = self.rescale_with_updates(atom_pos_updates, noisy_atoms, timesteps)
         return output_pos
 
-    def training(
+    def train_step(
             self,
             ground_truth_atoms: Tensor,
             features: Dict[str, Tensor],
@@ -300,7 +300,7 @@ class DiffusionModule(torch.nn.Module):
             z_trunk: Tensor,
             samples_per_trunk: int,
             use_flash: bool = True
-    ) -> Tensor:
+    ) -> Tuple[Tensor, Tensor]:
         """Train step of DiffusionModule.
         Args:
             ground_truth_atoms:
@@ -384,7 +384,7 @@ class DiffusionModule(torch.nn.Module):
             z_trunk=z_trunk,
             use_flash=use_flash
         )
-        return denoised_atoms
+        return denoised_atoms, timesteps
 
     def sample(
             self,
