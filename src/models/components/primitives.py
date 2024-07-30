@@ -40,14 +40,12 @@ if deepspeed_is_installed:
 if ds4s_is_installed:
     from deepspeed.ops.deepspeed4science import DS4Sci_EvoformerAttention
 
+# TODO: use the custom flash attention folder instead of installing it (for pair bias)
 fa_is_installed = importlib.util.find_spec("flash_attn") is not None
 if fa_is_installed:
     from flash_attn.bert_padding import unpad_input
     from flash_attn.flash_attn_interface import flash_attn_varlen_kvpacked_func
     from flash_attn import flash_attn_func
-
-DEFAULT_LMA_Q_CHUNK_SIZE = 1024
-DEFAULT_LMA_KV_CHUNK_SIZE = 4096
 
 
 def _prod(nums):
@@ -304,18 +302,19 @@ def softmax_no_cast(t: torch.Tensor, dim: int = -1) -> torch.Tensor:
 
 # @torch.jit.script
 def _attention(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, biases: List[torch.Tensor]) -> torch.Tensor:
-    """A stock PyTorch attention implementation with optional biases.
-    # TODO: delete this, should not be used in any part of the model.
-    """
+    # [*, H, Q/K, C_hidden]
+    query = query.transpose(-2, -3)
+    key = key.transpose(-2, -3)
+    value = value.transpose(-2, -3)
+
     # [*, H, C_hidden, K]
     key = permute_final_dims(key, (1, 0))
 
     # [*, H, Q, K]
     a = torch.matmul(query, key)
 
-    # Add bias, not inplace to ensure gradients flow through the biases
-    for bias in biases:
-        a = a + bias
+    for b in biases:
+        a = a + b
 
     a = softmax_no_cast(a, -1)
 
@@ -514,11 +513,6 @@ class Attention(nn.Module):
         k = self.linear_k(kv_x)
         v = self.linear_v(kv_x)
 
-        # [*, H, Q/K, C_hidden]
-        # q = q.transpose(-2, -3)
-        # k = k.transpose(-2, -3)
-        # v = v.transpose(-2, -3)
-
         if apply_scale:
             q /= math.sqrt(self.c_hidden)
 
@@ -548,7 +542,6 @@ class Attention(nn.Module):
             q_x: torch.Tensor,
             kv_x: torch.Tensor,
             biases: Optional[List[torch.Tensor]] = None,
-            window_size: Tuple[int, int] = (-1, -1),
             use_deepspeed_evo_attention: bool = False,
             use_flash: bool = False
     ) -> torch.Tensor:
@@ -560,8 +553,6 @@ class Attention(nn.Module):
                 [*, K, C_k] key data
             biases:
                 List of biases that broadcast to [*, H, Q, K]
-            window_size:
-                window size parameters for sliding window local attention
             use_deepspeed_evo_attention:
                 Whether to use DeepSpeed memory-efficient attention kernel.
                 If none of the "use_<...>" flags are True, a stock PyTorch
@@ -593,13 +584,13 @@ class Attention(nn.Module):
                     "If use_deepspeed_evo_attention is True, you may only "
                     "provide up to two bias terms"
                 )
-            o = _deepspeed_evo_attn(q, k, v, biases)  # _deepspeed_evo_attn(q, k, v, biases)
+            o = _deepspeed_evo_attn(q, k, v, biases)
         elif use_flash:
             if len(biases) > 1:
                 raise ValueError(
                     "If use_flash is True, you may only provide one bias term")
 
-            o = _flash_attn_bias(q, k, v, biases[0], window_size=window_size)
+            o = _flash_attn_bias(q, k, v, biases[0])
         else:
             o = _attention(q, k, v, biases)
             o = o.transpose(-2, -3)
@@ -644,11 +635,6 @@ def _deepspeed_evo_attn(
             return x.reshape(*((x.shape[0], -1) + x.shape[-3:]))
         return x
 
-    # [*, Q/K, H, C_hidden]
-    # q = q.transpose(-2, -3)
-    # k = k.transpose(-2, -3)
-    # v = v.transpose(-2, -3)
-
     # Reshape tensors to match expected input shape [B, N, Q/K, H, C_hidden]
     # for DS4Sci_EvoformerAttention() by adding or flattening batch dims as needed.
     orig_shape = q.shape
@@ -675,45 +661,52 @@ def _deepspeed_evo_attn(
 
 
 def _flash_attn_bias(
-        q, k, v, bias,
+        q, k, v,
+        bias,
+        kv_mask,
         dropout_p=0.0,
-        causal=False,
-        window_size=(-1, -1),
-        alibi_slopes=None,
         deterministic=False
 ):
-    """Flash attention with gradient-supported bias. Also implements sliding window attention.
-    If window_size != (-1, -1), implements sliding window local attention. Query at position i
-    will only attend to keys between
-    [i + seqlen_k - seqlen_q - window_size[0], i + seqlen_k - seqlen_q + window_size[1]] inclusive.
-    Placeholder function until bias supported kernel is implemented.
+    """Flash attention with gradient-supported bias.
     Args:
-        q: (batch_size, seqlen, nheads, headdim)
-        k: (batch_size, seqlen, nheads_k, headdim)
-        v: (batch_size, seqlen, nheads_k, headdim)
+        q: (*, seqlen, nheads, headdim)
+        k: (*, seqlen, nheads_k, headdim)
+        v: (*, seqlen, nheads_k, headdim)
+        kv_mask: (*, seqlen)
+        bias: (batch_size, num_heads, seq_len_q, seq_len_k)
         dropout_p: float. Dropout probability.
-        causal: bool. Whether to apply causal attention mask (e.g., for auto-regressive modeling).
-            window_size: (left, right). If not (-1, -1), implements sliding window local attention.
-        alibi_slopes: (nheads,) or (batch_size, nheads), fp32. A bias of
-            (-alibi_slope * |i + seqlen_k - seqlen_q - j|)
-            is added to the attention score of query i and key j.
         deterministic: bool. Whether to use the deterministic implementation of the backward pass,
             which is slightly slower and uses more memory. The forward pass is always deterministic.
     Return:
         out: (batch_size, seqlen, nheads, headdim).
     """
-    if not fa_is_installed:
-        raise ValueError(
-            "_flash_attn_simple requires that FlashAttention be installed"
-        )
+    batch_dims = q.shape[:-3]
+    no_heads, n, c = q.shape[-3:]
+    dtype = q.dtype
+
+    q = q.half()
+    k = k.half()
+    v = v.half()
+    kv_mask = kv_mask.half()
+
+    # [B_flat, N, H, C]
+    q = q.reshape(-1, *q.shape[-3:])
+    k = k.reshape(-1, *k.shape[-3:])
+    v = v.reshape(-1, *v.shape[-3:])
+
+    # Flattened batch size
+    batch_size = q.shape[0]
+
+    q_max_s = n
+    q_cu_seqlens = torch.arange(
+        0, (batch_size + 1) * n, step=n, dtype=torch.int32, device=q.device
+    )
+
     # TODO: add the bias here.
     out = flash_attn_func(
         q, k, v,
         dropout_p=dropout_p,
         softmax_scale=1.0,  # q has been scaled already
-        causal=causal,
-        window_size=window_size,
-        alibi_slopes=alibi_slopes,
         deterministic=deterministic
     )
     return out

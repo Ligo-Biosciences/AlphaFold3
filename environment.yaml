@@ -24,19 +24,44 @@ dependencies:
   - python=3.10
   - pytorch=2.*
   - torchvision=0.*
-  - lightning=2.*
-  - torchmetrics=0.*
-  - hydra-core=1.*
+  
   - rich=13.*
   - pre-commit=3.*
   - pytest=7.*
-
+  # --------- pytorch --------- #
+  - torch~=2.2.0
+  - torchvision~=0.17.0
+  - lightning=2.*
+  - torchmetrics=0.*
+  # --------- hydra --------- #
+  - hydra-core=1.*
+  - hydra-colorlog
+  - hydra-optuna-sweeper
   # --------- loggers --------- #
-  # - wandb
-  # - neptune-client
-  # - mlflow
-  # - comet-ml
-  # - aim>=3.16.2 # no lower than 3.16.2, see https://github.com/aimhubio/aim/issues/2550
+  - wandb
+  # --------- others --------- #
+  - rootutils~=1.0.7
+  - pre-commit      # hooks for applying linters on commit
+  - rich~=13.7.0
+  - pytest~=8.0.0
+  - tree~=0.2.4
+  - dm-tree~=0.1.8
+  - pandas
+  - p-tqdm
+  - proteinflow~=2.7.0
+  - biopython~=1.79
+  - omegaconf~=2.3.0
+  - setuptools~=68.2.2
+  - numpy~=1.24.4
+  - scipy~=1.12.0
+  - jax~=0.4.23
+  - prettytable
+  - tqdm~=4.66.1
+  - pandas~=2.2.0
+  - ml_collections
+  # --------- base --------- #
+- packaging~=23.2
+- absl-py
 
   - pip>=23
   - pip:

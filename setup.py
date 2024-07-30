@@ -101,10 +101,10 @@ else:
 setup(
     name="src",
     version="0.0.1",
-    description="Describe Your Cool Project",
-    author="",
-    author_email="",
-    url="https://github.com/user/project",
+    description="Open source implementation of DeepMind's AlphaFold3",
+    author="Arda Goreci",
+    author_email="arda@ligo.bio",
+    url="https://github.com/Ligo-Biosciences/AlphaFold3",
     install_requires=["lightning", "hydra-core"],
     packages=find_packages(),
     # use this to customize global commands available in the terminal after installing the package

@@ -66,6 +66,7 @@ class AtomTransformerBlock(nn.Module):
             use_flash: bool = True
     ) -> Tuple[Tensor, Tensor, Tensor]:
         """A single AtomTransformer block with local sequence attention."""
+        # TODO: compute the beta parameter here that will be added to the attention bias
         a = self.atom_attention(
             single_repr=atom_single_repr,
             single_proj=atom_single_proj,
@@ -224,7 +225,7 @@ def gather_token_repr(
             Tensor of shape (batch_size, n_atoms) containing token indices.
 
     Returns:
-    torch.Tensor: Tensor of shape (batch_size, n_atoms, c_token) with gathered token embeddings.
+        Tensor of shape (batch_size, n_atoms, c_token) with gathered token embeddings.
     """
     batch_size, n_atoms = tok_idx.shape
     _, n_tokens, embed_dim = token_repr.shape
