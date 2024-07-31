@@ -38,10 +38,10 @@ proteinflow~=2.7.0
 biopython~=1.79
 omegaconf~=2.3.0
 setuptools~=68.2.2
-numpy~=1.24.4
-scipy~=1.12.0
-jax~=0.4.23
-prettytable
+# numpy~=1.24.4
+# scipy~=1.12.0
+# jax~=0.4.23
+# prettytable
 tqdm~=4.66.1
 pandas~=2.2.0
 ml_collections
