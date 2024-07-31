@@ -60,7 +60,7 @@ class Proteus(nn.Module):
         )
 
         # Diffusion module
-        denoised_atoms, timesteps = self.diffusion_module.train_step(
+        outputs = self.diffusion_module.train_step(
             ground_truth_atoms=gt_atoms,
             features=features,
             s_inputs=s_inputs,
@@ -69,11 +69,6 @@ class Proteus(nn.Module):
             samples_per_trunk=samples_per_trunk,
             use_flash=use_flash
         )
-        # Return the denoised atoms and timesteps
-        outputs = {
-            "denoised_atoms": denoised_atoms,  # (b * samples_per_trunk, n_atoms, 3)
-            "timesteps": timesteps  # (b * samples_per_trunk, 1)
-        }
         return outputs
 
 

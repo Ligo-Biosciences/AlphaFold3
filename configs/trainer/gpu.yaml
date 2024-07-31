@@ -2,9 +2,9 @@ defaults:
   - default
 
 accelerator: gpu
-devices: 1
+devices: 8
 
-precision: '32-true' # 'bf16-true' # 'transformer-engine', 'transformer-engine-float16', '16-true', '16-mixed', 'bf16-true',
+precision: 'bf16-mixed' # 'bf16-true' # 'transformer-engine', 'transformer-engine-float16', '16-true', '16-mixed', 'bf16-true',
 # 'bf16-mixed', '32-true',
 
 # DeepSpeedStrategy
@@ -23,4 +23,4 @@ strategy: "ddp_find_unused_parameters_true"  # fsdp
   # cpu_checkpointing: False
 
 # Gradient accumulation
-accumulate_grad_batches: 4
+accumulate_grad_batches: 1

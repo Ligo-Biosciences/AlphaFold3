@@ -15,7 +15,7 @@ def compute_covariance_matrix(P, Q):
     Returns:
         (bs, 3, 3) tensor of covariance matrices.
     """
-    return torch.matmul(P.transpose(-2, -1), Q)
+    return torch.matmul(P.transpose(-2, -1), Q).float()
 
 
 def weighted_rigid_align(
@@ -27,6 +27,10 @@ def weighted_rigid_align(
     """Performs a weighted alignment of x to x_gt. Warning: ground truth here only refers to the structure
     not being moved, not to be confused with ground truth during training."""
     with torch.no_grad():
+        # Set matmul precision to high
+        original_precision = torch.get_float32_matmul_precision()
+        torch.set_float32_matmul_precision("highest")
+
         # Mean-centre positions
         mu = (x * weights).mean(dim=1, keepdim=True) / weights.mean(dim=1, keepdim=True)
         mu_gt = (x_gt * weights).mean(dim=1, keepdim=True) / weights.mean(dim=1, keepdim=True)
@@ -48,7 +52,7 @@ def weighted_rigid_align(
         R = U @ Vh
 
         # Remove reflection
-        d = torch.sign(torch.linalg.det(R))  # (bs,)
+        d = torch.sign(torch.linalg.det(R.float()))  # (bs,)
         reflection_matrix = torch.eye(3, device=U.device, dtype=U.dtype).unsqueeze(0).expand_as(R)  # (bs, 3, 3)
         reflection_matrix = reflection_matrix.clone()  # avoid a memory issue
         reflection_matrix[:, 2, 2] = d  # replace the bottom right element with the sign of the determinant
@@ -58,5 +62,8 @@ def weighted_rigid_align(
 
         # Apply alignment
         x_aligned = R.apply_to_point(x) + mu
+
+        # Re-set the original precision
+        torch.set_float32_matmul_precision(original_precision)
         return x_aligned
 

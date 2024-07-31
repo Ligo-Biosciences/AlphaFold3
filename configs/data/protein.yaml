@@ -16,7 +16,7 @@ mask_frac: None  # if given, the number of residues to mask is mask_frac times t
 mask_sequential: False  # if True, the masked residues will be neighbors in the sequence; otherwise geometric mask
 mask_whole_chains: False  # if True, the whole chain is masked
 force_binding_sites_frac: 0.15
-batch_size: 12  # The batch size. Defaults to `64`.
+batch_size: 16  # The batch size. Defaults to `64`.
 num_workers: 7  # The number of workers. Defaults to `0`.
 pin_memory: True  # Whether to pin memory.
 debug: false

@@ -247,7 +247,7 @@ class AlphaFold3Loss(nn.Module):
             # ),
             "diffusion_loss": lambda: diffusion_loss(
                 pred_atoms=out["denoised_atoms"],
-                gt_atoms=batch["all_atom_positions"],
+                gt_atoms=out["augmented_gt_atoms"],  # rotated gt atoms from diffusion module
                 timesteps=out["timesteps"],
                 weights=batch["atom_exists"],
                 atom_is_rna=batch["ref_mask"].new_zeros(batch["ref_mask"].shape),  # (bs, n_atoms)

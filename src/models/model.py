@@ -355,7 +355,7 @@ class AlphaFold3(nn.Module):
             n_steps = 20  # Mini roll-out for training
 
             # Run the diffusion module once for denoising during training
-            denoised_atoms, timesteps = self.diffusion_module.train_step(
+            diff_output = self.diffusion_module.train_step(
                 ground_truth_atoms=batch["all_atom_positions"],
                 features=batch,
                 s_inputs=s_inputs,
@@ -364,10 +364,8 @@ class AlphaFold3(nn.Module):
                 samples_per_trunk=self.globals.samples_per_trunk,
                 use_flash=self.globals.use_flash,
             )
-            # Add the denoised atoms and timesteps to the output dictionary
-            # for loss calculation
-            outputs["denoised_atoms"] = denoised_atoms  # (bs * samples_per_trunk, n_atoms, 3)
-            outputs["timesteps"] = timesteps  # (bs * samples_per_trunk, 1)
+            # Add the denoised atoms, timesteps, and augmented gt atoms for loss calculation
+            outputs.update(diff_output)
 
         # Diffusion roll-out
         sampled_positions = self.diffusion_module.sample(

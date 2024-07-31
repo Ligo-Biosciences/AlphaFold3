@@ -300,7 +300,7 @@ class DiffusionModule(torch.nn.Module):
             z_trunk: Tensor,
             samples_per_trunk: int,
             use_flash: bool = True
-    ) -> Tuple[Tensor, Tensor]:
+    ) -> Dict[str, Tensor]:
         """Train step of DiffusionModule.
         Args:
             ground_truth_atoms:
@@ -389,7 +389,12 @@ class DiffusionModule(torch.nn.Module):
             z_trunk=z_trunk,
             use_flash=use_flash
         )
-        return denoised_atoms, timesteps
+        outputs = {
+            "denoised_atoms": denoised_atoms,
+            "timesteps": timesteps,
+            "augmented_gt_atoms": aug_gt_atoms.to_tensor().to(dtype)
+        }
+        return outputs
 
     def sample(
             self,
