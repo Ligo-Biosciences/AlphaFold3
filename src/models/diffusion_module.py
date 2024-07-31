@@ -14,7 +14,7 @@ from torch import Tensor
 from typing import Dict, Tuple
 from src.models.diffusion_conditioning import DiffusionConditioning
 from src.models.diffusion_transformer import DiffusionTransformer
-from src.models.components.atom_attention import AtomAttentionEncoder, AtomAttentionDecoder
+from src.models.components.atom_attention_old import AtomAttentionEncoder, AtomAttentionDecoder
 from src.models.components.primitives import LinearNoBias, LayerNorm
 from src.utils.tensor_utils import tensor_tree_map
 from src.utils.geometry.vector import Vec3Array
@@ -86,7 +86,7 @@ class DiffusionModule(torch.nn.Module):
             n_keys=atom_attention_n_keys,
             trunk_conditioning=True,
             clear_cache_between_blocks=clear_cache_between_blocks,
-            blocks_per_ckpt=blocks_per_ckpt
+            # blocks_per_ckpt=blocks_per_ckpt
         )
 
         # Full self-attention on token level
@@ -115,7 +115,7 @@ class DiffusionModule(torch.nn.Module):
             dropout=dropout,
             n_queries=atom_attention_n_queries,
             n_keys=atom_attention_n_keys,
-            blocks_per_ckpt=blocks_per_ckpt
+            # blocks_per_ckpt=blocks_per_ckpt
         )
         if compile_model:
             self.diffusion_conditioning = torch.compile(self.diffusion_conditioning)
@@ -138,7 +138,7 @@ class DiffusionModule(torch.nn.Module):
             [bs, n_atoms, 3] rescaled noisy atom positions
         """
         denominator = torch.sqrt(torch.add(timesteps ** 2, self.sd_data ** 2))  # (bs, 1)
-        rescaled_noisy = noisy_atoms / denominator.unsqueeze(-1)  # (bs, n_atoms, 3)
+        rescaled_noisy = noisy_atoms / denominator.unsqueeze(-1)  # (bs, n_atoms, 3)  # TODO: this is normally division
         return rescaled_noisy
 
     def rescale_with_updates(
@@ -163,7 +163,6 @@ class DiffusionModule(torch.nn.Module):
             self.sd_data ** 2,
             torch.add(timesteps ** 2, self.sd_data ** 2)
         )
-
         noisy_pos_scale = noisy_pos_scale.unsqueeze(-1)  # (bs, 1, 1)
         r_update_scale = torch.sqrt(noisy_pos_scale) * timesteps.unsqueeze(-1)
         return noisy_atoms * noisy_pos_scale + r_updates * r_update_scale
@@ -261,7 +260,8 @@ class DiffusionModule(torch.nn.Module):
             s_trunk=s_trunk,
             z_trunk=z_trunk,
             noisy_pos=r_noisy,
-            use_flash=use_flash
+            # use_flash=use_flash,
+            mask=atom_mask,
         )
 
         # Full self-attention on token level
@@ -284,7 +284,7 @@ class DiffusionModule(torch.nn.Module):
             atom_pair_skip_repr=atom_encoder_output.atom_pair_skip_repr,  # (bs, n_atoms, n_atoms, c_atom)
             tok_idx=features["atom_to_token"],  # (bs, n_atoms)
             mask=atom_mask,  # (bs, n_atoms)
-            use_flash=use_flash
+            # use_flash=use_flash
         )  # (bs, n_atoms, 3)
 
         # Rescale updates to positions and combine with input positions

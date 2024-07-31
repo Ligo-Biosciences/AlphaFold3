@@ -3,7 +3,7 @@ _target_: src.models.proteus_module.ProteusLitModule
 optimizer:
   _target_: torch.optim.Adam  # deepspeed.ops.adam.FusedAdam
   _partial_: true
-  lr: 0.0018  #  0.0018
+  lr: 0.00018  #  0.0018
   betas:
     - 0.9
     - 0.95
@@ -11,22 +11,16 @@ optimizer:
   weight_decay: 0.0
 
 scheduler:
-  _target_: torch.optim.lr_scheduler.StepLR
+  _target_: src.utils.lr_schedulers.AlphaFoldLRScheduler
   _partial_: true
-  step_size: 50_000
-  gamma: 0.95
-
-#scheduler:
-#  _target_: src.utils.lr_schedulers.AlphaFoldLRScheduler
-#  _partial_: true
-#  last_epoch: -1
-#  verbose: false
-#  base_lr: 0.0  # the starting learning rate
-#  max_lr: 0.0018
-#  warmup_no_steps: 1000
-#  start_decay_after_n_steps: 50_000
-#  decay_every_n_steps: 50_000
-#  decay_factor: 0.95
+  last_epoch: -1
+  verbose: false
+  base_lr: 0.0  # the starting learning rate
+  max_lr: 0.00018
+  warmup_no_steps: 1000
+  start_decay_after_n_steps: 50_000
+  decay_every_n_steps: 50_000
+  decay_factor: 0.95
 
 # Loss configs
 loss:
@@ -86,9 +80,9 @@ matmul_precision: "medium"
 globals:
   chunk_size: null  # 4
   # Use DeepSpeed memory-efficient attention kernel in supported modules.
-  use_deepspeed_evo_attention: true
+  # use_deepspeed_evo_attention: true
   # Use FlashAttention in selected modules.
-  use_flash: true
+  use_flash: false
   samples_per_trunk: 1  # Number of diffusion module replicas per trunk
   rollout_samples_per_trunk: 1  # Number of mini rollouts per trunk
   eps: 0.00000001

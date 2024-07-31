@@ -413,12 +413,14 @@ class AttentionPairBias(nn.Module):
 
         # Mask bias for attention, do not attend to padding tokens
         if mask is not None:
-            mask = (mask[..., None] * mask[..., None, :]).unsqueeze(-1)  # (bs, n_tokens, n_tokens, 1)
-            pair_bias = pair_bias + (mask - 1) * self.inf
+            pair_mask = (mask[..., None] * mask[..., None, :]).unsqueeze(-1)  # (bs, n_tokens, n_tokens, 1)
+            pair_bias = pair_bias + (pair_mask - 1) * self.inf
 
         # TODO: remove this once the flash is fully integrated
+        flash_mask = mask
         if not use_flash:
             pair_bias = pair_bias.permute(0, 3, 1, 2)  # (bs, n_heads, n_tokens, n_tokens)
+            flash_mask = None
 
         # Attention
         output = self.attention(
@@ -426,6 +428,7 @@ class AttentionPairBias(nn.Module):
             kv_x=a,
             biases=[pair_bias],
             use_flash=use_flash,
+            flash_mask=flash_mask,
             window_size=window_size,
         )  # (bs, n_tokens, c_atom)
 
@@ -543,7 +546,9 @@ class Attention(nn.Module):
             kv_x: torch.Tensor,
             biases: Optional[List[torch.Tensor]] = None,
             use_deepspeed_evo_attention: bool = False,
-            use_flash: bool = False
+            use_flash: bool = False,
+            flash_mask: Optional[torch.Tensor] = None,
+            window_size: Tuple[int, int] = (-1, -1),
     ) -> torch.Tensor:
         """
         Args:
@@ -561,6 +566,11 @@ class Attention(nn.Module):
                 Whether to use the Flash Attention kernel. If
                 none of the "use_<...>" flags are True, a stock PyTorch
                 implementation is used instead
+            flash_mask:
+                Mask for flash attention kernel.
+            window_size:
+                If not (-1, -1) and use_flash is True, implements sliding window
+                local attention.
         Returns
             [*, Q, C_q] attention update
         """
@@ -590,7 +600,8 @@ class Attention(nn.Module):
                 raise ValueError(
                     "If use_flash is True, you may only provide one bias term")
 
-            o = _flash_attn_bias(q, k, v, biases[0])
+            # o = _flash_attn_bias(q, k, v, biases[0])
+            o = _flash_attn(q, k, v, flash_mask, window_size=window_size)
         else:
             o = _attention(q, k, v, biases)
             o = o.transpose(-2, -3)
@@ -663,7 +674,7 @@ def _deepspeed_evo_attn(
 def _flash_attn_bias(
         q, k, v,
         bias,
-        kv_mask,
+        # kv_mask,
         dropout_p=0.0,
         deterministic=False
 ):
@@ -680,27 +691,27 @@ def _flash_attn_bias(
     Return:
         out: (batch_size, seqlen, nheads, headdim).
     """
-    batch_dims = q.shape[:-3]
-    no_heads, n, c = q.shape[-3:]
-    dtype = q.dtype
+    # batch_dims = q.shape[:-3]
+    # no_heads, n, c = q.shape[-3:]
+    # dtype = q.dtype
 
-    q = q.half()
-    k = k.half()
-    v = v.half()
-    kv_mask = kv_mask.half()
+    # q = q.half()
+    # k = k.half()
+    # v = v.half()
+    # kv_mask = kv_mask.half()
 
     # [B_flat, N, H, C]
-    q = q.reshape(-1, *q.shape[-3:])
-    k = k.reshape(-1, *k.shape[-3:])
-    v = v.reshape(-1, *v.shape[-3:])
+    # q = q.reshape(-1, *q.shape[-3:])
+    # k = k.reshape(-1, *k.shape[-3:])
+    # v = v.reshape(-1, *v.shape[-3:])
 
     # Flattened batch size
-    batch_size = q.shape[0]
+    # batch_size = q.shape[0]
 
-    q_max_s = n
-    q_cu_seqlens = torch.arange(
-        0, (batch_size + 1) * n, step=n, dtype=torch.int32, device=q.device
-    )
+    # q_max_s = n
+    # q_cu_seqlens = torch.arange(
+    #     0, (batch_size + 1) * n, step=n, dtype=torch.int32, device=q.device
+    # )
 
     # TODO: add the bias here.
     out = flash_attn_func(
@@ -713,9 +724,19 @@ def _flash_attn_bias(
 
 
 @torch.jit.ignore
-def _flash_attn(q, k, v, kv_mask):
+def _flash_attn(q, k, v, kv_mask, window_size=(-1, -1)):
     """
-    TODO: delete this function and switch to the function above.
+    Args:
+        q:
+            (batch, seqlen, nheads, headdim) query tensor
+        k:
+            (batch, seqlen, nheads_k, headdim) key tensor
+        v:
+            (batch, seqlen, nheads_k, headdim) value tensor
+        kv_mask:
+            (batch, seqlen), bool / int, 1 means valid and 0 means not valid.
+        window_size:
+            (left, right). If not (-1, -1), implements sliding window local attention.
     """
     if not fa_is_installed:
         raise ValueError(
@@ -723,7 +744,7 @@ def _flash_attn(q, k, v, kv_mask):
         )
 
     batch_dims = q.shape[:-3]
-    no_heads, n, c = q.shape[-3:]
+    n, no_heads, c = q.shape[-3:]
     dtype = q.dtype
 
     q = q.half()
@@ -732,9 +753,9 @@ def _flash_attn(q, k, v, kv_mask):
     kv_mask = kv_mask.half()
 
     # [*, B, N, H, C]
-    q = q.transpose(-2, -3)
-    k = k.transpose(-2, -3)
-    v = v.transpose(-2, -3)
+    # q = q.transpose(-2, -3)
+    # k = k.transpose(-2, -3)
+    # v = v.transpose(-2, -3)
 
     # [B_flat, N, H, C]
     q = q.reshape(-1, *q.shape[-3:])
@@ -771,6 +792,7 @@ def _flash_attn(q, k, v, kv_mask):
         kv_max_s,
         dropout_p=0.,
         softmax_scale=1.,  # q has been scaled already
+        window_size=window_size,
     )
 
     # [*, B, N, H, C]

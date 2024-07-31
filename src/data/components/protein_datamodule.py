@@ -198,6 +198,10 @@ class AF3Featurizer(nn.Module):
         token_mask = protein_dict["token_mask"]
         atom_mask = token_mask.unsqueeze(-1).expand(total_L, 4)  # .reshape(total_L * 4)
 
+        # atom_to_token should not be zero padded, creates issues
+        #
+        # af3_features["atom_to_token"] = (af3_features["atom_to_token"] + (1 - atom_mask) * (total_L - 1)).long()
+
         # Final output dictionary
         additional_feat = {
             "all_atom_positions": protein_dict["X"],  # .reshape(total_L * 4, 3),  # .float(),

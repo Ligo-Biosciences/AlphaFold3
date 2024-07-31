@@ -3,7 +3,7 @@ import torch
 from torch import Tensor
 from torch import nn
 from torch.nn import functional as F
-from src.models.components.atom_attention import AtomAttentionEncoder
+from src.models.components.atom_attention_old import AtomAttentionEncoder
 from typing import Dict, NamedTuple, Tuple, Optional
 from src.models.components.primitives import LinearNoBias, LayerNorm, Linear
 from src.models.components.relative_position_encoding import RelativePositionEncoding
@@ -108,7 +108,7 @@ class InputFeatureEmbedder(nn.Module):
             [*, N_tokens, c_token] Embedding of the input features.
         """
         # Encode the input features
-        output = self.encoder(features=features, mask=mask, n_tokens=n_tokens, use_flash=use_flash)
+        output = self.encoder(features=features, mask=mask, n_tokens=n_tokens)  # use_flash=use_flash)
         per_token_features = output.token_single  # TODO: add f_profile, and f_deletion_mean
         f_restype = F.one_hot(features["aatype"], num_classes=21).to(per_token_features.dtype)
         per_token_features = per_token_features + self.restype_embedding(f_restype)
