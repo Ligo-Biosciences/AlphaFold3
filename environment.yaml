@@ -26,7 +26,6 @@ dependencies:
   
   - rich=13.*
   - pre-commit=3.*
-  - pytest=7.*
   # --------- pytorch --------- #
   - torch~=2.2.0
   - torchvision~=0.17.0
@@ -35,19 +34,18 @@ dependencies:
   # --------- hydra --------- #
   - hydra-core=1.*
   - hydra-colorlog
-  - hydra-optuna-sweeper
   # --------- loggers --------- #
   - wandb
   # --------- others --------- #
-  - rootutils~=1.0.7
+  - rootutils=1.*
   - pre-commit      # hooks for applying linters on commit
-  - rich~=13.7.0
-  - pytest~=8.0.0
-  - tree~=0.2.4
-  - dm-tree~=0.1.8
+  - rich=13.*
+  - pytest=8.*
+  - tree=0.2.*
+  - dm-tree=0.1.*
   - pandas
   - p-tqdm
-  - proteinflow~=2.7.0
+  - proteinflow=2.7.0
   - biopython~=1.79
   - omegaconf~=2.3.0
   - setuptools~=68.2.2
@@ -57,7 +55,6 @@ dependencies:
   - prettytable
   - tqdm~=4.66.1
   - pandas~=2.2.0
-  - ml_collections
   # --------- base --------- #
   - packaging~=23.2
   - absl-py
