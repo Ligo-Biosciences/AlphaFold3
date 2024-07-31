@@ -4,7 +4,6 @@
 #   all packages
 # - conda allows for installing packages without requiring certain compilers or
 #   libraries to be available in the system, since it installs precompiled binaries
-
 name: myenv
 
 channels:
@@ -60,11 +59,5 @@ dependencies:
   - pandas~=2.2.0
   - ml_collections
   # --------- base --------- #
-- packaging~=23.2
-- absl-py
-
-  - pip>=23
-  - pip:
-      - hydra-optuna-sweeper
-      - hydra-colorlog
-      - rootutils
+  - packaging~=23.2
+  - absl-py
