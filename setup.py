@@ -53,6 +53,18 @@ def get_cuda_bare_metal_version(cuda_dir):
         return raw_output, bare_metal_major, bare_metal_minor
 
 
+# Add this new function to run the setup.py in flash-attn-with-bias
+def run_flash_attn_setup():
+    flash_attn_dir = os.path.join('csrc', 'flash-attn-with-bias')
+    if os.path.exists(os.path.join(flash_attn_dir, 'setup.py')):
+        current_dir = os.getcwd()
+        os.chdir(flash_attn_dir)
+        subprocess.check_call(['python', 'setup.py', 'build_ext', '--inplace'])
+        os.chdir(current_dir)
+    else:
+        print("Warning: setup.py not found in flash-attn-with-bias directory")
+
+
 compute_capabilities = set([
     (3, 7), # K80, e.g.
     (5, 2), # Titan X
@@ -114,18 +126,22 @@ else:
         }
     )]
 
+# Call the function to run flash-attn-with-bias setup
+run_flash_attn_setup()
+
+
 setup(
-    name='openfold',
+    name='alphafold3',
     version='2.0.0',
-    description='A PyTorch reimplementation of DeepMind\'s AlphaFold 2',
-    author='OpenFold Team',
-    author_email='jennifer.wei@omsf.io',
+    description='An open-source implementation of AlphaFold3',
+    author='Arda Goreci',
+    author_email='arda@ligo.bio',
     license='Apache License, Version 2.0',
-    url='https://github.com/aqlaboratory/openfold',
+    url='https://github.com/Ligo-Biosciences/AlphaFold3',
     packages=find_packages(exclude=["tests", "scripts"]),
     include_package_data=True,
     package_data={
-        "openfold": ['utils/kernel/csrc/*'],
+        "src": ['utils/kernel/csrc/*'],
         "": ["resources/stereo_chemical_props.txt"]
     },
     ext_modules=modules,
@@ -137,3 +153,4 @@ setup(
         'Topic :: Scientific/Engineering :: Artificial Intelligence',
     ],
 )
+
