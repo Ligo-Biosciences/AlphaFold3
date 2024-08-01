@@ -138,7 +138,7 @@ setup(
     author_email='arda@ligo.bio',
     license='Apache License, Version 2.0',
     url='https://github.com/Ligo-Biosciences/AlphaFold3',
-    packages=find_packages(exclude=["tests", "scripts"]),
+    packages=find_packages(include=["flash_attn", "flash_attn.*"], exclude=["tests", "scripts"]),
     include_package_data=True,
     package_data={
         "src": ['utils/kernel/csrc/*'],
