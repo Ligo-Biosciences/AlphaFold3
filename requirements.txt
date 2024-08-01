@@ -8,8 +8,9 @@ torchvision~=0.17.0
 lightning~=2.1.4
 torchmetrics~=1.3.0.post0
 
-# --------- deepspeed --------- #
+# --------- kernels --------- #
 deepspeed  # works in Colab
+einops~=0.8.0
 # flash-attn~=2.6.3
 
 # --------- hydra --------- #

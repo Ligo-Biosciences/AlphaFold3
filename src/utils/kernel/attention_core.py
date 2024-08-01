@@ -71,7 +71,7 @@ class AttentionCoreFunction(torch.autograd.Function):
         attn_core_inplace_cuda.backward_(
             attention_logits,
             grad_output.contiguous(),
-            v.contiguous(), # v is implicitly transposed in the kernel
+            v.contiguous(),  # v is implicitly transposed in the kernel
             reduce(mul, attention_logits.shape[:-1]),
             attention_logits.shape[-1],
             grad_output.shape[-1],

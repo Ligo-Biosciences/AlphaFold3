@@ -27,6 +27,7 @@ def _flash_attn(q, k, v, mask, bias, window_size=(-1, -1)):
     v = v.half()
     bias = bias.half()
     mask = mask.bool()  # Ensure mask is boolean
+
     # Reshape inputs
     q = q.reshape(-1, *q.shape[-3:])  # [B_flat, N, H, C]
     k = k.reshape(-1, *k.shape[-3:])

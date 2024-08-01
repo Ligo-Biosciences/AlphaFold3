@@ -40,12 +40,8 @@ if deepspeed_is_installed:
 if ds4s_is_installed:
     from deepspeed.ops.deepspeed4science import DS4Sci_EvoformerAttention
 
-# TODO: use the custom flash attention folder instead of installing it (for pair bias)
-fa_is_installed = importlib.util.find_spec("flash_attn") is not None
-if fa_is_installed:
-    from flash_attn.bert_padding import unpad_input
-    from flash_attn.flash_attn_interface import flash_attn_varlen_kvpacked_func
-    from flash_attn import flash_attn_func
+from flash_attn.bert_padding import unpad_input
+from flash_attn.flash_attn_interface import flash_attn_unpadded_func
 
 
 def _prod(nums):
@@ -397,7 +393,6 @@ class AttentionPairBias(nn.Module):
             single_proj: Optional[torch.Tensor] = None,  # (bs, n_tokens, c_atom)
             pair_repr: torch.Tensor = None,  # (bs, n_tokens, n_tokens, c_pair)
             mask: Optional[torch.Tensor] = None,  # (bs, n_tokens)
-            window_size: Tuple[int, int] = (-1, -1),
             use_flash: bool = True
     ) -> torch.Tensor:
         """Full self-attention at the token-level with pair bias."""
@@ -429,7 +424,6 @@ class AttentionPairBias(nn.Module):
             biases=[pair_bias],
             use_flash=use_flash,
             flash_mask=flash_mask,
-            window_size=window_size,
         )  # (bs, n_tokens, c_atom)
 
         # Output projection (from adaLN-Zero)
@@ -548,7 +542,6 @@ class Attention(nn.Module):
             use_deepspeed_evo_attention: bool = False,
             use_flash: bool = False,
             flash_mask: Optional[torch.Tensor] = None,
-            window_size: Tuple[int, int] = (-1, -1),
     ) -> torch.Tensor:
         """
         Args:
@@ -568,9 +561,6 @@ class Attention(nn.Module):
                 implementation is used instead
             flash_mask:
                 Mask for flash attention kernel.
-            window_size:
-                If not (-1, -1) and use_flash is True, implements sliding window
-                local attention.
         Returns
             [*, Q, C_q] attention update
         """
@@ -601,7 +591,7 @@ class Attention(nn.Module):
                     "If use_flash is True, you may only provide one bias term")
 
             # o = _flash_attn_bias(q, k, v, biases[0])
-            o = _flash_attn(q, k, v, flash_mask, window_size=window_size)
+            o = _flash_attn_w_bias(q, k, v, biases[0], flash_mask)
         else:
             o = _attention(q, k, v, biases)
             o = o.transpose(-2, -3)
@@ -671,60 +661,8 @@ def _deepspeed_evo_attn(
     return o
 
 
-def _flash_attn_bias(
-        q, k, v,
-        bias,
-        # kv_mask,
-        dropout_p=0.0,
-        deterministic=False
-):
-    """Flash attention with gradient-supported bias.
-    Args:
-        q: (*, seqlen, nheads, headdim)
-        k: (*, seqlen, nheads_k, headdim)
-        v: (*, seqlen, nheads_k, headdim)
-        kv_mask: (*, seqlen)
-        bias: (batch_size, num_heads, seq_len_q, seq_len_k)
-        dropout_p: float. Dropout probability.
-        deterministic: bool. Whether to use the deterministic implementation of the backward pass,
-            which is slightly slower and uses more memory. The forward pass is always deterministic.
-    Return:
-        out: (batch_size, seqlen, nheads, headdim).
-    """
-    # batch_dims = q.shape[:-3]
-    # no_heads, n, c = q.shape[-3:]
-    # dtype = q.dtype
-
-    # q = q.half()
-    # k = k.half()
-    # v = v.half()
-    # kv_mask = kv_mask.half()
-
-    # [B_flat, N, H, C]
-    # q = q.reshape(-1, *q.shape[-3:])
-    # k = k.reshape(-1, *k.shape[-3:])
-    # v = v.reshape(-1, *v.shape[-3:])
-
-    # Flattened batch size
-    # batch_size = q.shape[0]
-
-    # q_max_s = n
-    # q_cu_seqlens = torch.arange(
-    #     0, (batch_size + 1) * n, step=n, dtype=torch.int32, device=q.device
-    # )
-
-    # TODO: add the bias here.
-    out = flash_attn_func(
-        q, k, v,
-        dropout_p=dropout_p,
-        softmax_scale=1.0,  # q has been scaled already
-        deterministic=deterministic
-    )
-    return out
-
-
 @torch.jit.ignore
-def _flash_attn(q, k, v, kv_mask, window_size=(-1, -1)):
+def _flash_attn_w_bias(q, k, v, bias, mask):
     """
     Args:
         q:
@@ -733,71 +671,48 @@ def _flash_attn(q, k, v, kv_mask, window_size=(-1, -1)):
             (batch, seqlen, nheads_k, headdim) key tensor
         v:
             (batch, seqlen, nheads_k, headdim) value tensor
-        kv_mask:
+        bias:
+            (*, n_heads, seq_len, seq_len) bias tensor
+        mask:
             (batch, seqlen), bool / int, 1 means valid and 0 means not valid.
-        window_size:
-            (left, right). If not (-1, -1), implements sliding window local attention.
     """
-    if not fa_is_installed:
-        raise ValueError(
-            "_flash_attn requires that FlashAttention be installed"
-        )
-
     batch_dims = q.shape[:-3]
     n, no_heads, c = q.shape[-3:]
     dtype = q.dtype
-
     q = q.half()
     k = k.half()
     v = v.half()
-    kv_mask = kv_mask.half()
+    bias = bias.half()
+    mask = mask.bool()  # Ensure mask is boolean
 
-    # [*, B, N, H, C]
-    # q = q.transpose(-2, -3)
-    # k = k.transpose(-2, -3)
-    # v = v.transpose(-2, -3)
-
-    # [B_flat, N, H, C]
-    q = q.reshape(-1, *q.shape[-3:])
+    # Reshape inputs
+    q = q.reshape(-1, *q.shape[-3:])  # [B_flat, N, H, C]
     k = k.reshape(-1, *k.shape[-3:])
     v = v.reshape(-1, *v.shape[-3:])
 
-    # Flattened batch size
     batch_size = q.shape[0]
+    q = q.reshape(-1, *q.shape[-2:])  # [B_flat * N, H, C]
 
-    # [B_flat * N, H, C]
-    q = q.reshape(-1, *q.shape[-2:])
+    # Create cu_seqlens for the entire batch
+    cu_seqlens_q = torch.arange(0, (batch_size + 1) * n, step=n, dtype=torch.int32, device=q.device)
 
-    q_max_s = n
-    q_cu_seqlens = torch.arange(
-        0, (batch_size + 1) * n, step=n, dtype=torch.int32, device=q.device
-    )
-
-    # [B_flat, N, 2, H, C]
-    kv = torch.stack([k, v], dim=-3)
-    kv_shape = kv.shape
-
-    # [B_flat, N, 2 * H * C]
-    kv = kv.reshape(*kv.shape[:-3], -1)
-
-    kv_unpad, _, kv_cu_seqlens, kv_max_s = unpad_input(kv, kv_mask)
-    kv_unpad = kv_unpad.reshape(-1, *kv_shape[-3:])
-
-    out = flash_attn_varlen_kvpacked_func(
+    # Unpad k and v
+    k_unpad, k_indices, cu_seqlens_k, k_max_s = unpad_input(k, mask)
+    v_unpad, v_indices, cu_seqlens_v, v_max_s = unpad_input(v, mask)
+    out = flash_attn_unpadded_func(
         q,
-        kv_unpad,
-        q_cu_seqlens,
-        kv_cu_seqlens,
-        q_max_s,
-        kv_max_s,
+        k_unpad,
+        v_unpad,
+        cu_seqlens_q,
+        cu_seqlens_k,
+        max_seqlen_q=n,  # q_max_s
+        max_seqlen_k=k_max_s,
+        attn_mask=None,  # We're using unpadded input, so no need for attn_mask
+        attn_bias=bias,
         dropout_p=0.,
         softmax_scale=1.,  # q has been scaled already
-        window_size=window_size,
     )
-
-    # [*, B, N, H, C]
+    # Reshape output
     out = out.reshape(*batch_dims, n, no_heads, c)
-
     out = out.to(dtype=dtype)
-
     return out
