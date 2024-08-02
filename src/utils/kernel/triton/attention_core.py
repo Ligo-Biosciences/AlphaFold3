@@ -55,7 +55,7 @@ def _attention_core(Q, K, V, mask, bias, sm_scale, TMP, Out, stride_qz, stride_q
         # -- compute qk ----
         k = tl.load(k_ptrs + start_n * stride_kn, mask=load_mask, other=0.0)
         qk = tl.zeros([BLOCK_M, BLOCK_N], dtype=tl.float32)
-        qk += tl.dot(q, k, trans_b=True)
+        qk += tl.dot(q, tl.trans(k))  # modified from trans_b=True for triton 3.0
         qk *= sm_scale
 
         qk = tl.where(offs_m[:, None] >= N_CTX, float("-1e20"), qk)

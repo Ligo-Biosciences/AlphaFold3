@@ -1,9 +1,7 @@
 # part of code modified from https://github.com/NVIDIA/apex
 import numbers
-
 import torch
 from torch.nn.parameter import Parameter
-
 from .triton.layer_norm import LayerNormTritonFunc
 
 
