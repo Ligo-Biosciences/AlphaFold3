@@ -3,7 +3,10 @@ The 'sequence-local atom attention' represents the whole structure as a flat lis
 'talk' directly to each other within a certain sequence neighbourhood. e.g. each subset of 32 atoms attends to the
 subset of the nearby 128 atoms (nearby in the sequence space). This gives the network the capacity to learn general
 rules about local atom constellations, independently of the coarse-grained tokenization where each standard residue
-is represented with a single token only."""
+is represented with a single token only.
+TODO: integrate the Triton kernels into this module. The primitives-atom_attention.py integration needs
+ more work.
+"""
 
 import torch
 from torch import Tensor

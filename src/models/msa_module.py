@@ -91,6 +91,7 @@ class MSAPairWeightedAveraging(nn.Module):
                 [*, N_res, N_res] pair mask
         Returns:
             [*, N_seq, N_res, C_m] updated MSA representation
+        TODo: use the optimized triton kernel from FastFold here!
         """
         *_, n_seq, n_res, _ = m.shape
 

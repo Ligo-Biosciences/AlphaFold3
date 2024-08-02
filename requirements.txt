@@ -10,6 +10,7 @@ torchmetrics
 
 # --------- kernels --------- #
 deepspeed  # works in Colab
+triton
 einops~=0.8.0
 # flash-attn~=2.6.3
 

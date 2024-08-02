@@ -212,6 +212,7 @@ class LinearNoBias(Linear):
 
 class LayerNorm(nn.Module):
     # TODO: add elementwise_affine and bias option
+    # TODO: do this with the Fastfold kernel
     def __init__(self, c_in, eps=1e-5):
         super(LayerNorm, self).__init__()
 
@@ -461,6 +462,7 @@ class Attention(nn.Module):
                 Number of attention heads
             gating:
                 Whether the output should be gated using query data
+        TODO: generalize this function to use the triton kernels
         """
         super(Attention, self).__init__()
 
@@ -589,9 +591,9 @@ class Attention(nn.Module):
             if len(biases) > 1:
                 raise ValueError(
                     "If use_flash is True, you may only provide one bias term")
-
+            raise NotImplementedError("FlashAttention not yet implemented.")
             # o = _flash_attn_bias(q, k, v, biases[0])
-            o = _flash_attn_w_bias(q, k, v, biases[0], flash_mask)
+            # o = _flash_attn_w_bias(q, k, v, biases[0], flash_mask)
         else:
             o = _attention(q, k, v, biases)
             o = o.transpose(-2, -3)
