@@ -25,12 +25,12 @@ dependencies:
   - python=3.10
   - packaging>=23.2,<24.0
   - absl-py
+  - pip
 
   # --------- pytorch --------- #
   - pytorch>=2.3.1,<2.4.0
   - torchvision>=0.18,<0.19
   - pytorch-lightning
-  - torchmetrics>=1.4.1,<1.5.0
 
   # --------- kernels --------- #
   - einops>=0.8.0,<0.9.0
@@ -53,6 +53,7 @@ dependencies:
   - pip:
       - deepspeed>=0.14.4,<0.15.0
       - dm-tree>=0.1.8,<0.2.0
+      - torchmetrics
       # --------- hydra --------- #
       - hydra-core>=1.3,<0.1.4.0
       - hydra-optuna-sweeper
