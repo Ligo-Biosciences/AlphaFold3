@@ -4,7 +4,7 @@
 #   all packages
 # - conda allows for installing packages without requiring certain compilers or
 #   libraries to be available in the system, since it installs precompiled binaries
-name: myenv
+name: alphafold
 
 channels:
   - pytorch
@@ -20,17 +20,16 @@ channels:
 # compatibility is usually guaranteed
 
 dependencies:
-  - python=3.10
-  - pytorch=2.*
-  - torchvision=0.*
-  
-  - rich=13.*
-  - pre-commit=3.*
+  # --------- base --------- #
+  - packaging=23.*
+  - absl-py
   # --------- pytorch --------- #
-  - torch~=2.2.0
-  - torchvision~=0.17.0
+  - torch=2.*
   - lightning=2.*
   - torchmetrics=0.*
+  # --------- kernels --------- #
+  - deepspeed=0.14.*  # works in Colab
+  - einops=0.8.*
   # --------- hydra --------- #
   - hydra-core=1.*
   - hydra-colorlog
@@ -46,15 +45,12 @@ dependencies:
   - pandas
   - p-tqdm
   - proteinflow=2.7.0
-  - biopython~=1.79
-  - omegaconf~=2.3.0
-  - setuptools~=68.2.2
-  - numpy~=1.24.4
-  - scipy~=1.12.0
-  - jax~=0.4.23
+  - biopython=1.*
+  - omegaconf=2.3.*
+  - setuptools=68.*
+  - numpy=1.24.*
+  - scipy=1.12.*
+  - jax=0.4.*
   - prettytable
-  - tqdm~=4.66.1
-  - pandas~=2.2.0
-  # --------- base --------- #
-  - packaging~=23.2
-  - absl-py
+  - tqdm=4.*
+  - pandas=2.2.*
