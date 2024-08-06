@@ -3,14 +3,13 @@ packaging~=23.2
 absl-py
 
 # --------- pytorch --------- #
-torch==2.3.1
-torchvision
-lightning
-torchmetrics
+torch~=2.3.1
+torchvision~=0.18
+lightning~=2.3.3
+torchmetrics~=1.4.1
 
 # --------- kernels --------- #
-deepspeed  # works in Colab
-triton
+deepspeed~=0.14.4  # works in Colab
 einops~=0.8.0
 # flash-attn~=2.6.3
 

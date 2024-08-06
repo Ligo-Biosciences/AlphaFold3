@@ -9,6 +9,8 @@ name: alphafold
 channels:
   - pytorch
   - conda-forge
+  - bioconda
+  - adaptyvbio
   - defaults
 
 # it is strongly recommended to specify versions of packages installed through conda
@@ -20,37 +22,50 @@ channels:
 # compatibility is usually guaranteed
 
 dependencies:
-  # --------- base --------- #
-  - packaging=23.*
+  - python
+  - packaging>=23.2,<24.0
   - absl-py
+
   # --------- pytorch --------- #
-  - torch=2.*
-  - lightning=2.*
-  - torchmetrics=0.*
+  - torch>=2.3.1,<2.4.0
+  - torchvision>=0.18,<0.19
+  - lightning>=2.3.3,<2.4.0
+  - torchmetrics>=1.4.1,<1.5.0
+
   # --------- kernels --------- #
-  - deepspeed=0.14.*  # works in Colab
-  - einops=0.8.*
+  - deepspeed>=0.14.4,<0.15.0
+  - einops>=0.8.0,<0.9.0
+
   # --------- hydra --------- #
-  - hydra-core=1.*
+  - hydra-core
   - hydra-colorlog
+  - hydra-optuna-sweeper
+
   # --------- loggers --------- #
   - wandb
+  # - neptune-client
+  # - mlflow
+  # - comet-ml
+  # - aim>=3.16.2
+
   # --------- others --------- #
-  - rootutils=1.*
-  - pre-commit      # hooks for applying linters on commit
-  - rich=13.*
-  - pytest=8.*
-  - tree=0.2.*
-  - dm-tree=0.1.*
+  - rootutils>=1.0.7,<1.1.0
+  - pre-commit
+  - rich>=13.7.0,<13.8.0
+  - pytest>=8.0.0,<8.1.0
+  - tree>=0.2.4,<0.3.0
+  - dm-tree>=0.1.8,<0.2.0
+  # - sh
   - pandas
   - p-tqdm
-  - proteinflow=2.7.0
-  - biopython=1.*
-  - omegaconf=2.3.*
-  - setuptools=68.*
-  - numpy=1.24.*
-  - scipy=1.12.*
-  - jax=0.4.*
-  - prettytable
-  - tqdm=4.*
-  - pandas=2.2.*
+  - proteinflow>=2.7.0,<2.8.0
+  - biopython>=1.79,<1.80
+  - omegaconf>=2.3.0,<2.4.0
+  - setuptools>=68.2.2,<68.3.0
+  # - numpy>=1.24.4,<1.25.0
+  # - scipy>=1.12.0,<1.13.0
+  # - jax>=0.4.23,<0.5.0
+  # - prettytable
+  - tqdm>=4.66.1,<4.67.0
+  - pandas>=2.2.0,<2.3.0
+  - ml_collections
