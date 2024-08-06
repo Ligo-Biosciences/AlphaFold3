@@ -68,8 +68,7 @@ class InputFeatureEmbedder(nn.Module):
             self,
             features: Dict[str, Tensor],
             n_tokens: int,
-            mask: Tensor = None,
-            use_flash: bool = False,
+            mask: Tensor = None
     ) -> Tensor:
         """Forward pass of the input feature embedder.
         Args:
@@ -102,14 +101,12 @@ class InputFeatureEmbedder(nn.Module):
                 number of tokens
             mask:
                 [*, N_atoms] mask indicating which atoms are valid (non-padding).
-            use_flash:
-                Whether to use Flash attention within AtomAttentionEncoder.
         Returns:
             [*, N_tokens, c_token] Embedding of the input features.
         """
         # Encode the input features
-        output = self.encoder(features=features, mask=mask, n_tokens=n_tokens)  # use_flash=use_flash)
-        per_token_features = output.token_single  # TODO: add f_profile, and f_deletion_mean
+        output = self.encoder(features=features, mask=mask, n_tokens=n_tokens)
+        per_token_features = output.token_single.squeeze(-3)  # remove the samples_per_trunk dimension
         f_restype = F.one_hot(features["aatype"], num_classes=21).to(per_token_features.dtype)
         per_token_features = per_token_features + self.restype_embedding(f_restype)
         per_token_features = self.output_ln(per_token_features)
@@ -149,7 +146,6 @@ class InputEmbedder(nn.Module):
             self,
             features: Dict[str, Tensor],
             inplace_safe: bool = False,
-            use_flash: bool = False,
     ) -> Tuple[Tensor, Tensor, Tensor]:
         """
         Args:
@@ -182,8 +178,6 @@ class InputEmbedder(nn.Module):
                         mask indicating which tokens are valid (non-padding).
             inplace_safe:
                 whether to use inplace operations
-            use_flash:
-                whether to use Flash attention within AtomAttentionEncoder.
         """
         *_, n_tokens = features["token_mask"].shape
 
@@ -196,7 +190,6 @@ class InputEmbedder(nn.Module):
             features,
             n_tokens=n_tokens,
             mask=atom_mask,
-            use_flash=use_flash
         )
 
         # Projections

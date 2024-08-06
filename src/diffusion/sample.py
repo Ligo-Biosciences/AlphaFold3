@@ -2,21 +2,20 @@
 from pytorch_lightning import LightningModule
 import torch
 from src.utils.geometry.vector import Vec3Array
-from typing import Tuple, Dict, Sequence
+from typing import Dict, Sequence
 from src.diffusion.augmentation import centre_random_augmentation
 
 
 # Training
 def noise_positions(
-        atom_positions: Vec3Array,  # (bs, n_atoms)
-        noise_levels: torch.Tensor  # (bs, 1)
+        atom_positions: Vec3Array,  # (*, n_atoms)
+        noise_levels: torch.Tensor  # (*, 1)
 ) -> Vec3Array:  # (bs, n_atoms)
     """Sample from the diffusion trajectory with Gaussian noise."""
-    batch_size, n_atoms = atom_positions.shape
     device = atom_positions.x.device
-
     # X = (y + n) where y is clean signal and n ~ N(0, noise_level^2)
-    noised_pos = atom_positions + noise_levels * Vec3Array.randn((batch_size, n_atoms), device)
+    noise = Vec3Array.randn(atom_positions.shape, device)
+    noised_pos = atom_positions + noise_levels * noise
     return noised_pos
 
 

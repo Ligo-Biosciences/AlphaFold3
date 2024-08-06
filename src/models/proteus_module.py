@@ -35,7 +35,7 @@ class Proteus(nn.Module):
             gt_atoms: torch.Tensor,  # (bs, n_atoms)
             features: Dict[str, torch.Tensor],  # input feature dict
             samples_per_trunk: int,
-            use_flash: bool = False,
+            use_deepspeed_evo_attention: bool = False,
     ) -> Dict[str, torch.Tensor]:
         """Perform a forward pass through the model.
         Args:
@@ -45,8 +45,8 @@ class Proteus(nn.Module):
                 input feature dictionary containing the tensors
             samples_per_trunk:
                 Number of samples to per trunk conditioning.
-            use_flash:
-                Whether to use flash attention.
+            use_deepspeed_evo_attention:
+                Whether to use Deepspeed's optimized kernels.
 
         Returns:
             [*, n_atoms] The denoised positions of the atoms
@@ -56,7 +56,7 @@ class Proteus(nn.Module):
 
         # Initial Features
         s_inputs, s_trunk, z_trunk = self.feature_embedder(
-            features, atom_mask=atom_mask, token_mask=token_mask, use_flash=use_flash
+            features, atom_mask=atom_mask, token_mask=token_mask  # use_deepspeed=use_flash
         )
 
         # Diffusion module
@@ -67,7 +67,7 @@ class Proteus(nn.Module):
             s_trunk=s_trunk,
             z_trunk=z_trunk,
             samples_per_trunk=samples_per_trunk,
-            use_flash=use_flash
+            use_deepspeed_evo_attention=use_deepspeed_evo_attention
         )
         return outputs
 

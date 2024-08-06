@@ -80,9 +80,7 @@ matmul_precision: "medium"
 globals:
   chunk_size: null  # 4
   # Use DeepSpeed memory-efficient attention kernel in supported modules.
-  # use_deepspeed_evo_attention: true
-  # Use FlashAttention in selected modules.
-  use_flash: true
-  samples_per_trunk: 8  # Number of diffusion module replicas per trunk
+  use_deepspeed_evo_attention: true
+  samples_per_trunk: 48  # Number of diffusion module replicas per trunk
   rollout_samples_per_trunk: 1  # Number of mini rollouts per trunk
   eps: 0.00000001

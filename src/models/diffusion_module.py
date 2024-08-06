@@ -86,7 +86,6 @@ class DiffusionModule(torch.nn.Module):
             n_keys=atom_attention_n_keys,
             trunk_conditioning=True,
             clear_cache_between_blocks=clear_cache_between_blocks,
-            # blocks_per_ckpt=blocks_per_ckpt
         )
 
         # Full self-attention on token level
@@ -131,14 +130,14 @@ class DiffusionModule(torch.nn.Module):
         """Scales positions to dimensionless vectors with approximately unit variance.
         Args:
             noisy_atoms:
-                [bs, n_atoms, 3] tensor of noisy atom positions
+                [bs, S, n_atoms, 3] tensor of noisy atom positions
             timesteps:
-                [bs, 1] tensor of timesteps
+                [bs, S, 1] tensor of timesteps
         Returns:
-            [bs, n_atoms, 3] rescaled noisy atom positions
+            [bs, S, n_atoms, 3] rescaled noisy atom positions
         """
-        denominator = torch.sqrt(torch.add(timesteps ** 2, self.sd_data ** 2))  # (bs, 1)
-        rescaled_noisy = noisy_atoms / denominator.unsqueeze(-1)  # (bs, n_atoms, 3)  # TODO: this is normally division
+        denominator = torch.sqrt(torch.add(timesteps ** 2, self.sd_data ** 2))  # (bs, S, 1)
+        rescaled_noisy = noisy_atoms / denominator.unsqueeze(-1)  # (bs, S n_atoms, 3)
         return rescaled_noisy
 
     def rescale_with_updates(
@@ -169,20 +168,21 @@ class DiffusionModule(torch.nn.Module):
 
     def forward(
             self,
-            noisy_atoms: Tensor,  # (bs, n_atoms, 3)
+            noisy_atoms: Tensor,  # (bs, S, n_atoms, 3)
             timesteps: Tensor,  # (bs, 1)
             features: Dict[str, Tensor],  # input feature dict
             s_inputs: Tensor,  # (bs, n_tokens, c_token)
             s_trunk: Tensor,  # (bs, n_tokens, c_token)
             z_trunk: Tensor,  # (bs, n_tokens, n_tokens, c_pair)
-            use_flash: bool = True
+            use_deepspeed_evo_attention: bool = True
     ) -> Tensor:
         """Single denoising step that denoises atomic coordinates based on conditioning.
         Args:
             noisy_atoms:
-                tensor of noisy atom positions (bs, n_atoms, 3)
+                [bs, S, n_atoms, 3] tensor of noisy atom positions where S is the
+                samples_per_trunk dimension.
             timesteps:
-                tensor of timesteps (bs, 1)
+                tensor of timesteps (bs, S, 1) where S is the samples_per_trunk dimension.
             features:
                 input feature dictionary containing the tensors:
                     "ref_pos" ([*, N_atoms, 3]):
@@ -207,7 +207,7 @@ class DiffusionModule(torch.nn.Module):
                     "atom_to_token" ([*, N_atoms]):
                         Token index for each atom in the flat atom representation.
                     "residue_index" ([*, N_tokens]):
-                        Residue number in the token’s original x chain.
+                        Residue number in the token’s original input chain.
                     "token_index" ([*, N_tokens]):
                         Token number. Increases monotonically; does not restart at 1
                         for new chains.
@@ -229,8 +229,8 @@ class DiffusionModule(torch.nn.Module):
                 [*, n_tokens, c_token] Single conditioning from Pairformer trunk
             z_trunk:
                 [*, n_tokens, n_tokens, c_pair] Pair conditioning from Pairformer trunk
-            use_flash:
-                Whether to use Flash attention
+            use_deepspeed_evo_attention:
+                Whether to use Deepspeed's optimized kernel for the attention
 
         """
         # Grab data about the inputs
@@ -250,6 +250,7 @@ class DiffusionModule(torch.nn.Module):
             mask=token_mask
         )
 
+        # TODO: from this point on, we should have the samples_per_trunk dimension
         # Scale positions to dimensionless vectors with approximately unit variance
         r_noisy = self.scale_inputs(noisy_atoms, timesteps)
 
@@ -265,13 +266,13 @@ class DiffusionModule(torch.nn.Module):
         )
 
         # Full self-attention on token level
-        token_single = atom_encoder_output.token_single + self.token_proj(token_repr)
+        token_single = atom_encoder_output.token_single + self.token_proj(token_repr).unsqueeze(-3)
         token_single = self.diffusion_transformer(
             single_repr=token_single,
             single_proj=token_repr,
             pair_repr=pair_repr,
             mask=token_mask,
-            use_flash=use_flash
+            use_deepspeed_evo_attention=use_deepspeed_evo_attention
         )
 
         token_single = self.token_post_layer_norm(token_single)
@@ -299,7 +300,7 @@ class DiffusionModule(torch.nn.Module):
             s_trunk: Tensor,
             z_trunk: Tensor,
             samples_per_trunk: int,
-            use_flash: bool = True
+            use_deepspeed_evo_attention: bool = True
     ) -> Dict[str, Tensor]:
         """Train step of DiffusionModule.
         Args:
@@ -354,10 +355,11 @@ class DiffusionModule(torch.nn.Module):
             samples_per_trunk:
                 the number of diffusion samples per trunk embedding.
                 Total samples = batch_size * samples_per_trunk
-            use_flash:
-                Whether to use Flash attention
+            use_deepspeed_evo_attention:
+                Whether to use Deepspeed's Evoformer attention kernels
         """
         # Expand the batch by samples_per_trunk
+        # TODO: not an elegant solution, change to integrate better with the various attention mechanisms
         expand_batch = lambda tensor: tensor.repeat_interleave(samples_per_trunk, dim=0)
         feats = tensor_tree_map(expand_batch, features)
         s_inputs = expand_batch(s_inputs)
@@ -387,7 +389,7 @@ class DiffusionModule(torch.nn.Module):
             s_inputs=s_inputs,
             s_trunk=s_trunk,
             z_trunk=z_trunk,
-            use_flash=use_flash
+            use_deepspeed_evo_attention=use_deepspeed_evo_attention
         )
         outputs = {
             "denoised_atoms": denoised_atoms,
@@ -408,7 +410,7 @@ class DiffusionModule(torch.nn.Module):
             gamma_min: float = 1.0,
             noise_scale: float = 1.003,
             step_scale: float = 1.5,
-            use_flash: bool = False
+            use_deepspeed_evo_attention: bool = False
     ) -> Tensor:
         """Implements SampleDiffusion, Algorithm 18 in AlphaFold3 Supplement.
         Args:
@@ -471,8 +473,8 @@ class DiffusionModule(torch.nn.Module):
                 noise scale. Defaults to value used in the paper.
             step_scale:
                 step scale. Defaults to value used in the paper.
-            use_flash:
-                Whether to use Flash attention.
+            use_deepspeed_evo_attention:
+                Whether to use Deepspeed's Evoformer attention kernel.
         Returns:
             Tensor of shape (bs * samples_per_trunk, n_atoms, 3) containing the sampled
             structures
@@ -524,7 +526,7 @@ class DiffusionModule(torch.nn.Module):
                     s_inputs=s_inputs,
                     s_trunk=s_trunk,
                     z_trunk=z_trunk,
-                    use_flash=use_flash
+                    use_deepspeed_evo_attention=use_deepspeed_evo_attention
                 )
                 # Back to Vec3Array (float32)
                 x_denoised = Vec3Array.from_array(x_denoised)

@@ -70,7 +70,7 @@ class DiffusionConditioning(nn.Module):
     def _forward(
             self,
             timesteps: Tensor,  # timestep (bs, 1)
-            features: Dict[str, Tensor],  # x feature dict
+            features: Dict[str, Tensor],  # input feature dict
             s_inputs: Tensor,  # (bs, n_tokens, c_token)
             s_trunk: Tensor,  # (bs, n_tokens, c_token)
             z_trunk: Tensor,  # (bs, n_tokens, n_tokens, c_pair)

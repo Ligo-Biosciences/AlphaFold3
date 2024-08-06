@@ -6,6 +6,9 @@ rules about local atom constellations, independently of the coarse-grained token
 is represented with a single token only.
 TODO: integrate the Triton kernels into this module. The primitives-atom_attention.py integration needs
  more work.
+
+TODO: this module needs a re-write for clean-up and integrating samples_per_trunk expansion natively into the
+ methods. We can save a lot of compute that way - no need to project linear layers etc. if they are replicas.
 """
 
 import torch
@@ -26,8 +29,8 @@ def partition_tensor(
         n_keys: int = 128,
         pad_value: Optional[float] = None,
 ) -> Tensor:
-    """Partitions the x flat atom tensor into windows of n_keys with a slide stride of n_queries.
-    The x tensor is padded to make the centers of the partitions align with the subset centers in AlphaFold3.
+    """Partitions the input flat atom tensor into windows of n_keys with a slide stride of n_queries.
+    The input tensor is padded to make the centers of the partitions align with the subset centers in AlphaFold3.
     Subset centers = (15.5, 47.5, 79.5, ...)
     """
     # Pad
@@ -129,8 +132,6 @@ class AtomAttentionPairBias(nn.Module):
                 The size of the atom window. Defaults to 32.
             n_keys:
                 Number of atoms each atom attends to in local sequence space. Defaults to 128.
-            c_atom:
-                The number of channels for the atom representation. Defaults to 128.
             c_atompair:
                 The number of channels for the atom pair representation. Defaults to 16.
 
@@ -168,19 +169,20 @@ class AtomAttentionPairBias(nn.Module):
             atom_single_repr: Tensor,  # (bs, n_atoms, c_atom)
             atom_single_proj: Tensor,  # (bs, n_atoms, c_atom)
             atom_pair_local: Tensor,  # (bs, n_atoms, n_atoms, c_atompair)
-            mask: Optional[Tensor] = None
+            mask: Optional[Tensor] = None  # (bs, n_atoms)
     ) -> Tensor:
         """
         Attention mechanism for sequence-local atom attention.
         Args:
             atom_single_repr:
-                atom single representation tensor of shape (bs, n_atoms, c_atom)
+                [bs, n_atoms, c_atom] atom single representation tensor of shape
             atom_single_proj:
-                atom single projection tensor of shape (bs, n_atoms, c_atom)
+                [bs, n_atoms, c_atom] atom single projection tensor of shape
             atom_pair_local:
-                atom pair representation tensor of shape (bs, n_atoms // n_queries, n_queries, n_keys, c_atompair)
+                [bs, n_atoms // n_queries, n_queries, n_keys, c_atompair] atom pair
+                representation tensor
             mask:
-                atom mask tensor of shape (bs, n_atoms)
+                [bs, n_atoms] atom mask tensor of shape
         Returns:
             tensor of shape (bs, n_atoms, c_atom) after sequence-local atom attention
         """
@@ -332,7 +334,7 @@ class AtomTransformer(nn.Module):
             atom_pair_repr: Tensor,
             mask: Optional[Tensor] = None,
     ):
-        """Prepare the x tensors for the AtomTransformerBlock."""
+        """Prepare the input tensors for the AtomTransformerBlock."""
         blocks = [
             partial(
                 block,
@@ -379,12 +381,13 @@ class AtomTransformer(nn.Module):
         blocks_per_ckpt = self.blocks_per_ckpt
         if not torch.is_grad_enabled():
             blocks_per_ckpt = None
-
+        # TODO: record original shape and reshape single and proj
         atom_single_repr, atom_single_proj, atom_pair_local = checkpoint_blocks(
              blocks,
              args=(atom_single_repr, atom_single_proj, atom_pair_local),
              blocks_per_ckpt=blocks_per_ckpt,
         )
+        # TODO: Reshape back
         return atom_single_repr
 
 
@@ -396,13 +399,13 @@ def gather_token_repr(
     Gather token representations based on indices from tok_idx.
 
     Args:
-        token_repr (torch.Tensor):
-            Tensor of shape (batch_size, n_tokens, c_token).
-        tok_idx (torch.Tensor):
-            Tensor of shape (batch_size, n_atoms) containing token indices.
+        token_repr:
+            [batch_size, n_tokens, c_token] token representation
+        tok_idx:
+            [batch_size, n_atoms] token indices.
 
     Returns:
-    torch.Tensor: Tensor of shape (batch_size, n_atoms, c_token) with gathered token embeddings.
+        [batch_size, n_atoms, c_token] with gathered token embeddings.
     """
     batch_size, n_atoms = tok_idx.shape
     _, n_tokens, embed_dim = token_repr.shape
@@ -465,9 +468,9 @@ def aggregate_atom_to_token(
     Aggregates atom representations to token representations.
 
     Args:
-        atom_representation (torch.Tensor):
+        atom_representation:
             The atom representations tensor of shape (bs, n_atoms, c_atom).
-        tok_idx (torch.Tensor):
+        tok_idx:
             The index tensor of shape (bs, n_atoms) indicating which token each atom belongs to.
         n_tokens (int):
             The number of tokens.
@@ -684,7 +687,8 @@ class AtomAttentionEncoder(nn.Module):
             s_trunk:
                 [*, n_tokens, c_token] the token representation from the trunk
             noisy_pos:
-                [*, n_atoms, 3] the noisy atom positions
+                [*, S, n_atoms, 3] the noisy atom positions where S is the
+                samples_per_trunk dimension.
         """
         batch_size, n_atoms, _ = features['ref_pos'].size()
 
@@ -711,8 +715,8 @@ class AtomAttentionEncoder(nn.Module):
                 features['atom_to_token']
             )
 
-            # Add the noisy positions
-            atom_single = atom_single + self.linear_noisy_pos(noisy_pos)
+            # Add the noisy positions with broadcasting
+            atom_single = atom_single.unsqueeze(-3) + self.linear_noisy_pos(noisy_pos)
 
         return atom_single, atom_single_conditioning
 
@@ -722,13 +726,13 @@ class AtomAttentionEncoder(nn.Module):
             n_tokens: int,
             s_trunk: Optional[Tensor] = None,  # (bs, n_tokens, c_token)
             z_trunk: Optional[Tensor] = None,  # (bs, n_tokens, c_trunk_pair)
-            noisy_pos: Optional[Tensor] = None,  # (bs, n_atoms, 3)
+            noisy_pos: Optional[Tensor] = None,  # (bs, S, n_atoms, 3)
             mask: Optional[Tensor] = None,  # (bs, n_atoms)
     ) -> AtomAttentionEncoderOutput:
         """Forward pass for the AtomAttentionEncoder module.
         Args:
             features:
-                Dictionary containing the x features:
+                Dictionary containing the input features:
                     "ref_pos":
                         [*, N_atoms, 3] atom positions in the reference conformers, with
                         a random rotation and translation applied. Atom positions in Angstroms.
@@ -757,7 +761,7 @@ class AtomAttentionEncoder(nn.Module):
             z_trunk:
                 [*, N_tokens, N_tokens, c_pair] pair representation of the Pairformer trunk
             noisy_pos:
-                [*, N_atoms, 3] Tensor containing the noisy positions. Defaults to None.
+                [*, S, N_atoms, 3] Tensor containing the noisy positions. Defaults to None.
             mask:
                 [*, N_atoms]
         Returns:
@@ -772,13 +776,12 @@ class AtomAttentionEncoder(nn.Module):
                     [*, N_atoms // n_queries, n_queries, n_keys, c_atompair] atom pair representation
                     (denoted p_lm in AF3 Supplement)
         """
-
         # Initialize representations
         atom_single, atom_single_conditioning = checkpoint(self.init_single_repr, features, s_trunk, noisy_pos)
         local_atom_pair = checkpoint(self.init_pair_repr, features, atom_single, z_trunk)
 
         # Cross attention transformer
-        atom_single_conditioning = self.atom_transformer(atom_single_conditioning, atom_single, local_atom_pair, mask)
+        atom_single_conditioning = self.atom_transformer(atom_single, atom_single_conditioning, local_atom_pair, mask)
 
         # Aggregate per-atom representation to per-token representation
         token_repr = aggregate_atom_to_token(atom_representation=F.relu(self.linear_output(atom_single_conditioning)),

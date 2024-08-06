@@ -1,39 +1,110 @@
-"""Sequence-local atom attention.
-The 'sequence-local atom attention' represents the whole structure as a flat list of atoms and allows all atoms to
-'talk' directly to each other within a certain sequence neighbourhood. e.g. each subset of 32 atoms attends to the
-subset of the nearby 128 atoms (nearby in the sequence space). This gives the network the capacity to learn general
-rules about local atom constellations, independently of the coarse-grained tokenization where each standard residue
-is represented with a single token only.
-"""
 import torch
 from torch import Tensor
 from torch import nn
 from torch.nn import functional as F
 from typing import Dict, NamedTuple, Optional, Tuple
-from functools import partial
+from src.models.components.primitives import AdaLN, Linear, LinearNoBias, Attention, LayerNorm
 from src.models.components.transition import ConditionedTransitionBlock
-from src.models.components.primitives import LinearNoBias, LayerNorm, AttentionPairBias
+from einops import rearrange
+from functools import partial
 from src.utils.checkpointing import checkpoint_blocks, get_checkpoint_fn
+
 checkpoint = get_checkpoint_fn()
 
 
-class AtomTransformerBlock(nn.Module):
-    """AtomTransformerBlock that applies AttentionPairBias and ConditionedTransitionBlock."""
+def partition_tensor(
+        x: Tensor,  # (*, n_atoms, c)
+        n_queries: int = 32,
+        n_keys: int = 128,
+        pad_value: Optional[float] = None,
+) -> Tensor:
+    """Partitions the input flat atom tensor into windows of n_keys with a slide stride of n_queries.
+    The input tensor is padded to make the centers of the partitions align with the subset centers in AlphaFold3.
+    Subset centers = (15.5, 47.5, 79.5, ...)
+    """
+    # Pad
+    pad = n_keys // 2 - n_queries // 2
+    x = pad_column(x, (pad, pad), mode='constant', value=pad_value)
+
+    # Sliding window along n_atoms dimension
+    windows = x.unfold(dimension=-2, size=n_keys, step=n_queries)
+    return windows.transpose(-1, -2)  # unfold reverses channel dimension, undo this
+
+
+def pad_column(x, pad, mode='constant', value=None) -> Tensor:
+    """Applies padding to the second to last dimension of a tensor."""
+    return F.pad(x.transpose(-1, -2), pad, mode=mode, value=value).transpose(-1, -2)
+
+
+def extract_locals(
+        bias_tensor: Tensor,
+        n_queries: int = 32,
+        n_keys: int = 128,
+        pad_value: Optional[float | int] = -1e4
+) -> Tensor:
+    """Extracts biases etc. that are local in the sequence space. Also pads the local biases with large negative values
+    to mask the gaps during attention computation.
+
+        Args:
+            bias_tensor:
+                A tensor of shape [batch_size, N_atoms, N_atoms, channels].
+            n_queries:
+                The increment between the centers of the partitions.
+            n_keys:
+                The length of the partitions.
+            pad_value:
+                The value to use for padding.
+        Returns:
+            A tensor of shape [batch_size, N_atoms // partition_increment, partition_length, channels].
+    """
+    batch_size, n_atoms, _, channels = bias_tensor.shape
+    # Pad bias tensor column-wise by n_keys // 2 - n_queries // 2 on each side
+    pad = n_keys // 2 - n_queries // 2
+    bias_tensor = pad_column(bias_tensor, (pad, pad), mode='constant', value=pad_value)
+
+    # Compute the number of blocks along the first dimension
+    num_blocks = n_atoms // n_queries
+
+    # Initialize a list to store the result
+    local_biases = []
+
+    # Extract blocks and populate the result tensor
+    for i in range(num_blocks):
+        start_row = i * n_queries
+        end_row = start_row + n_queries
+        # We can stride along columns by n_keys to achieve overlaps
+        start_col = i * n_queries
+        end_col = start_col + n_keys
+
+        local_biases.append(bias_tensor[:, start_row:end_row, start_col:end_col, :])
+    return torch.stack(local_biases, dim=1)
+
+
+class AtomAttentionPairBias(nn.Module):
+    """
+    Implements the sequence-local atom attention with pair bias.
+    This is implemented separately to the attention module that performs full self-attention
+    since sequence-local atom attention requires a memory-efficient implementation.
+    """
 
     def __init__(
             self,
             c_atom: int,
-            c_atompair: int = 16,
-            num_heads: int = 8,
-            dropout=0.0,
+            c_atompair: int,
+            no_heads: int,
+            dropout: float = 0.0,
             n_queries: int = 32,
             n_keys: int = 128,
+            inf: float = 1e8
     ):
-        """Initialize the AtomTransformer module.
+        """
+        Initialize the AtomAttentionPairBias module.
             Args:
                 c_atom:
-                    The number of channels for the atom representation.
-                num_heads:
+                    Total dimension of the model.
+                c_atompair:
+                    The number of channels for the atom pair representation. Defaults to 16.
+                no_heads:
                     Number of parallel attention heads. Note that c_atom will be split across no_heads
                     (i.e. each head will have dimension c_atom // no_heads).
                 dropout:
@@ -42,65 +113,168 @@ class AtomTransformerBlock(nn.Module):
                     The size of the atom window. Defaults to 32.
                 n_keys:
                     Number of atoms each atom attends to in local sequence space. Defaults to 128.
-                c_atom:
-                    The number of channels for the atom representation. Defaults to 128.
-                c_atompair:
-                    The number of channels for the atom pair representation. Defaults to 16.
         """
-        super().__init__()
+        super(AtomAttentionPairBias, self).__init__()
+        self.c_atom = c_atom
+        self.c_atompair = c_atompair
+        self.no_heads = no_heads
+        self.dropout = dropout
         self.n_queries = n_queries
         self.n_keys = n_keys
-        self.atom_attention = AttentionPairBias(dim=c_atom,
-                                                c_pair=c_atompair,
-                                                no_heads=num_heads,
-                                                dropout=dropout,
-                                                input_gating=True)
-        self.transition = ConditionedTransitionBlock(c_atom)
+        self.inf = inf
+
+        # Projections
+        self.ada_ln = AdaLN(c_atom)
+        self.output_proj_linear = Linear(c_atom, c_atom, init='gating')
+        self.output_proj_linear.bias = nn.Parameter(torch.ones(c_atom) * -2.0)  # gate values will be ~0.11
+
+        # Attention
+        self.attention = Attention(
+            c_q=c_atom,
+            c_k=c_atom,
+            c_v=c_atom,
+            c_hidden=c_atom // no_heads,
+            no_heads=no_heads,
+            gating=True
+        )
+
+        # Pair bias
+        self.layer_norm_pair = LayerNorm(self.c_atompair)
+        self.linear_pair = LinearNoBias(self.c_atompair, self.no_heads, init='default')
+
+    def _prep_biases(
+            self,
+            atom_single: Tensor,  # (bs, S, n_atoms, c_atom)
+            atom_pair_local: Tensor,  # (bs, n_atoms // n_queries, n_queries, n_keys, c_atompair)
+            mask: Optional[Tensor] = None,  # (bs, n_atoms)
+    ):
+        """
+        Prepares the mask and pair biases in the shapes expected by the DS4Science attention.
+        Args:
+            atom_single:
+                [bs, S, n_atoms, c_atom] atom single representation where S is the samples per trunk dimension.
+            atom_pair_local:
+                [bs, n_atoms // n_queries, n_queries, n_keys, c_atompair] local atom pair representation tensor.
+                The pair representation is partitioned into n_atoms // n_queries for memory efficiency instead of
+                the full N_atoms x N_atoms
+            mask:
+                [bs, n_atoms] atom mask tensor where 1.0 indicates atom to be attended and
+                0.0 indicates atom not to be attended. The mask is shared across the S dimension.
+
+        Expected shapes for the DS4Science kernel:
+        # Q, K, V: [Batch, N_seq, N_res, Head, Dim]
+        # res_mask: [Batch, N_seq, 1, 1, N_res]
+        # pair_bias: [Batch, 1, Head, N_res, N_res]
+
+        # TODO: with the current implementation of DS4Science kernel, we can only use it if n_queries == n_keys.
+        """
+        # Compute the single mask
+        n_seq, n_atoms, _ = atom_single.shape[-3:]
+        if mask is None:
+            # [*, N_seq, N_atoms]
+            mask = atom_single.new_ones(
+                atom_single.shape[:-3] + (n_seq, n_atoms),
+            )
+        else:
+            # Expand mask by N_seq (or samples per trunk)
+            new_shape = (mask.shape[:-1] + (n_seq, n_atoms))  # (*, N_seq, N_atoms)
+            mask = mask.unsqueeze(-2).expand(new_shape)  # (bs, N_seq, N_atoms)
+
+        # Partition mask,  Target mask shape: [bs, n_atoms // n_queries, S, n_keys]
+        mask = partition_tensor(mask[..., None], self.n_queries, self.n_keys)  # (bs, S, n_atoms // 32, 128, 1)
+        mask = mask.squeeze(-1)  # (bs, S, n_atoms // 32, 128)
+        mask = rearrange(mask, pattern='b s p k -> (b p) s k')
+
+        # [*, N_seq, 1, 1, N_keys]
+        mask_bias = (self.inf * (mask - 1))[..., :, None, None, :]
+
+        # Project pair biases from head representation
+        local_pair_b = self.linear_pair(self.layer_norm_pair(atom_pair_local))
+
+        # [*, 1, Head, N_queries, N_keys]
+        pair_bias = rearrange(local_pair_b, 'b p q k h -> (b p) h q k')
+        pair_bias = pair_bias.unsqueeze(-4)
+        return mask_bias, pair_bias
 
     def forward(
             self,
-            atom_single_repr: Tensor,
-            atom_single_proj: Tensor,
-            atom_pair_repr: Tensor,
-            mask: Optional[Tensor] = None,
-            use_flash: bool = True
-    ) -> Tuple[Tensor, Tensor, Tensor]:
-        """A single AtomTransformer block with local sequence attention."""
-        # TODO: compute the beta parameter here that will be added to the attention bias
-        a = self.atom_attention(
-            single_repr=atom_single_repr,
-            single_proj=atom_single_proj,
-            pair_repr=atom_pair_repr,
-            mask=mask,
-            window_size=(self.n_keys // 2, self.n_keys // 2),
-            use_flash=use_flash
-        )
-        atom_single_repr = a + self.transition(atom_single_repr, atom_single_proj)
-        return atom_single_repr, atom_single_proj, atom_pair_repr
+            atom_single: Tensor,  # (bs, S, n_atoms, c_atom)
+            atom_proj: Tensor,  # (bs, S, n_atoms, c_atom)
+            atom_pair_local: Tensor,  # (bs, n_atoms // n_queries, n_queries, n_keys, c_atompair)
+            mask: Optional[Tensor] = None,  # (bs, n_atoms)
+            use_deepspeed_evo_attention: bool = False,
+    ):
+        """
+        Attention mechanism for sequence-local atom attention.
+        Args:
+            atom_single:
+                [bs, S, n_atoms, c_atom] atom single representation where S is the samples per trunk dimension.
+            atom_proj:
+                [bs, S, n_atoms, c_atom] atom projection representation where S is the samples per trunk dimension.
+            atom_pair_local:
+                [bs, n_atoms // n_queries, n_queries, n_keys, c_atompair] local atom pair representation tensor.
+                The pair representation is partitioned into n_atoms // n_queries for memory efficiency instead of
+                the full N_atoms x N_atoms
+            mask:
+                [bs, n_atoms] atom mask tensor where 1.0 indicates atom to be attended and
+                0.0 indicates atom not to be attended. The mask is shared across the S dimension.
+            use_deepspeed_evo_attention:
+                whether to use Deepspeed's optimized kernel for the attention. It is only usable
+                here if n_queries == n_keys.
+
+        Returns:
+            [bs, S, n_atoms, c_atom] updated atom single representation
+        """
+        if use_deepspeed_evo_attention:
+            assert self.n_queries == self.n_keys, \
+                "DeepSpeed Evo Attention is only valid for n_queries == n_keys within atom attention."
+        bs, S, n_atoms, _ = atom_single.shape
+
+        # Input projection
+        a = self.ada_ln(atom_single, atom_proj)  # (bs, S, n_atoms, c_atom)
+
+        # Prep biases
+        mask_bias, pair_bias = self._prep_biases(atom_single, atom_pair_local, mask)
+
+        # Partition and reshape
+        atom_qx = partition_tensor(a, self.n_queries, self.n_queries)  # (bs, S, n_atoms // 32, 32, c_atom)
+        atom_kvx = partition_tensor(a, self.n_queries, self.n_keys)  # (bs, S, n_atoms // 32, 128, c_atom)
+        atom_qx = rearrange(atom_qx, 'b s p q c -> (b p) s q c')
+        atom_kvx = rearrange(atom_kvx, 'b s p k c -> (b p) s k c')
+
+        # Attention
+        output = self.attention(
+            q_x=atom_qx,
+            kv_x=atom_kvx,
+            biases=[mask_bias, pair_bias],
+        )  # (bs * n_atoms // n_queries, S, n_queries, c_atom)
+
+        # Reshape back to original, (bs, n_atoms // n_queries, S, n_queries, c_atom)
+        output = output.reshape(bs, -1, S, self.n_queries, self.c_atom)
+        output = rearrange(output, 'b p s q c -> b s (p q) c')  # (bs, S, n_atoms, c_atom)
+
+        # Output projection
+        output = F.sigmoid(self.output_proj_linear(output)) * output
+        return output
 
 
-class AtomTransformer(nn.Module):
-    """AtomTransformer that applies multiple AtomTransformerBlocks."""
-
+class AtomTransformerBlock(nn.Module):
     def __init__(
             self,
             c_atom: int,
             c_atompair: int = 16,
-            num_blocks: int = 3,
-            num_heads: int = 8,
+            no_heads: int = 8,
             dropout=0.0,
             n_queries: int = 32,
             n_keys: int = 128,
-            blocks_per_ckpt: int = 1,
-            clear_cache_between_blocks: bool = False,
     ):
-        """Initialize the AtomTransformer module.
+        """Initialize a block within AtomTransformer module.
         Args:
             c_atom:
-                The number of channels for the atom representation.
-            num_blocks:
-                Number of blocks.
-            num_heads:
+                Total dimension of the model.
+            c_atompair:
+                The number of channels for the atom pair representation. Defaults to 16.
+            no_heads:
                 Number of parallel attention heads. Note that c_atom will be split across no_heads
                 (i.e. each head will have dimension c_atom // no_heads).
             dropout:
@@ -109,53 +283,100 @@ class AtomTransformer(nn.Module):
                 The size of the atom window. Defaults to 32.
             n_keys:
                 Number of atoms each atom attends to in local sequence space. Defaults to 128.
+        """
+        super().__init__()
+        self.atom_attention = AtomAttentionPairBias(
+            c_atom=c_atom,
+            c_atompair=c_atompair,
+            no_heads=no_heads,
+            dropout=dropout,
+            n_queries=n_queries,
+            n_keys=n_keys,
+        )
+        self.transition = ConditionedTransitionBlock(c_atom)
+
+    def forward(
+            self,
+            atom_single: Tensor,
+            atom_proj: Tensor,
+            atom_pair_local: Tensor,
+            mask: Optional[Tensor] = None
+    ) -> Tuple[Tensor, Tensor, Tensor]:
+        a = self.atom_attention(atom_single, atom_proj, atom_pair_local, mask)
+        atom_single = a + self.transition(atom_single, atom_proj)
+        return atom_single, atom_proj, atom_pair_local
+
+
+class AtomTransformer(nn.Module):
+    """Implements the AtomTransformer"""
+
+    def __init__(
+            self,
+            c_atom: int,
+            c_atompair: int = 16,
+            no_blocks: int = 3,
+            no_heads: int = 8,
+            dropout=0.0,
+            n_queries: int = 32,
+            n_keys: int = 128,
+            blocks_per_ckpt: int = 1,
+            clear_cache_between_blocks: bool = False,
+    ):
+        """
+        Initialize the AtomTransformer module.
+        Args:
             c_atom:
-                The number of channels for the atom representation. Defaults to 128.
+                Total dimension of the model.
             c_atompair:
                 The number of channels for the atom pair representation. Defaults to 16.
+            no_heads:
+                Number of parallel attention heads. Note that c_atom will be split across no_heads
+                (i.e. each head will have dimension c_atom // no_heads).
+            dropout:
+                Dropout probability on attn_output_weights. Default: 0.0 (no dropout).
+            n_queries:
+                The size of the atom window. Defaults to 32.
+            n_keys:
+                Number of atoms each atom attends to in local sequence space. Defaults to 128.
             blocks_per_ckpt:
                 Number of AtomTransformer blocks in each activation checkpoint
             clear_cache_between_blocks:
                 Whether to clear CUDA's GPU memory cache between blocks of the
                 stack. Slows down each block but can reduce fragmentation
-
         """
         super().__init__()
         self.c_atom = c_atom
-        self.num_blocks = num_blocks
-        self.num_heads = num_heads
+        self.c_atompair = c_atompair
+        self.no_heads = no_heads
+        self.no_blocks = no_blocks
         self.dropout = dropout
         self.n_queries = n_queries
         self.n_keys = n_keys
-        self.c_atom = c_atom
-        self.c_pair = c_atompair
         self.blocks_per_ckpt = blocks_per_ckpt
         self.clear_cache_between_blocks = clear_cache_between_blocks
 
         self.blocks = nn.ModuleList(
             [AtomTransformerBlock(c_atom=c_atom,
-                                  num_heads=num_heads,
+                                  no_heads=no_heads,
                                   dropout=dropout,
                                   n_queries=n_queries,
                                   n_keys=n_keys,
                                   c_atompair=c_atompair)
-             for _ in range(num_blocks)]
+             for _ in range(no_blocks)]
         )
 
     def _prep_blocks(
             self,
-            atom_single_repr: Tensor,
-            atom_single_proj: Tensor,
-            atom_pair_repr: Tensor,
+            atom_single: Tensor,
+            atom_proj: Tensor,
+            atom_pair_local: Tensor,
             mask: Optional[Tensor] = None,
-            use_flash: bool = True
     ):
-        """Prepare the input tensors for the AtomTransformerBlock."""
+        """Prepare the input tensors for each AtomTransformerBlock."""
         blocks = [
             partial(
                 block,
                 mask=mask,
-                use_flash=use_flash
             )
             for block in self.blocks
         ]
@@ -172,43 +393,45 @@ class AtomTransformer(nn.Module):
 
     def forward(
             self,
-            atom_single_repr: Tensor,
-            atom_single_proj: Tensor,
-            atom_pair_repr: Tensor,
+            atom_single: Tensor,
+            atom_proj: Tensor,
+            atom_pair_local: Tensor,
             mask: Optional[Tensor] = None,
-            use_flash: bool = True
     ):
-        """Forward pass of the AtomTransformer module. Algorithm 23 in AlphaFold3 supplement.
-        Args:
-            atom_single_repr:
-                [bs, n_atoms, c_atom] atom single representation tensor
-            atom_single_proj:
-                [bs, n_atoms, c_atom] atom single projection tensor of shape
-            atom_pair_repr:
-                [bs, n_atoms, n_atoms, c_atompair] local atom pair representation
-            mask:
-                [bs, n_atoms] atom mask tensor of shape
-            use_flash:
-                Whether to use Flash attention for sliding window local attention. Defaults to True.
         """
-        blocks = self._prep_blocks(
-            atom_single_repr=atom_single_repr,
-            atom_single_proj=atom_single_proj,
-            atom_pair_repr=atom_pair_repr,
-            mask=mask,
-            use_flash=use_flash
-        )
+        Forward pass of the AtomTransformer module. Algorithm 23 in AlphaFold3 supplement.
+        Args:
+            atom_single:
+                [bs, S, n_atoms, c_atom] atom single representation where S is the samples per trunk dimension.
+            atom_proj:
+                [bs, n_atoms, c_atom] atom projection representation.
+            atom_pair_local:
+                [bs, n_atoms // n_queries, n_queries, n_keys, c_atompair] local atom pair representation tensor.
+                The pair representation is partitioned into n_atoms // n_queries for memory efficiency instead of
+                the full N_atoms x N_atoms
+            mask:
+                [bs, n_atoms] atom mask tensor where 1.0 indicates atom to be attended and
+                0.0 indicates atom not to be attended. The mask is shared across the S dimension.
+        """
+        # Expand atom_proj for proper broadcasting
+        atom_proj = atom_proj.unsqueeze(-3)
 
+        blocks = self._prep_blocks(
+            atom_single=atom_single,
+            atom_proj=atom_proj,
+            atom_pair_local=atom_pair_local,
+            mask=mask,
+        )
         blocks_per_ckpt = self.blocks_per_ckpt
         if not torch.is_grad_enabled():
             blocks_per_ckpt = None
 
-        atom_single_repr, atom_single_proj, atom_pair_repr = checkpoint_blocks(
-             blocks,
-             args=(atom_single_repr, atom_single_proj, atom_pair_repr),
-             blocks_per_ckpt=blocks_per_ckpt,
+        atom_single, atom_proj, atom_pair_local = checkpoint_blocks(
+            blocks,
+            args=(atom_single, atom_proj, atom_pair_local),
+            blocks_per_ckpt=blocks_per_ckpt,
         )
-        return atom_single_repr
+        return atom_single
 
 
 def gather_token_repr(
@@ -219,56 +442,72 @@ def gather_token_repr(
     Gather token representations based on indices from tok_idx.
 
     Args:
-        token_repr (torch.Tensor):
-            Tensor of shape (batch_size, n_tokens, c_token).
-        tok_idx (torch.Tensor):
-            Tensor of shape (batch_size, n_atoms) containing token indices.
+        token_repr:
+            [*, n_tokens, c_token] token representation
+        tok_idx:
+            [*, n_atoms] token indices.
 
     Returns:
-        Tensor of shape (batch_size, n_atoms, c_token) with gathered token embeddings.
+        [batch_size, n_atoms, c_token] with gathered token embeddings.
     """
     batch_size, n_atoms = tok_idx.shape
     _, n_tokens, embed_dim = token_repr.shape
-    # tok_idx = tok_idx.int()  # convert to int for indexing
+    tok_idx = tok_idx.long()  # convert to int for indexing
 
     # Expand tok_idx to have the same number of dimensions as token_repr
-    tok_idx_expanded = tok_idx.unsqueeze(-1).expand(batch_size, n_atoms, embed_dim)
+    new_shape = token_repr.shape[:-2] + (n_atoms, embed_dim)
+    tok_idx_expanded = tok_idx.unsqueeze(-1).expand(new_shape)
 
     # Use torch.gather to gather embeddings from token_repr
-    gathered_embeddings = torch.gather(token_repr, 1, tok_idx_expanded)
-
+    gathered_embeddings = torch.gather(
+        token_repr,
+        dim=-2,
+        index=tok_idx_expanded
+    )
     return gathered_embeddings
 
 
-def map_token_pairs_to_atom_pairs(token_pairs, tok_idx):
-    """
-    Map token pairs to atom pairs using token indices.
+def map_token_pairs_to_local_atom_pairs(
+        token_pairs: Tensor,
+        tok_idx: Tensor,
+        n_queries=32,
+        n_keys=128
+) -> Tensor:
+    """Given token pairs and token indices, map token pairs to local atom pairs to be used within local atom attention.
     Args:
         token_pairs:
             [bs, n_tokens, n_tokens, c_pair] pair representation from the trunk.
         tok_idx:
             [bs, n_atoms] Tensor containing token indices per atom.
+        n_queries:
+            The size of the atom window. Defaults to 32.
+        n_keys:
+            Number of atoms each atom attends to in local sequence space. Defaults to 128.
+
     Returns:
-        [bs, n_atoms, n_atoms, c_pair] tensor containing atom pair embeddings
-        derived from token pair embeddings.
-    """
+        [bs, n_atoms // n_queries, n_queries, n_keys, c_pair] tensor containing atom pair embeddings derived from token
+        pair embeddings. For each atom pair (l, m), the corresponding token pair's embeddings are extracted."""
     bs, n_atoms = tok_idx.shape
     _, n_tokens, _, c_pair = token_pairs.shape
     tok_idx = tok_idx.long()  # convert to int for indexing
 
     # Expand tok_idx for efficient gather operation
-    tok_idx_l = tok_idx.unsqueeze(2).expand(-1, -1, n_atoms)
-    tok_idx_m = tok_idx.unsqueeze(1).expand(-1, n_atoms, -1)
-    batch_index = torch.arange(bs).reshape(bs, 1, 1)
+    tok_idx_l = tok_idx.unsqueeze(2).expand(-1, -1, n_atoms).unsqueeze(-1)
+    tok_idx_m = tok_idx.unsqueeze(1).expand(-1, n_atoms, -1).unsqueeze(-1)
+    batch_index = torch.arange(bs).reshape(bs, 1, 1, 1)
+
+    # Extract the local indices
+    local_tok_idx_l = extract_locals(tok_idx_l, n_queries=n_queries, n_keys=n_keys, pad_value=0).squeeze(-1)
+    local_tok_idx_m = extract_locals(tok_idx_m, n_queries=n_queries, n_keys=n_keys, pad_value=0).squeeze(-1)
 
     # Gather token pair embeddings using advanced indexing
-    atom_pairs = token_pairs[batch_index, tok_idx_l, tok_idx_m, :]
+    local_atom_pairs = token_pairs[batch_index, local_tok_idx_l, local_tok_idx_m, :]
 
-    return atom_pairs
+    return local_atom_pairs
 
 
 def aggregate_atom_to_token(
-        atom_representation,  # (bs, n_atoms, c_atom)
+        atom_representation,  # (bs, S, n_atoms, c_atom)
         tok_idx: Tensor,  # (bs, n_atoms)
         n_tokens: int
 ) -> Tensor:
@@ -276,48 +515,49 @@ def aggregate_atom_to_token(
     Aggregates atom representations to token representations.
 
     Args:
-        atom_representation (torch.Tensor):
-            The atom representations tensor of shape (bs, n_atoms, c_atom).
-        tok_idx (torch.Tensor):
+        atom_representation:
+            The atom representations tensor of shape (bs, S, n_atoms, c_atom).
+        tok_idx:
             The index tensor of shape (bs, n_atoms) indicating which token each atom belongs to.
         n_tokens (int):
             The number of tokens.
     Returns:
-        Aggregated token representations of shape (bs, n_tokens, c_atom).
+        Aggregated token representations of shape (bs, S, n_tokens, c_atom).
     Warning: this method is masking aware as long as tok_idx does not encode a mapping like
     masked_atom -> legitimate_token
     """
-    bs, n_atoms, c_atom = atom_representation.shape
+    bs, S, n_atoms, c_atom = atom_representation.shape
     tok_idx = tok_idx.long()  # convert to int for indexing
 
     # Initialize the token representation tensor with zeros
-    token_representation = torch.zeros((bs, n_tokens, c_atom),
+    token_representation = torch.zeros((bs, S, n_tokens, c_atom),
                                        device=atom_representation.device,
                                        dtype=atom_representation.dtype)
 
     # Expand tok_idx to make it compatible for scattering with atom_representation
-    tok_idx_expanded = tok_idx.unsqueeze(-1).expand(-1, -1, c_atom)  # (bs, n_atoms, c_atom)
+    tok_idx_expanded = tok_idx[:, None, :, None].expand(-1, S, -1, c_atom)  # (bs, S, n_atoms, c_atom)
 
     # Aggregate atom representations into token representations
-    token_representation = token_representation.scatter_reduce(dim=1,
-                                                               index=tok_idx_expanded,
-                                                               src=atom_representation,
-                                                               reduce='mean',
-                                                               include_self=False)
+    token_representation = torch.scatter_reduce(
+        token_representation,
+        dim=-2,
+        index=tok_idx_expanded,
+        src=atom_representation,
+        reduce='mean',
+        include_self=False
+    )
     return token_representation
 
 
 class AtomAttentionEncoderOutput(NamedTuple):
     """Structured output class for AtomAttentionEncoder."""
-    token_single: Tensor  # (bs, n_tokens, c_token)
-    atom_single_skip_repr: Tensor  # (bs, n_atoms, c_atom)
-    atom_single_skip_proj: Tensor  # (bs, n_atoms, c_atom)
-    atom_pair_skip_repr: Tensor  # (bs, n_atoms, n_atoms, c_atompair)
+    token_single: torch.Tensor  # (bs, n_tokens, c_token)
+    atom_single_skip_repr: torch.Tensor  # (bs, n_atoms, c_atom)
+    atom_single_skip_proj: torch.Tensor  # (bs, n_atoms, c_atom)
+    atom_pair_skip_repr: torch.Tensor  # (bs, n_atoms // n_queries, n_queries, n_keys, c_atompair)  TODO: local biases
 
 
 class AtomAttentionEncoder(nn.Module):
-    """AtomAttentionEncoder"""
-
     def __init__(
             self,
             c_token: int,
@@ -331,36 +571,34 @@ class AtomAttentionEncoder(nn.Module):
             n_keys: int = 128,
             trunk_conditioning: bool = False,
             clear_cache_between_blocks: bool = False,
-            blocks_per_ckpt: int = 1,
     ):
         """Initialize the AtomAttentionEncoder module.
-        Args:
-            c_token:
-                The number of channels for the token representation.
-            c_atom:
-                The number of channels for the atom representation. Defaults to 128.
-            c_atompair:
-                The number of channels for the pair representation. Defaults to 16.
-            c_trunk_pair:
-                The number of channels for the trunk pair representation. Defaults to 16.
-            no_blocks:
-                Number of blocks in AtomTransformer. Defaults to 3.
-            no_heads:
-                Number of parallel attention heads. Note that c_atom will be split across no_heads
-                (i.e. each head will have dimension c_atom // no_heads).
-            dropout:
-                Dropout probability on attn_output_weights. Default: 0.0 (no dropout).
-            n_queries:
-                The size of the atom window. Defaults to 32.
-            n_keys:
-                Number of atoms each atom attends to in local sequence space. Defaults to 128.
-            trunk_conditioning:
-                Whether to condition the atom single and atom-pair representation on the trunk.
-                Defaults to False.
-            clear_cache_between_blocks:
-                Whether to clear CUDA's GPU memory cache between blocks of the
-                stack. Slows down each block but can reduce fragmentation
-
+            Args:
+                c_token:
+                    The number of channels for the token representation.
+                c_atom:
+                    The number of channels for the atom representation. Defaults to 128.
+                c_atompair:
+                    The number of channels for the pair representation. Defaults to 16.
+                c_trunk_pair:
+                    The number of channels for the trunk pair representation. Defaults to 16.
+                no_blocks:
+                    Number of blocks in AtomTransformer. Defaults to 3.
+                no_heads:
+                    Number of parallel attention heads. Note that c_atom will be split across no_heads
+                    (i.e. each head will have dimension c_atom // no_heads).
+                dropout:
+                    Dropout probability on attn_output_weights. Default: 0.0 (no dropout).
+                n_queries:
+                    The size of the atom window. Defaults to 32.
+                n_keys:
+                    Number of atoms each atom attends to in local sequence space. Defaults to 128.
+                trunk_conditioning:
+                    Whether to condition the atom single and atom-pair representation on the trunk.
+                    Defaults to False.
+                clear_cache_between_blocks:
+                    Whether to clear CUDA's GPU memory cache between blocks of the
+                    stack. Slows down each block but can reduce fragmentation
         """
         super().__init__()
         self.no_blocks = no_blocks
@@ -374,10 +612,9 @@ class AtomAttentionEncoder(nn.Module):
         self.n_keys = n_keys
         self.trunk_conditioning = trunk_conditioning
         self.clear_cache_between_blocks = clear_cache_between_blocks
-        self.blocks_per_ckpt = blocks_per_ckpt
 
         # Embedding per-atom metadata, concat(ref_pos, ref_charge, ref_mask, ref_element, ref_atom_name_chars)
-        self.linear_atom_embedding = LinearNoBias(3 + 1 + 1 + 4 + 4, c_atom)
+        self.linear_atom_embedding = LinearNoBias(3 + 1 + 1 + 4 + 4, c_atom)  # 128, * 64
 
         # Embedding offsets between atom reference positions
         self.linear_atom_offsets = LinearNoBias(3, c_atompair)
@@ -414,22 +651,24 @@ class AtomAttentionEncoder(nn.Module):
         self.atom_transformer = AtomTransformer(
             c_atom=c_atom,
             c_atompair=c_atompair,
-            num_blocks=no_blocks,
-            num_heads=no_heads,
+            no_blocks=no_blocks,
+            no_heads=no_heads,
             dropout=dropout,
             n_queries=n_queries,
             n_keys=n_keys,
             clear_cache_between_blocks=clear_cache_between_blocks,
-            blocks_per_ckpt=blocks_per_ckpt
         )
 
         # Final linear
-        self.linear_output = LinearNoBias(c_atom, c_token, init='relu')
+        self.output_proj = nn.Sequential(
+            LinearNoBias(c_atom, c_token, init='relu'),
+            nn.ReLU()
+        )
 
     def init_pair_repr(
             self,
             features: Dict[str, Tensor],
-            atom_single: Tensor,
+            atom_cond: Tensor,
             z_trunk: Optional[Tensor],
     ) -> Tensor:
         """Compute the pair representation for the atom transformer.
@@ -438,48 +677,49 @@ class AtomAttentionEncoder(nn.Module):
         Args:
             features:
                 Dictionary of input features.
-            atom_single:
-                [bs, n_atoms, c_atom] The single atom representation from init_single_repr
+            atom_cond:
+                [bs, n_atoms, c_atom] The single atom conditioning from init_single_repr
             z_trunk:
                 [bs, n_tokens, n_tokens, c_trunk] the pair representation from the trunk
         Returns:
-            [bs, n_atoms, n_atoms, c_atompair] The pair representation
+            [bs, n_atoms // n_queries, n_queries, n_keys, c_atompair] The pair representation
         """
         # Compute offsets between atom reference positions
-        a = features['ref_pos']
-        b = features['ref_pos']
-        offsets = a[..., None, :] - b[..., None, :, :]  # (bs, n_atoms, n_atoms, 3)
+        a = partition_tensor(features['ref_pos'], self.n_queries, self.n_queries)  # (bs, n_atoms // 32, 32, 3)
+        b = partition_tensor(features['ref_pos'], self.n_queries, self.n_keys)  # (bs, n_atoms // 32, 128, 3)
+        offsets = a[:, :, :, None, :] - b[:, :, None, :, :]  # (bs, n_atoms // 32, 32, 128, 3)
 
         # Compute the valid mask
-        ref_space_uid = features['ref_space_uid']  # (bs, n_atoms)
-        valid_mask = (ref_space_uid[..., None] == ref_space_uid[..., None, :]).unsqueeze(-1)
+        ref_space_uid = features['ref_space_uid'].unsqueeze(-1)  # (bs, n_atoms, 1)
+        a = partition_tensor(ref_space_uid, self.n_queries, self.n_queries)  # (bs, n_atoms // 32, 32)
+        b = partition_tensor(ref_space_uid, self.n_queries, self.n_keys)  # (bs, n_atoms // 32, 128)
+        valid_mask = a[:, :, :, None] == b[:, :, None, :]  # (bs, n_atoms // 32, 32, 128, 1)
         valid_mask = valid_mask.to(offsets.dtype)  # convert boolean to binary
 
         # Embed the atom offsets and the valid mask
-        atom_pair = self.linear_atom_offsets(offsets) * valid_mask
+        local_atom_pair = self.linear_atom_offsets(offsets) * valid_mask
 
         # Embed pairwise inverse squared distances, and the valid mask
-        squared_distances = offsets.pow(2).sum(dim=-1, keepdim=True)  # (bs, n_atoms, n_atoms, 1)
+        squared_distances = offsets.pow(2).sum(dim=-1, keepdim=True)  # (bs, n_atoms // 32, 32, 128, 1)
         inverse_dists = torch.reciprocal(torch.add(squared_distances, 1))
-        atom_pair = atom_pair + self.linear_atom_distances(inverse_dists) * valid_mask
-        atom_pair = atom_pair + self.linear_mask(valid_mask) * valid_mask
+        local_atom_pair = local_atom_pair + self.linear_atom_distances(inverse_dists) * valid_mask
+        local_atom_pair = local_atom_pair + self.linear_mask(valid_mask) * valid_mask
 
         # If provided, add trunk embeddings
         if self.trunk_conditioning:
-            atom_pair = atom_pair + map_token_pairs_to_atom_pairs(
+            local_atom_pair = local_atom_pair + map_token_pairs_to_local_atom_pairs(
                 self.proj_trunk_pair(z_trunk),
                 features['atom_to_token']
             )
 
         # Add the combined single conditioning to the pair representation
-        a = self.linear_single_to_pair_row(F.relu(atom_single))
-        b = self.linear_single_to_pair_col(F.relu(atom_single))
-        atom_pair = atom_pair + (a[..., None, :] + b[..., None, :, :])
+        a = partition_tensor(self.linear_single_to_pair_row(F.relu(atom_cond)), self.n_queries, self.n_queries)
+        b = partition_tensor(self.linear_single_to_pair_col(F.relu(atom_cond)), self.n_queries, self.n_keys)
+        local_atom_pair = local_atom_pair + (a[:, :, :, None, :] + b[:, :, None, :, :])
 
         # Run a small MLP on the pair activations
-        atom_pair = self.pair_mlp(atom_pair)
-
-        return atom_pair
+        local_atom_pair = self.pair_mlp(local_atom_pair)
+        return local_atom_pair
 
     def init_single_repr(
             self,
@@ -496,9 +736,16 @@ class AtomAttentionEncoder(nn.Module):
             s_trunk:
                 [*, n_tokens, c_token] the token representation from the trunk
             noisy_pos:
-                [*, n_atoms, 3] the noisy atom positions
+                [*, S, n_atoms, 3] the noisy atom positions where S is the
+                samples_per_trunk dimension.
+        Returns:
+            atom_single:
+                atom single representation of shape [*, S, n_atoms, c_atom]. If trunk conditioning is False,
+                S == 1.
+            atom_single_conditioning:
+                atom conditioning representation of shape [*, n_atoms, c_atom]
         """
-        batch_size, n_atoms, _ = features['ref_pos'].shape
+        batch_size, n_atoms, _ = features['ref_pos'].size()
 
         # Embed atom metadata
         atom_single_conditioning = self.linear_atom_embedding(
@@ -516,15 +763,17 @@ class AtomAttentionEncoder(nn.Module):
         # atom_single_conditioning -> c_l in AF3 Supplement
         # atom_single -> q_l in AF3 Supplement
 
+        # Add the samples_per_trunk dimension
+        atom_single = atom_single.unsqueeze(-3)  # [*, 1, n_atoms, c_atom]
+
         # If provided, add trunk embeddings and noisy positions
         if self.trunk_conditioning:
             atom_single_conditioning = atom_single_conditioning + gather_token_repr(
                 self.proj_trunk_single(s_trunk),
                 features['atom_to_token']
             )
-
             # Add the noisy positions
-            atom_single = atom_single + self.linear_noisy_pos(noisy_pos)
+            atom_single = atom_single + self.linear_noisy_pos(noisy_pos)  # [*, S, n_atoms, c_atom]
 
         return atom_single, atom_single_conditioning
 
@@ -534,9 +783,8 @@ class AtomAttentionEncoder(nn.Module):
             n_tokens: int,
             s_trunk: Optional[Tensor] = None,  # (bs, n_tokens, c_token)
             z_trunk: Optional[Tensor] = None,  # (bs, n_tokens, c_trunk_pair)
-            noisy_pos: Optional[Tensor] = None,  # (bs, n_atoms, 3)
+            noisy_pos: Optional[Tensor] = None,  # (bs, S, n_atoms, 3)
             mask: Optional[Tensor] = None,  # (bs, n_atoms)
-            use_flash: bool = True,
     ) -> AtomAttentionEncoderOutput:
         """Forward pass for the AtomAttentionEncoder module.
         Args:
@@ -554,7 +802,7 @@ class AtomAttentionEncoder(nn.Module):
                         [*, N_atoms, 128] One-hot encoding of the element atomic number for each atom
                         in the reference conformer, up to atomic number 128.
                     "ref_atom_name_chars":
-                        [*, N_atom, 4] One-hot encoding of the unique atom names in the reference
+                        [*, N_atom, 4, 64] One-hot encoding of the unique atom names in the reference
                         conformer. Each character is encoded as ord(c - 32), and names are padded to
                         length 4.
                     "ref_space_uid":
@@ -570,17 +818,17 @@ class AtomAttentionEncoder(nn.Module):
             z_trunk:
                 [*, N_tokens, N_tokens, c_pair] pair representation of the Pairformer trunk
             noisy_pos:
-                [*, N_atoms, 3] Tensor containing the noisy positions. Defaults to None.
+                [*, S, N_atoms, 3] Tensor containing the noisy positions. Defaults to None.
             mask:
                 [*, N_atoms]
-            use_flash:
-                Whether to use the Flash attention within AtomTransformer. Defaults to True.
+            use_deepspeed_evo_attention:
+                whether to use Deepspeed's Evoformer attention
         Returns:
-            A named tuple containing the following fields:
+            A namedtuple containing the following fields:
                 token_single:
                     [*, N_tokens, c_token] single representation
                 atom_single_skip_repr:
-                    [*, N_atoms, c_atom] atom single representation (denoted q_l in AF3 Supplement)
+                    [*, S, N_atoms, c_atom] atom single representation (denoted q_l in AF3 Supplement)
                 atom_single_skip_proj:
                     [*, N_atoms, c_atom] atom single projection (denoted c_l in AF3 Supplement)
                 atom_pair_skip_repr:
@@ -589,26 +837,23 @@ class AtomAttentionEncoder(nn.Module):
         """
         # Initialize representations
         atom_single, atom_single_conditioning = checkpoint(self.init_single_repr, features, s_trunk, noisy_pos)
-        atom_pair = checkpoint(self.init_pair_repr, features, atom_single, z_trunk)
+        local_atom_pair = checkpoint(self.init_pair_repr, features, atom_single_conditioning, z_trunk)
 
         # Cross attention transformer
-        atom_single_conditioning = self.atom_transformer(
-            atom_single_repr=atom_single,
-            atom_single_proj=atom_single_conditioning,
-            atom_pair_repr=atom_pair,
-            mask=mask,
-            use_flash=use_flash
-        )
+        atom_single = self.atom_transformer(atom_single, atom_single_conditioning, local_atom_pair, mask)
 
         # Aggregate per-atom representation to per-token representation
-        token_repr = aggregate_atom_to_token(atom_representation=F.relu(self.linear_output(atom_single_conditioning)),
-                                             tok_idx=features['atom_to_token'],
-                                             n_tokens=n_tokens)
+        token_repr = aggregate_atom_to_token(
+            atom_representation=self.output_proj(atom_single),
+            tok_idx=features['atom_to_token'],
+            n_tokens=n_tokens
+        )  # (*, S, N_tokens, c_atom)
+
         output = AtomAttentionEncoderOutput(
-            token_single=token_repr,
-            atom_single_skip_repr=atom_single_conditioning,
-            atom_single_skip_proj=atom_single,
-            atom_pair_skip_repr=atom_pair,
+            token_single=token_repr,  # (*, S, N_tokens, c_atom)
+            atom_single_skip_repr=atom_single,  # (*, N_atoms, c_atom)
+            atom_single_skip_proj=atom_single_conditioning,  # (*, N_atoms, c_atom)
+            atom_pair_skip_repr=local_atom_pair,  # (bs, n_atoms // n_queries, n_queries, n_keys, c_atompair)
         )
         return output
 
@@ -621,13 +866,12 @@ class AtomAttentionDecoder(nn.Module):
             c_token: int,
             c_atom: int = 128,
             c_atompair: int = 16,
-            num_blocks: int = 3,
-            num_heads: int = 8,
+            no_blocks: int = 3,
+            no_heads: int = 8,
             dropout=0.0,
             n_queries: int = 32,
             n_keys: int = 128,
             clear_cache_between_blocks: bool = False,
-            blocks_per_ckpt: int = 1,
     ):
         """Initialize the AtomAttentionDecoder module.
         Args:
@@ -637,9 +881,9 @@ class AtomAttentionDecoder(nn.Module):
                 The number of channels for the atom representation. Defaults to 128.
             c_atompair:
                 The number of channels for the atom pair representation. Defaults to 16.
-            num_blocks:
+            no_blocks:
                 Number of blocks.
-            num_heads:
+            no_heads:
                 Number of parallel attention heads. Note that c_atom will be split across no_heads
                 (i.e. each head will have dimension c_atom // no_heads).
             dropout:
@@ -651,79 +895,76 @@ class AtomAttentionDecoder(nn.Module):
             clear_cache_between_blocks:
                 Whether to clear CUDA's GPU memory cache between blocks of the
                 stack. Slows down each block but can reduce fragmentation
-            blocks_per_ckpt:
-                Number of blocks per checkpoint. Defaults to 1.
 
         """
         super().__init__()
         self.c_token = c_token
         self.c_atom = c_atom
         self.c_atompair = c_atompair
-        self.num_blocks = num_blocks
-        self.num_heads = num_heads
+        self.num_blocks = no_blocks
+        self.num_heads = no_heads
         self.dropout = dropout
         self.n_queries = n_queries
         self.n_keys = n_keys
         self.clear_cache_between_blocks = clear_cache_between_blocks
-        self.blocks_per_ckpt = blocks_per_ckpt
+
+        # Broadcast token to atom
+        self.linear_atom = LinearNoBias(c_token, c_atom, init='default')
 
         self.atom_transformer = AtomTransformer(
             c_atom=c_atom,
             c_atompair=c_atompair,
-            num_blocks=num_blocks,
-            num_heads=num_heads,
+            no_blocks=no_blocks,
+            no_heads=no_heads,
             dropout=dropout,
             n_queries=n_queries,
             n_keys=n_keys,
             clear_cache_between_blocks=clear_cache_between_blocks,
-            blocks_per_ckpt=blocks_per_ckpt,
         )
 
-        self.linear_atom = LinearNoBias(c_token, c_atom, init='default')
+        # Output
         self.linear_update = LinearNoBias(c_atom, 3, init='final')
         self.layer_norm = LayerNorm(c_atom)
 
     def forward(
             self,
-            token_repr: Tensor,  # (bs, n_tokens, c_token)
-            atom_single_skip_repr: Tensor,  # (bs, n_atoms, c_atom)
+            token_repr: Tensor,  # (bs, S, n_tokens, c_token)
+            atom_single_skip_repr: Tensor,  # (bs, S, n_atoms, c_atom)
             atom_single_skip_proj: Tensor,  # (bs, n_atoms, c_atom)
-            atom_pair_skip_repr: Tensor,  # (bs, n_atoms, n_atoms, c_atom)
+            atom_pair_skip_repr: Tensor,  # (bs, n_atoms // n_queries, n_queries, n_keys, c_atom)
             tok_idx: Tensor,  # (bs, n_atoms)
             mask: Optional[Tensor] = None,  # (bs, n_atoms)
-            use_flash: bool = True,
     ) -> Tensor:
         """AtomAttentionDecoder. Algorithm 6 in AlphaFold3 supplement.
         Args:
             token_repr:
-                [bs, n_tokens, c_atom] Per-token activations.
+                [bs, S, n_tokens, c_atom] Per-token activations.
+                S is the samples_per_trunk dimension.
             atom_single_skip_repr:
-                [bs, n_atoms, c_atom] Per-atom activations added as the skip connection.
+                [bs, S, n_atoms, c_atom] Per-atom activations added as the skip connection.
+                S is the samples_per_trunk dimension.
             atom_single_skip_proj:
-                [bs, n_atoms, c_atom] Per-atom activations provided to AtomTransformer.
+                [bs, 1, n_atoms, c_atom] Per-atom activations provided to AtomTransformer.
             atom_pair_skip_repr:
-                [bs, n_atoms // n_queries, n_queries, n_keys, c_atom] Pair activations provided to AtomTransformer.
+                [bs, n_atoms // n_queries, n_queries, n_keys, c_atompair] Pair activations provided
+                to AtomTransformer.
             tok_idx:
                 [bs, n_atoms] Token indices that encode which token each atom belongs to.
             mask:
                 [bs, n_atoms] Mask for the atom transformer.
-            use_flash:
-                Whether to use Flash attention for sliding window attention. Defaults to True.
         Returns:
-            [bs, n_atoms, 3] a tensor of per-atom coordinate updates.
+            [bs, S, n_atoms, 3] a tensor of per-atom coordinate updates.
         """
         # Broadcast per-token activations to per-atom activations and add the skip connection
-        atom_single_repr = self.linear_atom(gather_token_repr(token_repr, tok_idx)) + atom_single_skip_repr
+        bs, S, n_tokens, c_atom = token_repr.shape
+        atom_single = self.linear_atom(  # vectorize to pretend S is the batch dimension for the gather op
+            torch.vmap(gather_token_repr)(token_repr, tok_idx.unsqueeze(-2).expand(-1, S, -1))
+        )
+        atom_single = atom_single + atom_single_skip_repr  # (bs, S, n_atoms, c_atom)
 
         # Cross-attention transformer
-        atom_single_repr = self.atom_transformer(
-            atom_single_repr=atom_single_repr,
-            atom_single_proj=atom_single_skip_proj,
-            atom_pair_repr=atom_pair_skip_repr,
-            mask=mask,
-            use_flash=use_flash
-        )
+        atom_single = self.atom_transformer(atom_single, atom_single_skip_proj, atom_pair_skip_repr, mask)
 
         # Map to positions update
-        r_atom_update = self.linear_update(self.layer_norm(atom_single_repr))
+        r_atom_update = self.linear_update(self.layer_norm(atom_single))
         return r_atom_update

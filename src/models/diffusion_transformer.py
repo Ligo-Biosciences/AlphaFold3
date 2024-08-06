@@ -3,7 +3,7 @@ import torch
 from torch import Tensor
 import torch.nn as nn
 from src.models.components.transition import ConditionedTransitionBlock
-from src.models.components.primitives import AttentionPairBias
+from src.models.components.attention_pair_bias import AttentionPairBias
 from typing import Optional
 from functools import partial
 from src.utils.checkpointing import checkpoint_blocks
@@ -47,11 +47,11 @@ class DiffusionTransformerBlock(nn.Module):
 
     def forward(
             self,
-            single_repr: Tensor,  # (bs, n_tokens, c_token)
-            single_proj: Tensor,  # (bs, n_tokens, c_token)
+            single_repr: Tensor,  # (bs, S, n_tokens, c_token)
+            single_proj: Tensor,  # (bs, 1, n_tokens, c_token)
             pair_repr: Tensor,  # (bs, n_tokens, n_tokens, c_pair)
-            mask: Optional[Tensor] = None,
-            use_flash: bool = True
+            mask: Optional[Tensor] = None,  # (bs, n_tokens)
+            use_deepspeed_evo_attention: bool = True
     ) -> Tuple[Tensor, Tensor, Tensor]:
         """Forward pass of the DiffusionTransformerBlock module. Algorithm 23 in AlphaFold3 supplement.
         TODO: the single_proj and pair_repr do not actually change as a result of this function.
@@ -62,7 +62,7 @@ class DiffusionTransformerBlock(nn.Module):
             single_proj=single_proj,
             pair_repr=pair_repr,
             mask=mask,
-            use_flash=use_flash
+            use_deepspeed_evo_attention=use_deepspeed_evo_attention
         )
         single_repr = b + self.conditioned_transition_block(single_repr, single_proj)
         return single_repr, single_proj, pair_repr
@@ -124,14 +124,14 @@ class DiffusionTransformer(nn.Module):
             single_proj: Tensor,
             pair_repr: Tensor,
             mask: Optional[Tensor] = None,
-            use_flash: bool = True
+            use_deepspeed_evo_attention: bool = True
     ):
         """Prepare the blocks for the forward pass."""
         blocks = [  # TODO: saving the pair_repr and single_proj between blocks is unnecessary
             partial(
                 block,
                 mask=mask,
-                use_flash=use_flash
+                use_deepspeed_evo_attention=use_deepspeed_evo_attention
             )
             for block in self.blocks
         ]
@@ -143,28 +143,53 @@ class DiffusionTransformer(nn.Module):
                 return block(*args, **kwargs)
 
             blocks = [partial(block_with_cache_clear, b) for b in blocks]
-
         return blocks
 
     def forward(
             self,
-            single_repr: Tensor,
-            single_proj: Tensor,
-            pair_repr: Tensor,
-            mask: Optional[Tensor] = None,
-            use_flash: bool = True
+            single_repr: Tensor,  # (*, S, N, c_s)
+            single_proj: Tensor,  # (*, N, c_s)
+            pair_repr: Tensor,  # (*, N, N, c_z)
+            mask: Optional[Tensor] = None,  # (*, N)
+            use_deepspeed_evo_attention: bool = True
     ):
-        """Forward pass of the DiffusionTransformer module. Algorithm 23 in AlphaFold3 supplement."""
+        """Forward pass of the DiffusionTransformer module. Algorithm 23 in AlphaFold3 supplement.
+        The DS4Science kernel for MSA row-wise attention is repurposed here for an efficient
+        implementation of attention pair bias. The AttentionPairBias class is used in two
+        main model components: the Pairformer and the Diffusion module. The main advantage of the
+        kernel is in being able to accommodate a secondary batch-like dimension. In AlphaFold2, this
+        is for N_seq in the MSA representation. In AlphaFold3, this is not needed in the Pairformer
+        because we are using a single representation, so N_seq always equals 1. However, this is
+        very useful in the diffusion module as multiple versions of the same input are created, and the
+        same bias has to be added to this expanded representation throughout the DiffusionTransformer blocks.
+        Here, we can use the N_seq dimension to host the samples per trunk which would make for a very memory
+        efficient representation.
+        Args:
+            single_repr:
+                [*, S, N, c_s] single representation, where S is the samples_per_trunk dimension.
+            single_proj:
+                [*, N, c_s] single projection
+            pair_repr:
+                [*, N, N, c_z] pair representation
+            mask:
+                [*, N] attention mask where 1.0 indicates valid token, 0.0 indicates invalid token.
+            use_deepspeed_evo_attention:
+                Whether to use deepspeed attention or not.
+        """
         blocks = self._prep_blocks(
             single_repr=single_repr,
             single_proj=single_proj,
             pair_repr=pair_repr,
             mask=mask,
-            use_flash=use_flash
+            use_deepspeed_evo_attention=use_deepspeed_evo_attention
         )
         blocks_per_ckpt = self.blocks_per_ckpt
         if not torch.is_grad_enabled():
             blocks_per_ckpt = None
+
+        # Expand for proper broadcasting
+        single_proj = single_proj.unsqueeze(-3)
+
         # Run with grad checkpointing
         single_repr, single_proj, pair_repr = checkpoint_blocks(
             blocks,

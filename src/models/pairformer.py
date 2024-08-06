@@ -25,7 +25,7 @@ from src.models.components.triangular_attention import (
     TriangleAttentionStartingNode,
     TriangleAttentionEndingNode,
 )
-from src.models.components.primitives import AttentionPairBias
+from src.models.components.attention_pair_bias import AttentionPairBias
 from src.utils.tensor_utils import add
 from src.utils.checkpointing import checkpoint_blocks
 from src.utils.chunk_utils import ChunkSizeTuner, chunk_layer
@@ -192,13 +192,12 @@ class PairformerStackBlock(nn.Module):
 
     def forward(
             self,
-            s: Tensor,  # (bs, n_tokens, c_s)
-            z: Tensor,  # (bs, n_tokens, c_z)
+            s: Tensor,  # (bs, 1, n_tokens, c_s)
+            z: Tensor,  # (bs, 1, n_tokens, c_z)
             single_mask: Tensor,  # (bs, n_tokens)
             pair_mask: Tensor,  # (bs, n_tokens, n_tokens)
             chunk_size: Optional[int] = None,
             use_deepspeed_evo_attention: bool = False,
-            use_flash: bool = False,
             inplace_safe: bool = False,
     ) -> Tuple[Tensor, Tensor]:
         z = self.pair_stack(
@@ -212,7 +211,7 @@ class PairformerStackBlock(nn.Module):
             single_repr=s,
             pair_repr=z,
             mask=single_mask,
-            use_flash=use_flash,
+            use_deepspeed_evo_attention=use_deepspeed_evo_attention,
         )
         s = add(s, self.transition(s), inplace=inplace_safe)
         return s, z
@@ -294,7 +293,6 @@ class PairformerStack(nn.Module):
             pair_mask: Tensor,  # (bs, n_tokens, n_tokens)
             chunk_size: Optional[int] = None,
             use_deepspeed_evo_attention: bool = False,
-            use_flash: bool = False,
             inplace_safe: bool = False,
     ):
         blocks = [
@@ -304,7 +302,6 @@ class PairformerStack(nn.Module):
                 pair_mask=pair_mask,  # (bs, n_tokens, n_tokens)
                 chunk_size=chunk_size,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-                use_flash=use_flash,
                 inplace_safe=inplace_safe,
             )
             for block in self.blocks
@@ -328,7 +325,6 @@ class PairformerStack(nn.Module):
             pair_mask: Tensor,  # (bs, n_tokens, n_tokens)
             chunk_size: Optional[int] = None,
             use_deepspeed_evo_attention: bool = False,
-            use_flash: bool = False,
             inplace_safe: bool = False,
     ) -> Tuple[Tensor, Tensor]:
         """
@@ -346,8 +342,6 @@ class PairformerStack(nn.Module):
                 self.tune_chunk_size is True
             use_deepspeed_evo_attention:
                 Whether to use DeepSpeed memory efficient kernel withing Triangular attention.
-            use_flash:
-                Whether to use Flash attention within AttentionPairBias.
             inplace_safe:
                 Whether to use inference time inplace operations to save memory.
         """
@@ -358,7 +352,6 @@ class PairformerStack(nn.Module):
             pair_mask=pair_mask,
             chunk_size=chunk_size,
             use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-            use_flash=use_flash,
             inplace_safe=inplace_safe,
         )
 
@@ -366,11 +359,12 @@ class PairformerStack(nn.Module):
         if not torch.is_grad_enabled():
             blocks_per_ckpt = None
 
+        s = s.unsqueeze(-3)  # Add N_seq dimension as N_seq=1
         s, z = checkpoint_blocks(
             blocks,
             args=(s, z),
             blocks_per_ckpt=blocks_per_ckpt,
         )
-
+        s = s.squeeze(-3)  # Remove singleton N_seq dimension
         return s, z
 

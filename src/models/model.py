@@ -140,7 +140,6 @@ class AlphaFold3(nn.Module):
             pair_mask=pair_mask,
             chunk_size=self.globals.chunk_size,
             use_deepspeed_evo_attention=self.globals.use_deepspeed_evo_attention,
-            use_flash=self.globals.use_flash,
             inplace_safe=inplace_safe
         )
         return s, z
@@ -362,7 +361,7 @@ class AlphaFold3(nn.Module):
                 s_trunk=s,
                 z_trunk=z,
                 samples_per_trunk=self.globals.samples_per_trunk,
-                use_flash=self.globals.use_flash,
+                use_deepspeed_evo_attention=self.globals.use_deepspeed_evo_attention,
             )
             # Add the denoised atoms, timesteps, and augmented gt atoms for loss calculation
             outputs.update(diff_output)
@@ -375,7 +374,7 @@ class AlphaFold3(nn.Module):
             z_trunk=z,
             n_steps=n_steps,
             samples_per_trunk=self.globals.rollout_samples_per_trunk,
-            use_flash=self.globals.use_flash
+            use_deepspeed_evo_attention=self.globals.use_deepspeed_evo_attention
         )
         outputs["sampled_positions"] = sampled_positions
 
