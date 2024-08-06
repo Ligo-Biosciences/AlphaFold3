@@ -69,7 +69,7 @@ class DiffusionConditioning(nn.Module):
 
     def _forward(
             self,
-            timesteps: Tensor,  # timestep (bs, 1)
+            timesteps: Tensor,  # timestep (bs, S, 1)
             features: Dict[str, Tensor],  # input feature dict
             s_inputs: Tensor,  # (bs, n_tokens, c_token)
             s_trunk: Tensor,  # (bs, n_tokens, c_token)
@@ -79,7 +79,7 @@ class DiffusionConditioning(nn.Module):
         """Diffusion conditioning.
         Args:
             timesteps:
-                [*, 1] timestep tensor
+                [*, S, 1] timestep tensor where S is samples per trunk
             features:
                 input feature dictionary for the RelativePositionEncoding containing:
                     "residue_index":
@@ -118,13 +118,13 @@ class DiffusionConditioning(nn.Module):
             )
         )
         fourier_repr = self.proj_fourier(fourier_repr)
-        token_repr = token_repr + fourier_repr.unsqueeze(1)
+        token_repr = token_repr.unsqueeze(-3) + fourier_repr.unsqueeze(-2)
         for transition in self.single_transitions:
             token_repr = token_repr + transition(token_repr)
 
         # Mask outputs
         if mask is not None:
-            token_repr = mask.unsqueeze(-1) * token_repr
+            token_repr = token_repr * mask[..., None, :, None]
             pair_mask = (mask[:, :, None] * mask[:, None, :]).unsqueeze(-1)  # (bs, n_tokens, n_tokens, 1)
             pair_repr = pair_repr * pair_mask
 
@@ -133,7 +133,7 @@ class DiffusionConditioning(nn.Module):
     def forward(
             self,
             timesteps: Tensor,  # timestep (bs, 1)
-            features: Dict[str, Tensor],  # x feature dict
+            features: Dict[str, Tensor],  # input feature dict
             s_inputs: Tensor,  # (bs, n_tokens, c_token)
             s_trunk: Tensor,  # (bs, n_tokens, c_token)
             z_trunk: Tensor,  # (bs, n_tokens, n_tokens, c_pair)

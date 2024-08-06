@@ -42,7 +42,7 @@ model:
     _target_: src.models.diffusion_module.DiffusionModule
     c_atom: 128
     c_atompair: 16
-    c_token: 128  # original: 384
+    c_token: 384
     c_tokenpair: 128
     atom_encoder_blocks: 3
     atom_encoder_heads: 16
@@ -51,19 +51,19 @@ model:
     atom_attention_n_keys: 128
     atom_decoder_blocks: 3
     atom_decoder_heads: 16
-    token_transformer_blocks: 12  # original: 24
+    token_transformer_blocks: 24
     token_transformer_heads: 16
     clear_cache_between_blocks: false
     compile_model: false
 
   feature_embedder:
     _target_: src.models.embedders.ProteusFeatureEmbedder
-    c_token: 128  # original: 384
+    c_token: 384
     c_atom: 128
     c_atompair: 16
     c_trunk_pair: 128
-    num_blocks: 3
-    num_heads: 4
+    no_blocks: 3
+    no_heads: 4
     dropout: 0.0
     n_queries: 32
     n_keys: 128

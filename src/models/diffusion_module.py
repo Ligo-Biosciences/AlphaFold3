@@ -14,7 +14,7 @@ from torch import Tensor
 from typing import Dict, Tuple
 from src.models.diffusion_conditioning import DiffusionConditioning
 from src.models.diffusion_transformer import DiffusionTransformer
-from src.models.components.atom_attention_old import AtomAttentionEncoder, AtomAttentionDecoder
+from src.models.components.atom_attention import AtomAttentionEncoder, AtomAttentionDecoder
 from src.models.components.primitives import LinearNoBias, LayerNorm
 from src.utils.tensor_utils import tensor_tree_map
 from src.utils.geometry.vector import Vec3Array
@@ -96,8 +96,8 @@ class DiffusionModule(torch.nn.Module):
         self.diffusion_transformer = DiffusionTransformer(
             c_token=c_token,
             c_pair=c_tokenpair,
-            num_blocks=token_transformer_blocks,
-            num_heads=token_transformer_heads,
+            no_blocks=token_transformer_blocks,
+            no_heads=token_transformer_heads,
             dropout=dropout,
             clear_cache_between_blocks=clear_cache_between_blocks,
             blocks_per_ckpt=blocks_per_ckpt
@@ -109,8 +109,8 @@ class DiffusionModule(torch.nn.Module):
             c_token=c_token,
             c_atom=c_atom,
             c_atompair=c_atompair,
-            num_blocks=atom_decoder_blocks,
-            num_heads=atom_decoder_heads,
+            no_blocks=atom_decoder_blocks,
+            no_heads=atom_decoder_heads,
             dropout=dropout,
             n_queries=atom_attention_n_queries,
             n_keys=atom_attention_n_keys,
@@ -250,7 +250,6 @@ class DiffusionModule(torch.nn.Module):
             mask=token_mask
         )
 
-        # TODO: from this point on, we should have the samples_per_trunk dimension
         # Scale positions to dimensionless vectors with approximately unit variance
         r_noisy = self.scale_inputs(noisy_atoms, timesteps)
 
@@ -266,7 +265,7 @@ class DiffusionModule(torch.nn.Module):
         )
 
         # Full self-attention on token level
-        token_single = atom_encoder_output.token_single + self.token_proj(token_repr).unsqueeze(-3)
+        token_single = atom_encoder_output.token_single + self.token_proj(token_repr)
         token_single = self.diffusion_transformer(
             single_repr=token_single,
             single_proj=token_repr,
@@ -279,14 +278,14 @@ class DiffusionModule(torch.nn.Module):
 
         # Broadcast token activations to atoms and run sequence-local atom attention
         atom_pos_updates = self.atom_attention_decoder(
-            token_repr=token_single,
-            atom_single_skip_repr=atom_encoder_output.atom_single_skip_repr,  # (bs, n_atoms, c_atom)
+            token_repr=token_single,  # (bs, S, n_tokens, c_token)
+            atom_single_skip_repr=atom_encoder_output.atom_single_skip_repr,  # (bs, S, n_atoms, c_atom)
             atom_single_skip_proj=atom_encoder_output.atom_single_skip_proj,  # (bs, n_atoms, c_atom)
             atom_pair_skip_repr=atom_encoder_output.atom_pair_skip_repr,  # (bs, n_atoms, n_atoms, c_atom)
             tok_idx=features["atom_to_token"],  # (bs, n_atoms)
             mask=atom_mask,  # (bs, n_atoms)
             # use_flash=use_flash
-        )  # (bs, n_atoms, 3)
+        )  # (bs, S, n_atoms, 3)
 
         # Rescale updates to positions and combine with input positions
         output_pos = self.rescale_with_updates(atom_pos_updates, noisy_atoms, timesteps)
@@ -358,22 +357,15 @@ class DiffusionModule(torch.nn.Module):
             use_deepspeed_evo_attention:
                 Whether to use Deepspeed's Evoformer attention kernels
         """
-        # Expand the batch by samples_per_trunk
-        # TODO: not an elegant solution, change to integrate better with the various attention mechanisms
-        expand_batch = lambda tensor: tensor.repeat_interleave(samples_per_trunk, dim=0)
-        feats = tensor_tree_map(expand_batch, features)
-        s_inputs = expand_batch(s_inputs)
-        s_trunk = expand_batch(s_trunk)
-        z_trunk = expand_batch(z_trunk)
-        ground_truth_atoms = expand_batch(ground_truth_atoms)
-
         # Grab data about the inputs
-        exp_batch_size = s_inputs.shape[0]
+        batch_size, n_atoms, _ = ground_truth_atoms.shape
         device, dtype = s_inputs.device, s_inputs.dtype
 
         # Create samples_per_trunk noisy versions of the ground truth atoms
-        timesteps = sample_noise_level((exp_batch_size, 1), device=device, dtype=dtype)
-        ground_truth_atoms = Vec3Array.from_array(ground_truth_atoms)
+        timesteps = sample_noise_level((batch_size, samples_per_trunk, 1), device=device, dtype=dtype)
+        ground_truth_atoms = Vec3Array.from_array(  # expand to (bs, S, n_atoms, 3)
+            ground_truth_atoms.unsqueeze(-3).expand(ground_truth_atoms.shape[:-2] + (samples_per_trunk, n_atoms, 3))
+        )
 
         # Randomly rotate each replica of the ground truth atoms
         aug_gt_atoms = centre_random_augmentation(ground_truth_atoms)
@@ -385,7 +377,7 @@ class DiffusionModule(torch.nn.Module):
         denoised_atoms = self.forward(
             noisy_atoms=noisy_atoms.to_tensor().to(dtype),
             timesteps=timesteps,
-            features=feats,
+            features=features,
             s_inputs=s_inputs,
             s_trunk=s_trunk,
             z_trunk=z_trunk,
@@ -485,6 +477,7 @@ class DiffusionModule(torch.nn.Module):
             dtype, device = s_inputs.dtype, s_inputs.device
 
             # Expand the batch by samples_per_trunk
+            # TODO: fix the sampling here!
             expand_batch = lambda tensor: tensor.repeat_interleave(samples_per_trunk, dim=0)
             feats = tensor_tree_map(expand_batch, features)
             s_inputs = expand_batch(s_inputs)

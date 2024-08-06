@@ -179,6 +179,7 @@ class AtomAttentionPairBias(nn.Module):
             # Expand mask by N_seq (or samples per trunk)
             new_shape = (mask.shape[:-1] + (n_seq, n_atoms))  # (*, N_seq, N_atoms)
             mask = mask.unsqueeze(-2).expand(new_shape)  # (bs, N_seq, N_atoms)
+            mask = mask.to(atom_single.dtype)
 
         # Partition mask,  Target mask shape: [bs, n_atoms // n_queries, S, n_keys]
         mask = partition_tensor(mask[..., None], self.n_queries, self.n_keys)  # (bs, S, n_atoms // 32, 128, 1)

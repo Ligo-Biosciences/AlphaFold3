@@ -3,7 +3,7 @@ import torch
 from torch import Tensor
 from torch import nn
 from torch.nn import functional as F
-from src.models.components.atom_attention_old import AtomAttentionEncoder
+from src.models.components.atom_attention import AtomAttentionEncoder
 from typing import Dict, NamedTuple, Tuple, Optional
 from src.models.components.primitives import LinearNoBias, LayerNorm, Linear
 from src.models.components.relative_position_encoding import RelativePositionEncoding
@@ -29,19 +29,19 @@ class InputFeatureEmbedder(nn.Module):
             c_atom: int = 128,
             c_atompair: int = 16,
             c_trunk_pair: int = 128,
-            num_blocks: int = 3,
-            num_heads: int = 4,
+            no_blocks: int = 3,
+            no_heads: int = 4,
             dropout=0.0,
             n_queries: int = 32,
             n_keys: int = 128,
     ):
         super().__init__()
-        self.num_blocks = num_blocks
+        self.no_blocks = no_blocks
         self.c_token = c_token
         self.c_atom = c_atom
         self.c_atompair = c_atompair
         self.c_trunk_pair = c_trunk_pair
-        self.num_heads = num_heads
+        self.no_heads = no_heads
         self.dropout = dropout
         self.n_queries = n_queries
         self.n_keys = n_keys
@@ -52,8 +52,8 @@ class InputFeatureEmbedder(nn.Module):
             c_atom=self.c_atom,
             c_atompair=self.c_atompair,
             c_trunk_pair=self.c_trunk_pair,
-            no_blocks=self.num_blocks,
-            no_heads=self.num_heads,
+            no_blocks=self.no_blocks,
+            no_heads=self.no_heads,
             dropout=self.dropout,
             n_queries=self.n_queries,
             n_keys=self.n_keys,
@@ -398,30 +398,30 @@ class ProteusFeatureEmbedder(nn.Module):
             c_atom: int = 128,
             c_atompair: int = 16,
             c_trunk_pair: int = 16,
-            num_blocks: int = 3,
-            num_heads: int = 4,
+            no_blocks: int = 3,
+            no_heads: int = 4,
             dropout: float = 0.0,
             n_queries: int = 32,
             n_keys: int = 128,
     ):
         super().__init__()
-        self.num_blocks = num_blocks
+        self.no_blocks = no_blocks
         self.c_token = c_token
         self.c_atom = c_atom
         self.c_atompair = c_atompair
         self.c_trunk_pair = c_trunk_pair
-        self.num_heads = num_heads
+        self.no_heads = no_heads
         self.dropout = dropout
         self.n_queries = n_queries
         self.n_keys = n_keys
 
         self.input_feature_embedder = InputFeatureEmbedder(
-            num_blocks=num_blocks,
+            no_blocks=no_blocks,
             c_token=c_token,
             c_atom=c_atom,
             c_atompair=c_atompair,
             c_trunk_pair=c_trunk_pair,
-            num_heads=num_heads,
+            no_heads=no_heads,
             dropout=dropout,
             n_queries=n_queries,
             n_keys=n_keys
@@ -436,7 +436,6 @@ class ProteusFeatureEmbedder(nn.Module):
             features: Dict[str, torch.Tensor],
             atom_mask: torch.Tensor = None,
             token_mask: torch.Tensor = None,
-            use_flash: bool = False,
     ) -> Tuple[Tensor, Tensor, Tensor]:
         """Forward pass of the Proteus feature embedder.
         Args:
@@ -446,8 +445,6 @@ class ProteusFeatureEmbedder(nn.Module):
                 [*, N_atoms] mask indicating which atoms are valid (non-padding).
             token_mask:
                 [*, N_tokens] mask indicating which tokens are valid (non-padding).
-            use_flash:
-                Whether to use flash attention.
         Returns:
             [*, N_tokens, c_token] Embedding of the input features.
         """
@@ -459,7 +456,6 @@ class ProteusFeatureEmbedder(nn.Module):
             features=features,
             n_tokens=n_tokens,
             mask=atom_mask,
-            use_flash=use_flash
         )
         # f_restype, f_profile, and f_deletion_mean do not exist for design
 
@@ -478,7 +474,6 @@ class ProteusFeatureEmbedder(nn.Module):
             features: Dict[str, torch.Tensor],
             atom_mask: torch.Tensor = None,
             token_mask: torch.Tensor = None,
-            use_flash: bool = False,
     ) -> Tuple[Tensor, Tensor, Tensor]:
         """Forward pass of the Proteus feature embedder.
             Args:
@@ -488,9 +483,7 @@ class ProteusFeatureEmbedder(nn.Module):
                     [*, N_atoms] mask indicating which atoms are valid (non-padding).
                 token_mask:
                     [*, N_tokens] mask indicating which tokens are valid (non-padding).
-                use_flash:
-                    Whether to use flash attention.
             Returns:
                 [*, N_tokens, c_token] Embedding of the input features.
         """
-        return self._forward(features, atom_mask, token_mask, use_flash)  # checkpoint()
+        return self._forward(features, atom_mask, token_mask)  # checkpoint()

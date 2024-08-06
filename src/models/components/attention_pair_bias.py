@@ -98,6 +98,7 @@ class AttentionPairBias(nn.Module):
             # Expand mask by N_seq (or samples per trunk)
             new_shape = (mask.shape[:-1] + (n_seq, n_res))  # (*, N_seq, N_res)
             mask = mask.unsqueeze(-2).expand(new_shape)
+            mask = mask.to(single_repr.dtype)
         # [*, N_seq, 1, 1, N_res]
         mask_bias = (self.inf * (mask - 1))[..., :, None, None, :]
 

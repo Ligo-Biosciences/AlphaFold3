@@ -9,6 +9,7 @@ from torchmetrics import MeanMetric
 from src.utils.exponential_moving_average import ExponentialMovingAverage
 from src.utils.tensor_utils import tensor_tree_map
 from src.utils.loss import AlphaFold3Loss
+from einops import rearrange
 
 
 class Proteus(nn.Module):
@@ -131,7 +132,18 @@ class ProteusLitModule(LightningModule):
             gt_atoms=batch["all_atom_positions"],
             features=batch,
             samples_per_trunk=self.config.globals.samples_per_trunk,
-            use_flash=self.config.globals.use_flash
+            use_deepspeed_evo_attention=self.config.globals.use_deepspeed_evo_attention,
+        )
+        # Flatten the S to be incorporated into the batch dimension
+        # TODO: this is temporary, delete and replace with arbitrary handling
+        outputs["augmented_gt_atoms"] = rearrange(
+            outputs["augmented_gt_atoms"], 'b s n c -> (b s) n c'
+        )
+        outputs["denoised_atoms"] = rearrange(
+            outputs["denoised_atoms"], 'b s n c -> (b s) n c'
+        )
+        outputs["timesteps"] = rearrange(
+            outputs["timesteps"], 'b s o -> (b s) o'
         )
         # Compute loss
         loss = self.loss_fn(outputs, batch, _return_breakdown=False)

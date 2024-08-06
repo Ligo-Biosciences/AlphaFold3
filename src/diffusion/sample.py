@@ -10,7 +10,7 @@ from src.diffusion.augmentation import centre_random_augmentation
 def noise_positions(
         atom_positions: Vec3Array,  # (*, n_atoms)
         noise_levels: torch.Tensor  # (*, 1)
-) -> Vec3Array:  # (bs, n_atoms)
+) -> Vec3Array:  # (*, n_atoms)
     """Sample from the diffusion trajectory with Gaussian noise."""
     device = atom_positions.x.device
     # X = (y + n) where y is clean signal and n ~ N(0, noise_level^2)

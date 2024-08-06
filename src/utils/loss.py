@@ -82,7 +82,7 @@ def bond_loss(
 
 def diffusion_loss(
         pred_atoms: Tensor,  # (bs * samples_per_trunk, n_atoms, 3)
-        gt_atoms: Tensor,  # (bs, n_atoms, 3)
+        gt_atoms: Tensor,  # (bs * samples_per_trunk, n_atoms, 3)
         timesteps: Tensor,  # (bs * samples_per_trunk, 1)
         atom_is_rna: Tensor,  # (bs, n_atoms)
         atom_is_dna: Tensor,  # (bs, n_atoms)
@@ -98,7 +98,6 @@ def diffusion_loss(
     # Shape wrangling
     samples_per_trunk = pred_atoms.shape[0] // bs
     expand_batch = lambda tensor: tensor.repeat_interleave(samples_per_trunk, dim=0)
-    gt_atoms = expand_batch(gt_atoms)
     atom_is_rna = expand_batch(atom_is_rna)
     atom_is_dna = expand_batch(atom_is_dna)
     weights = expand_batch(weights)

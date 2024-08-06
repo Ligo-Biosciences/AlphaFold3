@@ -17,7 +17,7 @@ class DiffusionTransformerBlock(nn.Module):
             self,
             c_token: int = 384,
             c_pair: int = 16,
-            num_blocks: int = 24,
+            no_blocks: int = 24,
             no_heads: int = 16,
             dropout: float = 0.0,
     ):
@@ -27,7 +27,7 @@ class DiffusionTransformerBlock(nn.Module):
                 The number of channels for the token representation. Defaults to 384.
             c_pair:
                 The number of channels for the pair representation. Defaults to 16.
-            num_blocks:
+            no_blocks:
                 Number of blocks.
             no_heads:
                 Number of parallel attention heads. Note that c_atom will be split across no_heads
@@ -38,7 +38,7 @@ class DiffusionTransformerBlock(nn.Module):
         super().__init__()
         self.c_token = c_token
         self.c_pair = c_pair
-        self.num_blocks = num_blocks
+        self.num_blocks = no_blocks
         self.num_heads = no_heads
         self.dropout = dropout
 
@@ -75,8 +75,8 @@ class DiffusionTransformer(nn.Module):
             self,
             c_token: int = 384,
             c_pair: int = 16,
-            num_blocks: int = 24,
-            num_heads: int = 16,
+            no_blocks: int = 24,
+            no_heads: int = 16,
             dropout=0.0,
             blocks_per_ckpt: int = 1,
             clear_cache_between_blocks: bool = False,
@@ -87,9 +87,9 @@ class DiffusionTransformer(nn.Module):
                 The number of channels for the token representation. Defaults to 384.
             c_pair:
                 The number of channels for the pair representation. Defaults to 16.
-            num_blocks:
+            no_blocks:
                 Number of blocks.
-            num_heads:
+            no_heads:
                 Number of parallel attention heads. Note that c_atom will be split across no_heads
                 (i.e. each head will have dimension c_atom // no_heads).
             dropout:
@@ -103,8 +103,8 @@ class DiffusionTransformer(nn.Module):
         super().__init__()
         self.c_token = c_token
         self.c_pair = c_pair
-        self.num_blocks = num_blocks
-        self.num_heads = num_heads
+        self.num_blocks = no_blocks
+        self.num_heads = no_heads
         self.dropout = dropout
         self.blocks_per_ckpt = blocks_per_ckpt
         self.clear_cache_between_blocks = clear_cache_between_blocks
@@ -112,10 +112,10 @@ class DiffusionTransformer(nn.Module):
         self.blocks = nn.ModuleList([
             DiffusionTransformerBlock(c_token=c_token,
                                       c_pair=c_pair,
-                                      num_blocks=num_blocks,
-                                      no_heads=num_heads,
+                                      no_blocks=no_blocks,
+                                      no_heads=no_heads,
                                       dropout=dropout)
-            for _ in range(num_blocks)
+            for _ in range(no_blocks)
         ])
 
     def _prep_blocks(
@@ -148,7 +148,7 @@ class DiffusionTransformer(nn.Module):
     def forward(
             self,
             single_repr: Tensor,  # (*, S, N, c_s)
-            single_proj: Tensor,  # (*, N, c_s)
+            single_proj: Tensor,  # (*, S, N, c_s)
             pair_repr: Tensor,  # (*, N, N, c_z)
             mask: Optional[Tensor] = None,  # (*, N)
             use_deepspeed_evo_attention: bool = True
@@ -168,7 +168,7 @@ class DiffusionTransformer(nn.Module):
             single_repr:
                 [*, S, N, c_s] single representation, where S is the samples_per_trunk dimension.
             single_proj:
-                [*, N, c_s] single projection
+                [*, S, N, c_s] single projection
             pair_repr:
                 [*, N, N, c_z] pair representation
             mask:
@@ -186,9 +186,6 @@ class DiffusionTransformer(nn.Module):
         blocks_per_ckpt = self.blocks_per_ckpt
         if not torch.is_grad_enabled():
             blocks_per_ckpt = None
-
-        # Expand for proper broadcasting
-        single_proj = single_proj.unsqueeze(-3)
 
         # Run with grad checkpointing
         single_repr, single_proj, pair_repr = checkpoint_blocks(

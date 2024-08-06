@@ -70,6 +70,7 @@ class TestDiffusionConditioning(unittest.TestCase):
 
         self.c_token = 128
         self.c_pair = 64
+        self.n_seq = 3
         # self.r_max = 32
         # self.s_max = 2
         self.module = DiffusionConditioning(self.c_token, self.c_pair)
@@ -82,7 +83,7 @@ class TestDiffusionConditioning(unittest.TestCase):
             "entity_id": torch.randint(0, self.n_tokens, (self.batch_size, self.n_tokens)),
             "sym_id": torch.randint(0, self.n_tokens, (self.batch_size, self.n_tokens)),
         }
-        t = torch.randn(self.batch_size, 1)
+        t = torch.randn(self.batch_size, self.n_seq, 1)
         s_inputs = torch.randn(self.batch_size, self.n_tokens, self.c_token)
         s_trunk = torch.randn(self.batch_size, self.n_tokens, self.c_token)
         z_trunk = torch.randn(self.batch_size, self.n_tokens, self.n_tokens, self.c_pair)
@@ -90,7 +91,7 @@ class TestDiffusionConditioning(unittest.TestCase):
         mask = torch.randint(0, 2, (self.batch_size, self.n_tokens))
 
         output = self.module(t, features, s_inputs, s_trunk, z_trunk, mask)
-        self.assertEqual(output[0].shape, (self.batch_size, self.n_tokens, self.c_token))
+        self.assertEqual(output[0].shape, (self.batch_size, self.n_seq, self.n_tokens, self.c_token))
         self.assertEqual(output[1].shape, (self.batch_size, self.n_tokens, self.n_tokens, self.c_pair))
 
 
