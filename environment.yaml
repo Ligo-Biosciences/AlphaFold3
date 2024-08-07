@@ -39,7 +39,7 @@ dependencies:
   - pytest
   - pandas
   - p-tqdm
-  - proteinflow==2.7.0
+  - proteinflow==2.8.0
   - biopython
   - setuptools>=68.2.2,<68.3.0
   - tqdm
