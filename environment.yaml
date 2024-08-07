@@ -25,7 +25,7 @@ dependencies:
   - torchvision
   - torchaudio
   - pytorch-cuda=12.4  # for CUDA version 12.4
-  - pytorch-lightning
+  - lightning
 
   # --------- kernels --------- #
   - einops
