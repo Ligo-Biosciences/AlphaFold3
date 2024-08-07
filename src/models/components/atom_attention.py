@@ -40,7 +40,7 @@ def extract_locals(
         bias_tensor: Tensor,
         n_queries: int = 32,
         n_keys: int = 128,
-        pad_value: Optional[float | int] = -1e4
+        pad_value: Optional[float] = -1e4
 ) -> Tensor:
     """Extracts biases etc. that are local in the sequence space. Also pads the local biases with large negative values
     to mask the gaps during attention computation.
