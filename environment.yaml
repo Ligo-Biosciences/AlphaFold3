@@ -39,12 +39,12 @@ dependencies:
   - pytest
   - pandas
   - p-tqdm
-  - proteinflow==2.8.0
   - biopython
   - setuptools>=68.2.2,<68.3.0
   - tqdm
   - pandas
   - pip:
+      - proteinflow==2.8.0
       - deepspeed==0.14.4
       - dm-tree>=0.1.8,<0.2.0
       - torchmetrics
