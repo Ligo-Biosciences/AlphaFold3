@@ -8,18 +8,11 @@ name: alphafold
 
 channels:
   - pytorch
+  - nvidia
   - conda-forge
   - bioconda
   - adaptyvbio
   - defaults
-
-# it is strongly recommended to specify versions of packages installed through conda
-# to avoid situation when version-unspecified packages install their latest major
-# versions which can sometimes break things
-
-# current approach below keeps the dependencies in the same major versions across all
-# users, but allows for different minor and patch versions of packages where backwards
-# compatibility is usually guaranteed
 
 dependencies:
   - python=3.10
@@ -28,30 +21,31 @@ dependencies:
   - pip
 
   # --------- pytorch --------- #
-  - pytorch>=2.3.1,<2.4.0
-  - torchvision>=0.18,<0.19
+  - pytorch=2.4.0
+  - torchvision
+  - torchaudio
+  - pytorch-cuda=12.4  # for CUDA version 12.4
   - pytorch-lightning
 
   # --------- kernels --------- #
-  - einops>=0.8.0,<0.9.0
+  - einops
 
   # --------- loggers --------- #
   - wandb
 
   # --------- others --------- #
   - pre-commit
-  - rich>=13.7.0,<13.8.0
-  - pytest>=8.0.0,<8.1.0
+  - rich
+  - pytest
   - pandas
   - p-tqdm
-  - proteinflow>=2.7.0,<2.8.0
-  - biopython>=1.79,<1.80
-  - omegaconf>=2.3.0,<2.4.0
+  - proteinflow==2.7.0
+  - biopython
   - setuptools>=68.2.2,<68.3.0
-  - tqdm>=4.66.1,<4.67.0
-  - pandas>=2.2.0,<2.3.0
+  - tqdm
+  - pandas
   - pip:
-      - deepspeed>=0.14.4,<0.15.0
+      - deepspeed==0.14.4
       - dm-tree>=0.1.8,<0.2.0
       - torchmetrics
       # --------- hydra --------- #
