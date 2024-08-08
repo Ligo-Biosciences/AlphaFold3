@@ -404,10 +404,10 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
                 ) -> torch.Tensor:
         """
         Args:
-            x:
-                [*, N_res, N_res, C_z] x tensor
+            z:
+                [*, N_res, N_res, C_z] pair representation tensor
             mask:
-                [*, N_res, N_res] x mask
+                [*, N_res, N_res] input mask
         Returns:
             [*, N_res, N_res, C_z] output tensor
         """
@@ -552,10 +552,10 @@ class FusedTriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
                 ) -> torch.Tensor:
         """
         Args:
-            x:
-                [*, N_res, N_res, C_z] x tensor
+            z:
+                [*, N_res, N_res, C_z] pair representation
             mask:
-                [*, N_res, N_res] x mask
+                [*, N_res, N_res] input mask
         Returns:
             [*, N_res, N_res, C_z] output tensor
         """
