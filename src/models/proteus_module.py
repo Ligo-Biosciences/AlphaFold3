@@ -135,7 +135,7 @@ class ProteusLitModule(LightningModule):
             use_deepspeed_evo_attention=self.config.globals.use_deepspeed_evo_attention,
         )
         # Flatten the S to be incorporated into the batch dimension
-        # TODO: this is temporary, delete and replace with arbitrary handling
+        # TODO: this is temporary, delete and replace with arbitrary batch dims handling
         outputs["augmented_gt_atoms"] = rearrange(
             outputs["augmented_gt_atoms"], 'b s n c -> (b s) n c'
         )

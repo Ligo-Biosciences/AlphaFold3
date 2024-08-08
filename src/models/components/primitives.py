@@ -347,14 +347,14 @@ class Attention(nn.Module):
             LinearNoBias(self.c_v, self.c_hidden * self.no_heads, init="glorot"),
             split_heads
         )
-        self.linear_o = Linear(
+        self.linear_o = Linear(  # NoBias
             self.c_hidden * self.no_heads, self.c_q, init="final"
         )
 
         self.to_gamma = None
         if self.gating:
             self.to_gamma = nn.Sequential(
-                Linear(self.c_q, self.c_hidden * self.no_heads, init="gating"),
+                Linear(self.c_q, self.c_hidden * self.no_heads, init="gating"),  # NoBias
                 split_heads,
                 nn.Sigmoid()
             )

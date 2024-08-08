@@ -34,7 +34,7 @@ loss:
       #    weight: 1.0
       use_smooth_lddt: false
       sd_data: 16.0
-      weight: 1.0
+      weight: 4.0
 
 model:
   _target_: src.models.proteus_module.Proteus

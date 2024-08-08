@@ -5,12 +5,11 @@ default_root_dir: ${paths.output_dir}
 min_epochs: 1 # prevents early stopping
 max_epochs: 100
 
-accelerator: cpu
+accelerator: gpu
 devices: 1
 
 # mixed precision for extra speed-up
-precision: 'bf16' # 'transformer-engine', 'transformer-engine-float16', '16-true', '16-mixed', 'bf16-true',
-# 'bf16-mixed', '32-true',
+precision: 'bf16-mixed' # '16-true', '16-mixed', 'bf16-true', '32-true',
 
 # perform a validation loop every N training epochs
 check_val_every_n_epoch: 1
@@ -34,7 +33,7 @@ limit_val_batches: 1.0
 profiler: "simple"  # None
 
 # Detect autograd anomalies. This will significantly slow down compute speed, useful for debugging
-detect_anomaly: False
+detect_anomaly: false
 
 enable_progress_bar: null
 

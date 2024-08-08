@@ -255,7 +255,9 @@ class ProteinDataset(Dataset):
 
         # create feature folder if it does not exist
         if not os.path.exists(self.features_folder):
-            os.makedirs(self.features_folder)
+            # exist_ok=True prevents an error in a race condition during
+            # distributed training
+            os.makedirs(self.features_folder, exist_ok=True)
 
         self.interpolate = interpolate
         # generate the feature files

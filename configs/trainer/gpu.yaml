@@ -2,7 +2,7 @@ defaults:
   - default
 
 accelerator: gpu
-devices: 8
+devices: 1
 
 precision: 'bf16-mixed' # 'bf16-true' # 'transformer-engine', 'transformer-engine-float16', '16-true', '16-mixed', 'bf16-true',
 # 'bf16-mixed', '32-true',
