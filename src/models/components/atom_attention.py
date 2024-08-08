@@ -322,6 +322,7 @@ class AtomTransformer(nn.Module):
             n_keys: int = 128,
             blocks_per_ckpt: int = 1,
             clear_cache_between_blocks: bool = False,
+            compile_module: bool = False,
     ):
         """
         Initialize the AtomTransformer module.
@@ -344,6 +345,8 @@ class AtomTransformer(nn.Module):
             clear_cache_between_blocks:
                 Whether to clear CUDA's GPU memory cache between blocks of the
                 stack. Slows down each block but can reduce fragmentation
+            compile_module:
+                Whether to compile the module.
         """
         super().__init__()
         self.c_atom = c_atom
@@ -355,6 +358,7 @@ class AtomTransformer(nn.Module):
         self.n_keys = n_keys
         self.blocks_per_ckpt = blocks_per_ckpt
         self.clear_cache_between_blocks = clear_cache_between_blocks
+        self.compile_module = compile_module
 
         self.blocks = nn.ModuleList(
             [AtomTransformerBlock(c_atom=c_atom,
@@ -376,7 +380,7 @@ class AtomTransformer(nn.Module):
         """Prepare the input tensors for each AtomTransformerBlock."""
         blocks = [
             partial(
-                block,
+                block if not self.compile_module else torch.compile(block),
                 mask=mask,
             )
             for block in self.blocks
@@ -572,6 +576,7 @@ class AtomAttentionEncoder(nn.Module):
             n_keys: int = 128,
             trunk_conditioning: bool = False,
             clear_cache_between_blocks: bool = False,
+            compile_module: bool = False,
     ):
         """Initialize the AtomAttentionEncoder module.
             Args:
@@ -600,6 +605,8 @@ class AtomAttentionEncoder(nn.Module):
                 clear_cache_between_blocks:
                     Whether to clear CUDA's GPU memory cache between blocks of the
                     stack. Slows down each block but can reduce fragmentation
+                compile_module:
+                    Whether to compile the module.
         """
         super().__init__()
         self.no_blocks = no_blocks
@@ -613,6 +620,7 @@ class AtomAttentionEncoder(nn.Module):
         self.n_keys = n_keys
         self.trunk_conditioning = trunk_conditioning
         self.clear_cache_between_blocks = clear_cache_between_blocks
+        self.compile_module = compile_module
 
         # Embedding per-atom metadata, concat(ref_pos, ref_charge, ref_mask, ref_element, ref_atom_name_chars)
         self.linear_atom_embedding = LinearNoBias(3 + 1 + 1 + 4 + 4, c_atom)  # 128, * 64
@@ -658,6 +666,7 @@ class AtomAttentionEncoder(nn.Module):
             n_queries=n_queries,
             n_keys=n_keys,
             clear_cache_between_blocks=clear_cache_between_blocks,
+            compile_module=compile_module
         )
 
         # Final linear
@@ -822,8 +831,6 @@ class AtomAttentionEncoder(nn.Module):
                 [*, S, N_atoms, 3] Tensor containing the noisy positions. Defaults to None.
             mask:
                 [*, N_atoms]
-            use_deepspeed_evo_attention:
-                whether to use Deepspeed's Evoformer attention
         Returns:
             A namedtuple containing the following fields:
                 token_single:
@@ -873,6 +880,7 @@ class AtomAttentionDecoder(nn.Module):
             n_queries: int = 32,
             n_keys: int = 128,
             clear_cache_between_blocks: bool = False,
+            compile_module: bool = False,
     ):
         """Initialize the AtomAttentionDecoder module.
         Args:
@@ -896,6 +904,8 @@ class AtomAttentionDecoder(nn.Module):
             clear_cache_between_blocks:
                 Whether to clear CUDA's GPU memory cache between blocks of the
                 stack. Slows down each block but can reduce fragmentation
+            compile_module:
+                Whether to compile the module.
 
         """
         super().__init__()
@@ -908,6 +918,7 @@ class AtomAttentionDecoder(nn.Module):
         self.n_queries = n_queries
         self.n_keys = n_keys
         self.clear_cache_between_blocks = clear_cache_between_blocks
+        self.compile_module = compile_module
 
         # Broadcast token to atom
         self.linear_atom = LinearNoBias(c_token, c_atom, init='default')
@@ -921,6 +932,7 @@ class AtomAttentionDecoder(nn.Module):
             n_queries=n_queries,
             n_keys=n_keys,
             clear_cache_between_blocks=clear_cache_between_blocks,
+            compile_module=compile_module
         )
 
         # Output

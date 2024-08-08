@@ -7,8 +7,6 @@ from src.models.components.primitives import LinearNoBias, LayerNorm
 from src.models.components.relative_position_encoding import RelativePositionEncoding
 from src.models.components.transition import Transition
 from typing import Dict, Tuple
-from src.utils.checkpointing import get_checkpoint_fn
-checkpoint = get_checkpoint_fn()
 
 
 class FourierEmbedding(nn.Module):
@@ -33,7 +31,7 @@ class DiffusionConditioning(nn.Module):
             self,
             c_token: int = 384,
             c_pair: int = 128,
-            sd_data: float = 16.0
+            sd_data: float = 16.0,
     ):
         """Initializes the diffusion conditioning module.
         Args:
@@ -67,7 +65,7 @@ class DiffusionConditioning(nn.Module):
         )
         self.single_transitions = nn.ModuleList([Transition(input_dim=c_token, n=2) for _ in range(2)])
 
-    def _forward(
+    def forward(
             self,
             timesteps: Tensor,  # timestep (bs, S, 1)
             features: Dict[str, Tensor],  # input feature dict
@@ -129,14 +127,3 @@ class DiffusionConditioning(nn.Module):
             pair_repr = pair_repr * pair_mask
 
         return token_repr, pair_repr
-
-    def forward(
-            self,
-            timesteps: Tensor,  # timestep (bs, 1)
-            features: Dict[str, Tensor],  # input feature dict
-            s_inputs: Tensor,  # (bs, n_tokens, c_token)
-            s_trunk: Tensor,  # (bs, n_tokens, c_token)
-            z_trunk: Tensor,  # (bs, n_tokens, n_tokens, c_pair)
-            mask: Tensor = None,  # (bs, n_tokens)
-    ) -> Tuple[Tensor, Tensor]:
-        return checkpoint(self._forward, timesteps, features, s_inputs, s_trunk, z_trunk, mask)

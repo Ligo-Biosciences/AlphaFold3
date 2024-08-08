@@ -445,7 +445,7 @@ class Attention(nn.Module):
         return o
 
 
-@torch.compile(mode="max-autotune")
+# @torch.compile(mode="max-autotune")
 def _attention(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, biases: List[torch.Tensor]) -> torch.Tensor:
     """A stock PyTorch implementation of the attention mechanism.
     Args:

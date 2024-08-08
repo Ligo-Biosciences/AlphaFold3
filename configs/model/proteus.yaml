@@ -54,7 +54,7 @@ model:
     token_transformer_blocks: 24
     token_transformer_heads: 16
     clear_cache_between_blocks: false
-    compile_model: false
+    compile_module: true
 
   feature_embedder:
     _target_: src.models.embedders.ProteusFeatureEmbedder

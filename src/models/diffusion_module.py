@@ -45,7 +45,7 @@ class DiffusionModule(torch.nn.Module):
             p: float = 7.0,
             clear_cache_between_blocks: bool = False,
             blocks_per_ckpt: int = 1,
-            compile_model: bool = False,
+            compile_module: bool = False,
     ):
         super(DiffusionModule, self).__init__()
         self.c_atom = c_atom
@@ -86,6 +86,7 @@ class DiffusionModule(torch.nn.Module):
             n_keys=atom_attention_n_keys,
             trunk_conditioning=True,
             clear_cache_between_blocks=clear_cache_between_blocks,
+            compile_module=compile_module
         )
 
         # Full self-attention on token level
@@ -100,7 +101,8 @@ class DiffusionModule(torch.nn.Module):
             no_heads=token_transformer_heads,
             dropout=dropout,
             clear_cache_between_blocks=clear_cache_between_blocks,
-            blocks_per_ckpt=blocks_per_ckpt
+            blocks_per_ckpt=blocks_per_ckpt,
+            compile_module=compile_module
         )
         self.token_post_layer_norm = LayerNorm(c_token)
 
@@ -114,13 +116,14 @@ class DiffusionModule(torch.nn.Module):
             dropout=dropout,
             n_queries=atom_attention_n_queries,
             n_keys=atom_attention_n_keys,
+            compile_module=compile_module
             # blocks_per_ckpt=blocks_per_ckpt
         )
-        if compile_model:
+        if compile_module:
             self.diffusion_conditioning = torch.compile(self.diffusion_conditioning)
-            self.atom_attention_encoder = torch.compile(self.atom_attention_encoder)
+            # self.atom_attention_encoder = torch.compile(self.atom_attention_encoder)
             # diffusion_transformer = torch.compile(self.diffusion_transformer)
-            self.atom_attention_decoder = torch.compile(self.atom_attention_decoder)
+            # self.atom_attention_decoder = torch.compile(self.atom_attention_decoder)
 
     def scale_inputs(
             self,
@@ -260,7 +263,6 @@ class DiffusionModule(torch.nn.Module):
             s_trunk=s_trunk,
             z_trunk=z_trunk,
             noisy_pos=r_noisy,
-            # use_flash=use_flash,
             mask=atom_mask,
         )
 
@@ -284,7 +286,6 @@ class DiffusionModule(torch.nn.Module):
             atom_pair_skip_repr=atom_encoder_output.atom_pair_skip_repr,  # (bs, n_atoms, n_atoms, c_atom)
             tok_idx=features["atom_to_token"],  # (bs, n_atoms)
             mask=atom_mask,  # (bs, n_atoms)
-            # use_flash=use_flash
         )  # (bs, S, n_atoms, 3)
 
         # Rescale updates to positions and combine with input positions
