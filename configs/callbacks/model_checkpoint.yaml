@@ -6,7 +6,7 @@ model_checkpoint:
   filename: null # checkpoint filename
   verbose: False # verbosity mode
   save_last: true # additionally always save an exact copy of the last checkpoint to a file last.ckpt
-  every_n_train_steps: 2000 # number of training steps between checkpoints
+  every_n_train_steps: 1000 # number of training steps between checkpoints
   # save_top_k: 1 # save k best models (determined by above metric)
   # monitor: null # name of the logged metric which determines when model is improving
   # mode: "min" # "max" means higher metric value is better, can be also "min"
