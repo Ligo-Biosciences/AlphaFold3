@@ -532,14 +532,11 @@ def _deepspeed_evo_attn(
     # DeepSpeed attn. kernel requires inputs to be type bf16 or fp16
     # Cast to bf16 so kernel can be used during inference
     orig_dtype = q.dtype
-    if orig_dtype not in [torch.bfloat16, torch.float16]:
-        o = DS4Sci_EvoformerAttention(q.to(dtype=torch.bfloat16),
-                                      k.to(dtype=torch.bfloat16),
-                                      v.to(dtype=torch.bfloat16),
-                                      [b.to(dtype=torch.bfloat16) for b in biases])
-        o = o.to(dtype=orig_dtype)
-    else:
-        o = DS4Sci_EvoformerAttention(q, k, v, biases)
+    o = DS4Sci_EvoformerAttention(q.to(dtype=torch.bfloat16),
+                                  k.to(dtype=torch.bfloat16),
+                                  v.to(dtype=torch.bfloat16),
+                                  [b.to(dtype=torch.bfloat16) for b in biases])
+    o = o.to(dtype=orig_dtype)
 
     o = o.reshape(orig_shape)
     return o
