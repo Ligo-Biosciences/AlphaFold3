@@ -137,7 +137,7 @@ class InputEmbedder(nn.Module):
         self.linear_single = LinearNoBias(c_token, c_token)
         self.linear_proj_i = LinearNoBias(c_token, c_trunk_pair)
         self.linear_proj_j = LinearNoBias(c_token, c_trunk_pair)
-        self.linear_bonds = LinearNoBias(1, c_trunk_pair)
+        # self.linear_bonds = LinearNoBias(1, c_trunk_pair)
 
         # Relative position encoding
         self.relpos = RelativePositionEncoding(c_pair=c_trunk_pair)
