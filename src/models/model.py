@@ -42,9 +42,9 @@ class AlphaFold3(nn.Module):
             **self.config["distogram_head"]
         )
 
-        self.confidence_head = ConfidenceHead(
-            **self.config["confidence_head"]
-        )
+        # self.confidence_head = ConfidenceHead(
+        #    **self.config["confidence_head"]
+        # )
 
         # Projections during recycling
         self.c_token = self.config.input_embedder.c_token

@@ -35,7 +35,7 @@ loss:
       #    weight: 1.0
       use_smooth_lddt: false
       sd_data: 16.0
-      weight: 1.0
+      weight: 4.0
 
   distogram:
       min_bin: 2.3125

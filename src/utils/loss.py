@@ -8,6 +8,7 @@ from src.utils.geometry.alignment import weighted_rigid_align
 from torch.nn import functional as F
 from typing import Optional, Set, Tuple
 from src.utils.tensor_utils import one_hot
+from src.common import residue_constants
 import logging
 
 
@@ -137,14 +138,23 @@ def softmax_cross_entropy(logits, labels):
 
 def distogram_loss(
         logits: Tensor,  # (bs, n_tokens, n_tokens, n_bins)
-        pseudo_beta: Tensor,  # (bs, n_tokens, 3)
-        pseudo_beta_mask: Tensor,  # (bs, n_tokens)
+        all_atom_positions,  # (bs, n_tokens * 4, 3)
+        token_mask,  # (bs, n_tokens)
         min_bin: float = 2.0,
         max_bin: float = 22.0,
         no_bins: int = 64,
         eps: float = 1e-6,
         **kwargs,
 ) -> Tensor:  # (bs,)
+    # TODO: this is an inelegant implementation, integrate with the data pipeline
+    batch_size, n_tokens = token_mask.shape
+
+    # Compute pseudo beta and mask
+    all_atom_positions = all_atom_positions.reshape(batch_size, n_tokens, 4, 3)
+    ca_pos = residue_constants.atom_order["CA"]
+    pseudo_beta = all_atom_positions[..., ca_pos, :]  # (bs, n_tokens, 3)
+    pseudo_beta_mask = token_mask  # (bs, n_tokens)
+
     boundaries = torch.linspace(
         min_bin,
         max_bin,
@@ -231,10 +241,10 @@ class AlphaFold3Loss(nn.Module):
 
     def loss(self, out, batch, _return_breakdown=False):
         loss_fns = {
-            # "distogram": lambda: distogram_loss(
-            #    logits=out["distogram_logits"],
-            #    **{**batch, **self.config.distogram},
-            # ),
+            "distogram": lambda: distogram_loss(
+                logits=out["distogram_logits"],
+                **{**batch, **self.config.distogram}
+            ),
             # TODO: no confidence losses for now
             # "experimentally_resolved": lambda: experimentally_resolved_loss(
             #    logits=out["experimentally_resolved_logits"],
