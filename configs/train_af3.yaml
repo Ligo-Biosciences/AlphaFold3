@@ -6,7 +6,7 @@ defaults:
   - _self_
   - callbacks: default
   - data: erebor
-  - model: mini-af3
+  - model: alphafold3
   - logger: wandb  # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
   - trainer: cpu
   - paths: default

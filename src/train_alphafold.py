@@ -28,6 +28,8 @@ from src.utils.pylogger import RankedLogger
 from src.utils.utils import extras, get_metric_value, task_wrapper
 from src.utils.instantiators import instantiate_callbacks, instantiate_loggers
 from src.utils.logging_utils import log_hyperparameters
+from src.models.model_wrapper import AlphaFoldWrapper
+
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
@@ -51,7 +53,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data)
 
     log.info(f"Instantiating model")  # <{cfg.model._target_}>
-    model: LightningModule = hydra.utils.instantiate(cfg.model)
+    model: LightningModule = AlphaFoldWrapper(cfg.model)  # hydra.utils.instantiate(cfg.model)  #
 
     log.info("Instantiating callbacks...")
     callbacks: List[Callback] = instantiate_callbacks(cfg.get("callbacks"))
