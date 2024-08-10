@@ -181,6 +181,9 @@ def distogram_loss(
     mean = errors * square_mask
     mean = mean / denom[..., None]
     mean = torch.sum(mean, dim=-1)
+
+    # Average over the batch dimensions
+    mean = torch.mean(mean)
     return mean
 
 
