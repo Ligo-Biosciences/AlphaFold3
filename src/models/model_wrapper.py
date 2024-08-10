@@ -19,6 +19,7 @@ class AlphaFoldWrapper(LightningModule):
     def __init__(self, config):
         super(AlphaFoldWrapper, self).__init__()
         self.config = config
+        self.globals = self.config.globals
         self.model = AlphaFold3(config)
 
         self.loss = AlphaFold3Loss(config.loss)  # AlphaFold3 loss
