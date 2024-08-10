@@ -245,5 +245,5 @@ def reshape_features(batch):
     # Compute and add atom_to_token
     atom_to_token = torch.arange(n_res).unsqueeze(-1).expand(n_res, 4).long()  # (n_res, 4)
     atom_to_token = atom_to_token[None, ..., None].expand(bs, n_res, 4, n_cycle)  # (bs, n_res, 4, n_cycle)
-    batch["atom_to_token"] = atom_to_token.reshape(-1, n_res * 4, n_cycle)
+    batch["atom_to_token"] = atom_to_token.reshape(-1, n_res * 4, n_cycle).to(batch["ref_mask"].device)
     return batch
