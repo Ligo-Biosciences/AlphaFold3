@@ -61,22 +61,22 @@ loss:
 
 # TODO: fix the model.model notation in interpolation
 model:
-  c_token: 384  # the token representation dim
-  c_pair: 128  # the pair representation dim
-  c_atom: 128  # the atom representation dim
+  c_token: 64  # the token representation dim
+  c_pair: 16  # the pair representation dim
+  c_atom: 16  # the atom representation dim
   c_atompair: 16  # the atom pair representation dim
 
   # Pair stack parameters (used in Pairformer, MSA module, and Confidence head)
-  c_hidden_tri_mul: 128  # the hidden dim for the triangle multiplicative update
-  c_hidden_pair_attn: 32  # the hidden dim for the pair attention ${common.c_hidden_pair_attn}
-  no_heads_tri_attn: 4
-  transition_n: 4
+  c_hidden_tri_mul: 16  # the hidden dim for the triangle multiplicative update
+  c_hidden_pair_attn: 16  # the hidden dim for the pair attention ${common.c_hidden_pair_attn}
+  no_heads_tri_attn: 1
+  transition_n: 1
   pair_dropout: 0.25
   fuse_projection_weights: false
-  blocks_per_ckpt: 1  # number of blocks per checkpoint, if none, no checkpointing
+  blocks_per_ckpt: null  # number of blocks per checkpoint, if none, no checkpointing
   clear_cache_between_blocks: false  # whether to clear GPU memory cache between blocks
   # Pairformer attention pair bias
-  no_heads_single_attn: 16
+  no_heads_single_attn: 1
 
   # Input Embedder
   input_embedder:
@@ -87,12 +87,12 @@ model:
 
   # MSA module
   msa_module:
-    no_blocks: 4
-    c_msa: 64
+    no_blocks: 1 # 4
+    c_msa: 16
     c_token: ${model.model.c_token}
     c_z: ${model.model.c_pair}
-    c_hidden: 32
-    no_heads: 8
+    c_hidden: 8
+    no_heads: 1
     c_hidden_tri_mul: ${model.model.c_hidden_tri_mul}
     c_hidden_pair_attn: ${model.model.c_hidden_pair_attn}
     no_heads_tri_attn: ${model.model.no_heads_tri_attn}
@@ -107,7 +107,7 @@ model:
   pairformer_stack:
     c_s: ${model.model.c_token}
     c_z: ${model.model.c_pair}
-    no_blocks: 48
+    no_blocks: 1 # 48
     c_hidden_mul: ${model.model.c_hidden_tri_mul}
     c_hidden_pair_attn: ${model.model.c_hidden_pair_attn}
     no_heads_tri_attn: ${model.model.no_heads_tri_attn}
@@ -125,15 +125,15 @@ model:
     c_atompair: ${model.model.c_atompair}
     c_token: ${model.model.c_token}
     c_tokenpair: ${model.model.c_pair}
-    atom_encoder_blocks: 3
-    atom_encoder_heads: 16
+    atom_encoder_blocks: 1
+    atom_encoder_heads: 1
     dropout: 0.0
     atom_attention_n_queries: 32  # TODO: with sliding window attention this is not used.
     atom_attention_n_keys: 128
-    atom_decoder_blocks: 3
-    atom_decoder_heads: 16
-    token_transformer_blocks: 24 # 24
-    token_transformer_heads: 16
+    atom_decoder_blocks: 1
+    atom_decoder_heads: 1
+    token_transformer_blocks: 1 # 24
+    token_transformer_heads: 1
     sd_data: 16.0
     s_max: 160.0
     s_min: 4e-4

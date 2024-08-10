@@ -828,9 +828,9 @@ def convert_to_af3_simple_features(protein):
     This is a temporary fix, will be removed later."""
     num_res = protein["atom14_atom_exists"].shape[0]
 
-    # Add the atom_to_token mapping
-    res_to_token = torch.arange(num_res).unsqueeze(-1)  # (num_res, 1)
-    protein["atom_to_token"] = res_to_token.expand((-1, 4))  # (num_res, 4)
+    # Add the atom_to_token mapping  (at this stage, cleaner to add this upstream)
+    # res_to_token = torch.arange(num_res).unsqueeze(-1)  # (num_res, 1)
+    # protein["atom_to_token"] = res_to_token.expand((-1, 4))  # (num_res, 4)
 
     # Crop the atom positions to the first 4 backbone atoms
     protein["all_atom_positions"] = protein["all_atom_positions"][:, :4, :]

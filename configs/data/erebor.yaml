@@ -1,15 +1,15 @@
 _target_: src.data.data_modules.OpenFoldDataModule
 
 # Train data paths
-template_mmcif_dir: "pdb_data/mmcif_files"
+template_mmcif_dir: "../pdb_data/mmcif_files"
 max_template_date: "2021-10-10"
-train_data_dir: "pdb_data/mmcif_files"
-train_alignment_dir: "alignment_data/alignments"
-train_chain_data_cache_path: "pdb_data/chain_data_cache.json"
-template_release_dates_cache_path: "pdb_data/mmcif_cache.json"
-train_mmcif_data_cache_path: "pdb_data/mmcif_cache.json"
-alignment_index_path: null # "alignment_data/alignment_dbs/alignment_db.index"
-obsolete_pdbs_file_path: "pdb_data/obsolete.dat"
+train_data_dir: "../pdb_data/mmcif_files"
+train_alignment_dir: "../alignment_data/alignment_dbs"
+train_chain_data_cache_path: "../data_caches/chain_data_cache.json"
+template_release_dates_cache_path: "../data_caches/mmcif_cache.json"
+train_mmcif_data_cache_path: "../data_caches/mmcif_cache.json"
+alignment_index_path: "../alignment_data/alignment_dbs/alignment_db.index"
+obsolete_pdbs_file_path: "../pdb_data/obsolete.dat"
 train_filter_path: null
 
 # Distillation data paths
@@ -107,98 +107,98 @@ config:
   common:
     feat: # Features for AlphaFold 3, single chain, backbone only coordinates
       aatype:  # [NUM_RES]
-        - ${placeholders.NUM_RES}
+        - ${data.placeholders.NUM_RES}
       all_atom_mask:  # [NUM_RES, 4]
-        - ${placeholders.NUM_RES}
+        - ${data.placeholders.NUM_RES}
         - null
       all_atom_positions: # [NUM_RES, 4, 3]
-        - ${placeholders.NUM_RES}
+        - ${data.placeholders.NUM_RES}
         - null
         - null
       ref_pos:  # [NUM_RES, 4, 3]
-        - ${placeholders.NUM_RES}
+        - ${data.placeholders.NUM_RES}
         - null
         - null
       ref_mask:  # [NUM_RES, 4]
-        - ${placeholders.NUM_RES}
+        - ${data.placeholders.NUM_RES}
         - null
       ref_element: # [NUM_RES, 4, 4]
-        - ${placeholders.NUM_RES}
+        - ${data.placeholders.NUM_RES}
         - null
         - null
       ref_charge:  # [NUM_RES, 4]
-        - ${placeholders.NUM_RES}
+        - ${data.placeholders.NUM_RES}
         - null
       ref_atom_name_chars:  # [NUM_RES, 4, 4]
-        - ${placeholders.NUM_RES}
+        - ${data.placeholders.NUM_RES}
         - null
         - null
       ref_space_uid:  # [NUM_RES, 4]
-        - ${placeholders.NUM_RES}
+        - ${data.placeholders.NUM_RES}
         - null
       atom_to_token:  # [NUM_RES, 4]
-        - ${placeholders.NUM_RES}
+        - ${data.placeholders.NUM_RES}
         - null
       is_distillation: [ ]
       msa_feat:  # [NUM_MSA_SEQ, NUM_RES, 49]
-        - ${placeholders.NUM_MSA_SEQ}
-        - ${placeholders.NUM_RES}
+        - ${data.placeholders.NUM_MSA_SEQ}
+        - ${data.placeholders.NUM_RES}
         - null
       msa_mask:  # [NUM_MSA_SEQ, NUM_RES]
-        - ${placeholders.NUM_MSA_SEQ}
-        - ${placeholders.NUM_RES}
+        - ${data.placeholders.NUM_MSA_SEQ}
+        - ${data.placeholders.NUM_RES}
       residue_index:  # [NUM_RES]
-        - ${placeholders.NUM_RES}
+        - ${data.placeholders.NUM_RES}
       residx_atom14_to_atom37:
-        - ${placeholders.NUM_RES}
+        - ${data.placeholders.NUM_RES}
         - null
       residx_atom37_to_atom14:
-        - ${placeholders.NUM_RES}
+        - ${data.placeholders.NUM_RES}
         - null
       resolution: [ ]
       seq_length: [ ]
       seq_mask:  # [NUM_RES]
-        - ${placeholders.NUM_RES}
+        - ${data.placeholders.NUM_RES}
       template_aatype:  # [NUM_TEMPLATES, NUM_RES]
-        - ${placeholders.NUM_TEMPLATES},
-        - ${placeholders.NUM_RES}
+        - ${data.placeholders.NUM_TEMPLATES},
+        - ${data.placeholders.NUM_RES}
       template_all_atom_mask:  # [NUM_TEMPLATES, NUM_RES, 4]
-        - ${placeholders.NUM_TEMPLATES},
-        - ${placeholders.NUM_RES},
+        - ${data.placeholders.NUM_TEMPLATES},
+        - ${data.placeholders.NUM_RES},
         - null
       template_all_atom_positions:
-        - ${placeholders.NUM_TEMPLATES}
-        - ${placeholders.NUM_RES}
+        - ${data.placeholders.NUM_TEMPLATES}
+        - ${data.placeholders.NUM_RES}
         - null
         - null
       template_backbone_rigid_mask:
-        - ${placeholders.NUM_TEMPLATES}
-        - ${placeholders.NUM_RES}
+        - ${data.placeholders.NUM_TEMPLATES}
+        - ${data.placeholders.NUM_RES}
       template_backbone_rigid_tensor:
-        - ${placeholders.NUM_TEMPLATES}
-        - ${placeholders.NUM_RES}
+        - ${data.placeholders.NUM_TEMPLATES}
+        - ${data.placeholders.NUM_RES}
         - null
         - null
       template_mask:
-        - ${placeholders.NUM_TEMPLATES}
+        - ${data.placeholders.NUM_TEMPLATES}
       template_pseudo_beta:
-        - ${placeholders.NUM_TEMPLATES}
-        - ${placeholders.NUM_RES}
+        - ${data.placeholders.NUM_TEMPLATES}
+        - ${data.placeholders.NUM_RES}
         - null
       template_pseudo_beta_mask:
-        - ${placeholders.NUM_TEMPLATES}
-        - ${placeholders.NUM_RES}
+        - ${data.placeholders.NUM_TEMPLATES}
+        - ${data.placeholders.NUM_RES}
       template_sum_probs:
-        - ${placeholders.NUM_TEMPLATES}
+        - ${data.placeholders.NUM_TEMPLATES}
         - null
       valid_residues:
-        - ${placeholders.NUM_RES}
+        - ${data.placeholders.NUM_RES}
       valid_templates:
-        - ${placeholders.NUM_TEMPLATES}
+        - ${data.placeholders.NUM_TEMPLATES}
       valid_msa:
-        - ${placeholders.NUM_MSA_SEQ}
+        - ${data.placeholders.NUM_MSA_SEQ}
       valid_backbone_atoms:
-        - ${placeholders.NUM_RES}
+        - ${data.placeholders.NUM_RES}
     block_delete_msa:
       msa_fraction_per_block: 0.3
       randomize_num_blocks: false

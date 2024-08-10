@@ -4,5 +4,5 @@ defaults:
 strategy: ddp
 
 accelerator: gpu
-devices: 4
+devices: auto  # all available devices should be used
 num_nodes: 1

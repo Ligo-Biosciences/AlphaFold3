@@ -140,7 +140,7 @@ class DiffusionModule(torch.nn.Module):
             [bs, S, n_atoms, 3] rescaled noisy atom positions
         """
         denominator = torch.sqrt(torch.add(timesteps ** 2, self.sd_data ** 2))  # (bs, S, 1)
-        rescaled_noisy = noisy_atoms / denominator.unsqueeze(-1)  # (bs, S n_atoms, 3)
+        rescaled_noisy = noisy_atoms / denominator.unsqueeze(-1)  # (bs, S, n_atoms, 3)
         return rescaled_noisy
 
     def rescale_with_updates(
@@ -157,7 +157,7 @@ class DiffusionModule(torch.nn.Module):
             noisy_atoms:
                 [bs, n_atoms, 3] noisy atom positions
             timesteps:
-                [bs, 1] timestep tensor
+                [bs, S, 1] timestep tensor
         Return:
             [bs, n_atoms, 3] updated atom positions
         """
@@ -165,7 +165,7 @@ class DiffusionModule(torch.nn.Module):
             self.sd_data ** 2,
             torch.add(timesteps ** 2, self.sd_data ** 2)
         )
-        noisy_pos_scale = noisy_pos_scale.unsqueeze(-1)  # (bs, 1, 1)
+        noisy_pos_scale = noisy_pos_scale.unsqueeze(-1)  # (bs, S, 1, 1)
         r_update_scale = torch.sqrt(noisy_pos_scale) * timesteps.unsqueeze(-1)
         return noisy_atoms * noisy_pos_scale + r_updates * r_update_scale
 
@@ -469,24 +469,15 @@ class DiffusionModule(torch.nn.Module):
             use_deepspeed_evo_attention:
                 Whether to use Deepspeed's Evoformer attention kernel.
         Returns:
-            Tensor of shape (bs * samples_per_trunk, n_atoms, 3) containing the sampled
-            structures
+            [bs, samples_per_trunk, n_atoms, 3] sampled coordinates
         """
         with torch.no_grad():  # no gradients during sampling
             # Grab data about the input
             batch_size, n_atoms, _ = features["ref_pos"].shape
             dtype, device = s_inputs.dtype, s_inputs.device
 
-            # Expand the batch by samples_per_trunk
-            # TODO: fix the sampling here!
-            expand_batch = lambda tensor: tensor.repeat_interleave(samples_per_trunk, dim=0)
-            feats = tensor_tree_map(expand_batch, features)
-            s_inputs = expand_batch(s_inputs)
-            s_trunk = expand_batch(s_trunk)
-            z_trunk = expand_batch(z_trunk)
-
             # Sample random noise as the initial structure
-            x_l = Vec3Array.randn((batch_size * samples_per_trunk, n_atoms), device)  # float32
+            x_l = Vec3Array.randn((batch_size, samples_per_trunk, n_atoms), device)  # float32
 
             # Create the noise schedule with float64 dtype to prevent numerical issues
             t = torch.linspace(0, 1, n_steps, device=device, dtype=torch.float64).unsqueeze(-1)  # (n_steps, 1)
@@ -503,11 +494,11 @@ class DiffusionModule(torch.nn.Module):
                 gamma = gamma_0 if c_step > gamma_min else 0.0
 
                 # Expand c_step and prev_step for proper broadcasting
-                c_step = c_step.unsqueeze(0).expand(batch_size * samples_per_trunk, 1)  # (bs * samples_per_trunk, 1)
-                prev_step = prev_step.unsqueeze(0).expand(batch_size * samples_per_trunk, 1)
+                c_step = c_step[None, None, ...].expand(batch_size, samples_per_trunk, 1)  # (bs, samples_per_trunk, 1)
+                prev_step = prev_step[None, None, ...].expand(batch_size, samples_per_trunk, 1)
 
                 t_hat = torch.mul(prev_step, torch.add(gamma, 1.0))
-                normal_noise = Vec3Array.randn((batch_size * samples_per_trunk, n_atoms), device)
+                normal_noise = Vec3Array.randn((batch_size, samples_per_trunk, n_atoms), device)
                 zeta_factor = (noise_scale * torch.sqrt((t_hat ** 2 - prev_step ** 2))).to(normal_noise.x.dtype)
                 zeta = zeta_factor * normal_noise
                 x_noisy = x_l + zeta
@@ -515,8 +506,8 @@ class DiffusionModule(torch.nn.Module):
                 # Run DiffusionModule to denoise structure
                 x_denoised = self.forward(
                     noisy_atoms=x_noisy.to_tensor().to(dtype),  # revert to model dtype
-                    timesteps=t_hat.to(dtype),
-                    features=feats,
+                    timesteps=t_hat.to(dtype),  # (bs, samples_per_trunk, 1)
+                    features=features,
                     s_inputs=s_inputs,
                     s_trunk=s_trunk,
                     z_trunk=z_trunk,

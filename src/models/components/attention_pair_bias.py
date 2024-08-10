@@ -123,7 +123,7 @@ class AttentionPairBias(nn.Module):
         kernel is in being able to accommodate a secondary batch-like dimension. In AlphaFold2, this
         is for N_seq in the MSA representation. In AlphaFold3, this is not needed in the Pairformer
         because we are using a single representation, so N_seq always equals 1. However, this is
-        very useful in the diffusion module as multiple versions of the same input is created, and the
+        very useful in the diffusion module as multiple versions of the same input are created, and the
         same bias has to be added to this expanded representation throughout the DiffusionTransformer blocks.
         Here, we can use the N_seq dimension to host the samples per trunk which would make for a very memory
         efficient representation.

@@ -301,7 +301,6 @@ class AlphaFold3(nn.Module):
         s_inputs, s_init, z_init = self.input_embedder(
             feats,
             inplace_safe=inplace_safe,
-            use_flash=self.globals.use_flash
         )
 
         is_grad_enabled = torch.is_grad_enabled()
@@ -373,7 +372,7 @@ class AlphaFold3(nn.Module):
             s_trunk=s,
             z_trunk=z,
             n_steps=n_steps,
-            samples_per_trunk=self.globals.rollout_samples_per_trunk,
+            samples_per_trunk=1,  # only a single sample during rollout
             use_deepspeed_evo_attention=self.globals.use_deepspeed_evo_attention
         )
         outputs["sampled_positions"] = sampled_positions

@@ -119,9 +119,9 @@ def _get_pdb_id_and_chain(hit: parsers.TemplateHit) -> Tuple[str, str]:
 
 
 def _is_after_cutoff(
-    pdb_id: str,
-    release_dates: Mapping[str, datetime.datetime],
-    release_date_cutoff: Optional[datetime.datetime],
+        pdb_id: str,
+        release_dates: Mapping[str, datetime.datetime],
+        release_date_cutoff: Optional[datetime.datetime],
 ) -> bool:
     """Checks if the template date is after the release date cutoff.
 
@@ -141,9 +141,9 @@ def _is_after_cutoff(
     else:
         # Since this is just a quick prefilter to reduce the number of mmCIF files
         # we need to parse, we don't have to worry about returning True here.
-        logging.info(
-            "Template structure not in release dates dict: %s", pdb_id
-        )
+        # logging.info(
+        #     "Template structure not in release dates dict: %s", pdb_id
+        # )
         return False
 
 
@@ -157,11 +157,12 @@ def _replace_obsolete_references(obsolete_mapping) -> Mapping[str, str]:
         if v in obsolete_keys:
             return _new_target(v)
         return v
-    
+
     for k in obsolete_keys:
         obsolete_new[k] = _new_target(k)
 
     return obsolete_new
+
 
 def _parse_obsolete(obsolete_file_path: str) -> Mapping[str, str]:
     """Parses the data file from PDB that lists which PDB ids are obsolete."""
@@ -192,7 +193,7 @@ def generate_release_dates_cache(mmcif_dir: str, out_path: str):
                 file_id=file_id, mmcif_string=mmcif_string
             )
             if mmcif.mmcif_object is None:
-                logging.info(f"Failed to parse {f}. Skipping...")
+                # logging.info(f"Failed to parse {f}. Skipping...")
                 continue
 
             mmcif = mmcif.mmcif_object
@@ -218,13 +219,13 @@ def _parse_release_dates(path: str) -> Mapping[str, datetime.datetime]:
 
 
 def _assess_hhsearch_hit(
-    hit: parsers.TemplateHit,
-    hit_pdb_code: str,
-    query_sequence: str,
-    release_dates: Mapping[str, datetime.datetime],
-    release_date_cutoff: datetime.datetime,
-    max_subsequence_ratio: float = 0.95,
-    min_align_ratio: float = 0.1,
+        hit: parsers.TemplateHit,
+        hit_pdb_code: str,
+        query_sequence: str,
+        release_dates: Mapping[str, datetime.datetime],
+        release_date_cutoff: datetime.datetime,
+        max_subsequence_ratio: float = 0.95,
+        min_align_ratio: float = 0.1,
 ) -> bool:
     """Determines if template is valid (without parsing the template mmcif file).
 
@@ -271,8 +272,8 @@ def _assess_hhsearch_hit(
     # Check whether the template is a large subsequence or duplicate of original
     # query. This can happen due to duplicate entries in the PDB database.
     duplicate = (
-        template_sequence in query_sequence
-        and length_ratio > max_subsequence_ratio
+            template_sequence in query_sequence
+            and length_ratio > max_subsequence_ratio
     )
 
     if duplicate:
@@ -290,9 +291,9 @@ def _assess_hhsearch_hit(
 
 
 def _find_template_in_pdb(
-    template_chain_id: str,
-    template_sequence: str,
-    mmcif_object: mmcif_parsing.MmcifObject,
+        template_chain_id: str,
+        template_sequence: str,
+        mmcif_object: mmcif_parsing.MmcifObject,
 ) -> Tuple[str, str, int]:
     """Tries to find the template chain in the given pdb file.
 
@@ -324,16 +325,16 @@ def _find_template_in_pdb(
     pdb_id = mmcif_object.file_id
     chain_sequence = mmcif_object.chain_to_seqres.get(template_chain_id)
     if chain_sequence and (template_sequence in chain_sequence):
-        logging.info(
-            "Found an exact template match %s_%s.", pdb_id, template_chain_id
-        )
+        # logging.info(
+        #     "Found an exact template match %s_%s.", pdb_id, template_chain_id
+        # )
         mapping_offset = chain_sequence.find(template_sequence)
         return chain_sequence, template_chain_id, mapping_offset
 
     # Try if there is an exact match in the (sub)sequence only.
     for chain_id, chain_sequence in mmcif_object.chain_to_seqres.items():
         if chain_sequence and (template_sequence in chain_sequence):
-            logging.info("Found a sequence-only match %s_%s.", pdb_id, chain_id)
+            # logging.info("Found a sequence-only match %s_%s.", pdb_id, chain_id)
             mapping_offset = chain_sequence.find(template_sequence)
             return chain_sequence, chain_id, mapping_offset
 
@@ -344,9 +345,9 @@ def _find_template_in_pdb(
     for chain_id, chain_sequence in mmcif_object.chain_to_seqres.items():
         match = re.search(regex, chain_sequence)
         if match:
-            logging.info(
-                "Found a fuzzy sequence-only match %s_%s.", pdb_id, chain_id
-            )
+            #logging.info(
+            #    "Found a fuzzy sequence-only match %s_%s.", pdb_id, chain_id
+            #)
             mapping_offset = match.start()
             return chain_sequence, chain_id, mapping_offset
 
@@ -364,11 +365,11 @@ def _find_template_in_pdb(
 
 
 def _realign_pdb_template_to_query(
-    old_template_sequence: str,
-    template_chain_id: str,
-    mmcif_object: mmcif_parsing.MmcifObject,
-    old_mapping: Mapping[int, int],
-    kalign_binary_path: str,
+        old_template_sequence: str,
+        template_chain_id: str,
+        mmcif_object: mmcif_parsing.MmcifObject,
+        old_mapping: Mapping[int, int],
+        kalign_binary_path: str,
 ) -> Tuple[str, Mapping[int, int]]:
     """Aligns template from the mmcif_object to the query.
 
@@ -417,12 +418,12 @@ def _realign_pdb_template_to_query(
     # sequence within the mmcif_object, it is safe to assume it is that one.
     if not new_template_sequence:
         if len(mmcif_object.chain_to_seqres) == 1:
-            logging.info(
-                "Could not find %s in %s, but there is only 1 sequence, so "
-                "using that one.",
-                template_chain_id,
-                mmcif_object.file_id,
-            )
+            #logging.info(
+            #    "Could not find %s in %s, but there is only 1 sequence, so "
+            #    "using that one.",
+            #    template_chain_id,
+            #    mmcif_object.file_id,
+            #)
             new_template_sequence = list(mmcif_object.chain_to_seqres.values())[
                 0
             ]
@@ -450,18 +451,18 @@ def _realign_pdb_template_to_query(
             )
         )
 
-    logging.info(
-        "Old aligned template: %s\nNew aligned template: %s",
-        old_aligned_template,
-        new_aligned_template,
-    )
+    #logging.info(
+    #    "Old aligned template: %s\nNew aligned template: %s",
+    #    old_aligned_template,
+    #    new_aligned_template,
+    #)
 
     old_to_new_template_mapping = {}
     old_template_index = -1
     new_template_index = -1
     num_same = 0
     for old_template_aa, new_template_aa in zip(
-        old_aligned_template, new_aligned_template
+            old_aligned_template, new_aligned_template
     ):
         if old_template_aa != "-":
             old_template_index += 1
@@ -474,9 +475,9 @@ def _realign_pdb_template_to_query(
 
     # Require at least 90 % sequence identity wrt to the shorter of the sequences.
     if (
-        float(num_same)
-        / min(len(old_template_sequence), len(new_template_sequence))
-        < 0.9
+            float(num_same)
+            / min(len(old_template_sequence), len(new_template_sequence))
+            < 0.9
     ):
         raise QueryToTemplateAlignError(
             "Insufficient similarity of the sequence in the database: %s to the "
@@ -503,9 +504,9 @@ def _realign_pdb_template_to_query(
 
 
 def _check_residue_distances(
-    all_positions: np.ndarray,
-    all_positions_mask: np.ndarray,
-    max_ca_ca_distance: float,
+        all_positions: np.ndarray,
+        all_positions_mask: np.ndarray,
+        max_ca_ca_distance: float,
 ):
     """Checks if the distance between unmasked neighbor residues is ok."""
     ca_position = residue_constants.atom_order["CA"]
@@ -527,14 +528,14 @@ def _check_residue_distances(
 
 
 def _get_atom_positions(
-    mmcif_object: mmcif_parsing.MmcifObject,
-    auth_chain_id: str,
-    max_ca_ca_distance: float,
-    _zero_center_positions: bool = False,
+        mmcif_object: mmcif_parsing.MmcifObject,
+        auth_chain_id: str,
+        max_ca_ca_distance: float,
+        _zero_center_positions: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Gets atom positions and mask from a list of Biopython Residues."""
     coords_with_mask = mmcif_parsing.get_atom_coords(
-        mmcif_object=mmcif_object, 
+        mmcif_object=mmcif_object,
         chain_id=auth_chain_id,
         _zero_center_positions=_zero_center_positions,
     )
@@ -546,14 +547,14 @@ def _get_atom_positions(
 
 
 def _extract_template_features(
-    mmcif_object: mmcif_parsing.MmcifObject,
-    pdb_id: str,
-    mapping: Mapping[int, int],
-    template_sequence: str,
-    query_sequence: str,
-    template_chain_id: str,
-    kalign_binary_path: str,
-    _zero_center_positions: bool = True,
+        mmcif_object: mmcif_parsing.MmcifObject,
+        pdb_id: str,
+        mapping: Mapping[int, int],
+        template_sequence: str,
+        query_sequence: str,
+        template_chain_id: str,
+        kalign_binary_path: str,
+        _zero_center_positions: bool = True,
 ) -> Tuple[Dict[str, Any], Optional[str]]:
     """Parses atom positions in the target structure and aligns with the query.
 
@@ -613,7 +614,7 @@ def _extract_template_features(
             f"The exact sequence {template_sequence} was not found in "
             f"{pdb_id}_{chain_id}. Realigning the template to the actual sequence."
         )
-        logging.warning(warning)
+        # logging.warning(warning)
         # This throws an exception if it fails to realign the hit.
         seqres, mapping = _realign_pdb_template_to_query(
             old_template_sequence=template_sequence,
@@ -622,13 +623,13 @@ def _extract_template_features(
             old_mapping=mapping,
             kalign_binary_path=kalign_binary_path,
         )
-        logging.info(
-            "Sequence in %s_%s: %s successfully realigned to %s",
-            pdb_id,
-            chain_id,
-            template_sequence,
-            seqres,
-        )
+        #logging.info(
+        #    "Sequence in %s_%s: %s successfully realigned to %s",
+        #    pdb_id,
+        #    chain_id,
+        #    template_sequence,
+        #    seqres,
+        #)
         # The template sequence changed.
         template_sequence = seqres
         # No mapping offset, the query is aligned to the actual sequence.
@@ -638,9 +639,9 @@ def _extract_template_features(
         # Essentially set to infinity - we don't want to reject templates unless
         # they're really really bad.
         all_atom_positions, all_atom_mask = _get_atom_positions(
-            mmcif_object, 
-            chain_id, 
-            max_ca_ca_distance=150.0, 
+            mmcif_object,
+            chain_id,
+            max_ca_ca_distance=150.0,
             _zero_center_positions=_zero_center_positions,
         )
     except (CaDistanceError, KeyError) as ex:
@@ -706,11 +707,11 @@ def _extract_template_features(
 
 
 def _build_query_to_hit_index_mapping(
-    hit_query_sequence: str,
-    hit_sequence: str,
-    indices_hit: Sequence[int],
-    indices_query: Sequence[int],
-    original_query_sequence: str,
+        hit_query_sequence: str,
+        hit_sequence: str,
+        indices_hit: Sequence[int],
+        indices_query: Sequence[int],
+        original_query_sequence: str,
 ) -> Mapping[int, int]:
     """Gets mapping from indices in original query sequence to indices in the hit.
 
@@ -756,7 +757,7 @@ def _build_query_to_hit_index_mapping(
     for q_i, q_t in zip(fixed_indices_query, fixed_indices_hit):
         if q_t != -1 and q_i != -1:
             if q_t >= len(hit_sequence) or q_i + hhsearch_query_offset >= len(
-                original_query_sequence
+                    original_query_sequence
             ):
                 continue
             mapping[q_i + hhsearch_query_offset] = q_t
@@ -770,6 +771,7 @@ class PrefilterResult:
     error: Optional[str]
     warning: Optional[str]
 
+
 @dataclasses.dataclass(frozen=True)
 class SingleHitResult:
     features: Optional[Mapping[str, Any]]
@@ -778,12 +780,12 @@ class SingleHitResult:
 
 
 def _prefilter_hit(
-    query_sequence: str,
-    hit: parsers.TemplateHit,
-    max_template_date: datetime.datetime,
-    release_dates: Mapping[str, datetime.datetime],
-    obsolete_pdbs: Mapping[str, str],
-    strict_error_check: bool = False,
+        query_sequence: str,
+        hit: parsers.TemplateHit,
+        max_template_date: datetime.datetime,
+        release_dates: Mapping[str, datetime.datetime],
+        obsolete_pdbs: Mapping[str, str],
+        strict_error_check: bool = False,
 ):
     # Fail hard if we can't get the PDB ID and chain name from the hit.
     hit_pdb_code, hit_chain_id = _get_pdb_id_and_chain(hit)
@@ -805,7 +807,7 @@ def _prefilter_hit(
     except PrefilterError as e:
         hit_name = f"{hit_pdb_code}_{hit_chain_id}"
         msg = f"hit {hit_name} did not pass prefilter: {str(e)}"
-        logging.info(msg)
+        # logging.info(msg)
         if strict_error_check and isinstance(e, (DateError, DuplicateError)):
             # In strict mode we treat some prefilter cases as errors.
             return PrefilterResult(valid=False, error=msg, warning=None)
@@ -824,15 +826,15 @@ def _read_file(path):
 
 
 def _process_single_hit(
-    query_sequence: str,
-    hit: parsers.TemplateHit,
-    mmcif_dir: str,
-    max_template_date: datetime.datetime,
-    release_dates: Mapping[str, datetime.datetime],
-    obsolete_pdbs: Mapping[str, str],
-    kalign_binary_path: str,
-    strict_error_check: bool = False,
-    _zero_center_positions: bool = True,
+        query_sequence: str,
+        hit: parsers.TemplateHit,
+        mmcif_dir: str,
+        max_template_date: datetime.datetime,
+        release_dates: Mapping[str, datetime.datetime],
+        obsolete_pdbs: Mapping[str, str],
+        kalign_binary_path: str,
+        strict_error_check: bool = False,
+        _zero_center_positions: bool = True,
 ) -> SingleHitResult:
     """Tries to extract template features from a single HHSearch hit."""
     # Fail hard if we can't get the PDB ID and chain name from the hit.
@@ -855,12 +857,12 @@ def _process_single_hit(
     template_sequence = hit.hit_sequence.replace("-", "")
 
     cif_path = os.path.join(mmcif_dir, hit_pdb_code + ".cif")
-    logging.info(
-        "Reading PDB entry from %s. Query: %s, template: %s",
-        cif_path,
-        query_sequence,
-        template_sequence,
-    )
+    # logging.info(
+    #    "Reading PDB entry from %s. Query: %s, template: %s",
+    #    cif_path,
+    #    query_sequence,
+    #    template_sequence,
+    # )
 
     # Fail if we can't find the mmCIF file.
     cif_string = _read_file(cif_path)
@@ -882,7 +884,7 @@ def _process_single_hit(
             if strict_error_check:
                 return SingleHitResult(features=None, error=error, warning=None)
             else:
-                logging.info(error)
+                # logging.info(error)
                 return SingleHitResult(features=None, error=None, warning=None)
 
     try:
@@ -909,23 +911,23 @@ def _process_single_hit(
             features=features, error=None, warning=realign_warning
         )
     except (
-        NoChainsError,
-        NoAtomDataInTemplateError,
-        TemplateAtomMaskAllZerosError,
+            NoChainsError,
+            NoAtomDataInTemplateError,
+            TemplateAtomMaskAllZerosError,
     ) as e:
         # These 3 errors indicate missing mmCIF experimental data rather than a
         # problem with the template search, so turn them into warnings.
         warning = (
-            "%s_%s (sum_probs: %.2f, rank: %d): feature extracting errors: "
-            "%s, mmCIF parsing errors: %s"
-            % (
-                hit_pdb_code,
-                hit_chain_id,
-                hit.sum_probs if hit.sum_probs else 0.,
-                hit.index,
-                str(e),
-                parsing_result.errors,
-            )
+                "%s_%s (sum_probs: %.2f, rank: %d): feature extracting errors: "
+                "%s, mmCIF parsing errors: %s"
+                % (
+                    hit_pdb_code,
+                    hit_chain_id,
+                    hit.sum_probs if hit.sum_probs else 0.,
+                    hit.index,
+                    str(e),
+                    parsing_result.errors,
+                )
         )
         if strict_error_check:
             return SingleHitResult(features=None, error=warning, warning=None)
@@ -933,26 +935,26 @@ def _process_single_hit(
             return SingleHitResult(features=None, error=None, warning=warning)
     except Error as e:
         error = (
-            "%s_%s (sum_probs: %.2f, rank: %d): feature extracting errors: "
-            "%s, mmCIF parsing errors: %s"
-            % (
-                hit_pdb_code,
-                hit_chain_id,
-                hit.sum_probs if hit.sum_probs else 0.,
-                hit.index,
-                str(e),
-                parsing_result.errors,
-            )
+                "%s_%s (sum_probs: %.2f, rank: %d): feature extracting errors: "
+                "%s, mmCIF parsing errors: %s"
+                % (
+                    hit_pdb_code,
+                    hit_chain_id,
+                    hit.sum_probs if hit.sum_probs else 0.,
+                    hit.index,
+                    str(e),
+                    parsing_result.errors,
+                )
         )
         return SingleHitResult(features=None, error=error, warning=None)
 
 
 def get_custom_template_features(
-    mmcif_path: str,
-    query_sequence: str,
-    pdb_id: str,
-    chain_id: Optional[str] = "A",
-    kalign_binary_path: Optional[str] = None,
+        mmcif_path: str,
+        query_sequence: str,
+        pdb_id: str,
+        chain_id: Optional[str] = "A",
+        kalign_binary_path: Optional[str] = None,
 ):
     if os.path.isfile(mmcif_path):
         template_paths = [Path(mmcif_path)]
@@ -960,13 +962,13 @@ def get_custom_template_features(
     elif os.path.isdir(mmcif_path):
         template_paths = list(Path(mmcif_path).glob("*.cif"))
     else:
-        logging.error("Custom template path %s does not exist", mmcif_path)
+        # logging.error("Custom template path %s does not exist", mmcif_path)
         raise ValueError(f"Custom template path {mmcif_path} does not exist")
 
     warnings = []
     template_features = dict()
     for template_path in template_paths:
-        logging.info("Featurizing template: %s", template_path)
+        # logging.info("Featurizing template: %s", template_path)
         # pdb_id only for error reporting, take file name
         pdb_id = Path(template_path).stem
         with open(template_path, "r") as mmcif_path:
@@ -1013,6 +1015,7 @@ def get_custom_template_features(
         features=template_features, errors=None, warnings=warnings
     )
 
+
 @dataclasses.dataclass(frozen=True)
 class TemplateSearchResult:
     features: Mapping[str, Any]
@@ -1022,17 +1025,18 @@ class TemplateSearchResult:
 
 class TemplateHitFeaturizer(abc.ABC):
     """An abstract base class for turning template hits to features."""
+
     def __init__(
-        self,
-        mmcif_dir: str,
-        max_template_date: str,
-        max_hits: int,
-        kalign_binary_path: str,
-        release_dates_path: Optional[str] = None,
-        obsolete_pdbs_path: Optional[str] = None,
-        strict_error_check: bool = False,
-        _shuffle_top_k_prefiltered: Optional[int] = None,
-        _zero_center_positions: bool = True,
+            self,
+            mmcif_dir: str,
+            max_template_date: str,
+            max_hits: int,
+            kalign_binary_path: str,
+            release_dates_path: Optional[str] = None,
+            obsolete_pdbs_path: Optional[str] = None,
+            strict_error_check: bool = False,
+            _shuffle_top_k_prefiltered: Optional[int] = None,
+            _zero_center_positions: bool = True,
     ):
         """Initializes the Template Search.
 
@@ -1059,7 +1063,7 @@ class TemplateHitFeaturizer(abc.ABC):
         """
         self._mmcif_dir = mmcif_dir
         if not glob.glob(os.path.join(self._mmcif_dir, "*.cif")):
-            logging.error("Could not find CIFs in %s", self._mmcif_dir)
+            # logging.error("Could not find CIFs in %s", self._mmcif_dir)
             raise ValueError(f"Could not find CIFs in {self._mmcif_dir}")
 
         try:
@@ -1075,17 +1079,17 @@ class TemplateHitFeaturizer(abc.ABC):
         self._strict_error_check = strict_error_check
 
         if release_dates_path:
-            logging.info(
-                "Using precomputed release dates %s.", release_dates_path
-            )
+            #logging.info(
+            #    "Using precomputed release dates %s.", release_dates_path
+            #)
             self._release_dates = _parse_release_dates(release_dates_path)
         else:
             self._release_dates = {}
 
         if obsolete_pdbs_path:
-            logging.info(
-                "Using precomputed obsolete pdbs %s.", obsolete_pdbs_path
-            )
+            #logging.info(
+            #    "Using precomputed obsolete pdbs %s.", obsolete_pdbs_path
+            #)
             self._obsolete_pdbs = _parse_obsolete(obsolete_pdbs_path)
         else:
             self._obsolete_pdbs = {}
@@ -1095,21 +1099,21 @@ class TemplateHitFeaturizer(abc.ABC):
 
     @abc.abstractmethod
     def get_templates(
-        self,
-        query_sequence: str,
-        hits: Sequence[parsers.TemplateHit]
+            self,
+            query_sequence: str,
+            hits: Sequence[parsers.TemplateHit]
     ) -> TemplateSearchResult:
         """ Computes the templates for a given query sequence """
 
 
 class HhsearchHitFeaturizer(TemplateHitFeaturizer):
     def get_templates(
-        self,
-        query_sequence: str,
-        hits: Sequence[parsers.TemplateHit],
+            self,
+            query_sequence: str,
+            hits: Sequence[parsers.TemplateHit],
     ) -> TemplateSearchResult:
         """Computes the templates for given query sequence (more details above)."""
-        logging.info("Searching for template for: %s", query_sequence)
+        #logging.info("Searching for template for: %s", query_sequence)
 
         template_features = {}
         for template_feature_name in TEMPLATE_FEATURES:
@@ -1144,7 +1148,7 @@ class HhsearchHitFeaturizer(TemplateHitFeaturizer):
         )
 
         idx = list(range(len(filtered)))
-        if(self._shuffle_top_k_prefiltered):
+        if (self._shuffle_top_k_prefiltered):
             stk = self._shuffle_top_k_prefiltered
             idx[:stk] = np.random.permutation(idx[:stk])
 
@@ -1176,15 +1180,16 @@ class HhsearchHitFeaturizer(TemplateHitFeaturizer):
                 warnings.append(result.warning)
 
             if result.features is None:
-                logging.info(
-                    "Skipped invalid hit %s, error: %s, warning: %s",
-                    hit.name,
-                    result.error,
-                    result.warning,
-                )
+                #logging.info(
+                #    "Skipped invalid hit %s, error: %s, warning: %s",
+                #    hit.name,
+                #    result.error,
+                #    result.warning,
+                #)
+                pass
             else:
                 already_seen_key = result.features["template_sequence"]
-                if(already_seen_key in already_seen):
+                if (already_seen_key in already_seen):
                     continue
                 already_seen.add(already_seen_key)
                 for k in template_features:
@@ -1208,27 +1213,30 @@ class HhsearchHitFeaturizer(TemplateHitFeaturizer):
 class CustomHitFeaturizer(TemplateHitFeaturizer):
     """Featurizer for templates given in folder.
      Chain of interest has to be chain A and of same sequence length as input sequence."""
+
     def get_templates(
-        self,
-        query_sequence: str,
-        hits: Sequence[parsers.TemplateHit],
+            self,
+            query_sequence: str,
+            hits: Sequence[parsers.TemplateHit],
     ) -> TemplateSearchResult:
         """Computes the templates for given query sequence (more details above)."""
-        logging.info("Featurizing mmcif_dir: %s", self._mmcif_dir)
+        # logging.info("Featurizing mmcif_dir: %s", self._mmcif_dir)
         return get_custom_template_features(
             self._mmcif_dir,
             query_sequence=query_sequence,
             pdb_id="test",
             chain_id="A",
             kalign_binary_path=self._kalign_binary_path,
-        )   
+        )
+
+
 class HmmsearchHitFeaturizer(TemplateHitFeaturizer):
     def get_templates(
-        self,
-        query_sequence: str,
-        hits: Sequence[parsers.TemplateHit]
+            self,
+            query_sequence: str,
+            hits: Sequence[parsers.TemplateHit]
     ) -> TemplateSearchResult:
-        logging.info("Searching for template for: %s", query_sequence)
+        # logging.info("Searching for template for: %s", query_sequence)
 
         template_features = {}
         for template_feature_name in TEMPLATE_FEATURES:
@@ -1265,12 +1273,12 @@ class HmmsearchHitFeaturizer(TemplateHitFeaturizer):
             )
         )
         idx = list(range(len(filtered)))
-        if(self._shuffle_top_k_prefiltered):
+        if (self._shuffle_top_k_prefiltered):
             stk = self._shuffle_top_k_prefiltered
             idx[:stk] = np.random.permutation(idx[:stk])
 
         for i in idx:
-            if(len(already_seen) >= self._max_hits):
+            if (len(already_seen) >= self._max_hits):
                 break
 
             hit = filtered[i]
@@ -1279,11 +1287,11 @@ class HmmsearchHitFeaturizer(TemplateHitFeaturizer):
                 query_sequence=query_sequence,
                 hit=hit,
                 mmcif_dir=self._mmcif_dir,
-                max_template_date = self._max_template_date,
-                release_dates = self._release_dates,
-                obsolete_pdbs = self._obsolete_pdbs,
-                strict_error_check = self._strict_error_check,
-                kalign_binary_path = self._kalign_binary_path
+                max_template_date=self._max_template_date,
+                release_dates=self._release_dates,
+                obsolete_pdbs=self._obsolete_pdbs,
+                strict_error_check=self._strict_error_check,
+                kalign_binary_path=self._kalign_binary_path
             )
 
             if result.error:
@@ -1293,13 +1301,14 @@ class HmmsearchHitFeaturizer(TemplateHitFeaturizer):
                 warnings.append(result.warning)
 
             if result.features is None:
-                logging.debug(
-                    "Skipped invalid hit %s, error: %s, warning: %s",
-                    hit.name, result.error, result.warning,
-                )
+                #  logging.debug(
+                #    "Skipped invalid hit %s, error: %s, warning: %s",
+                #    hit.name, result.error, result.warning,
+                # )
+                pass
             else:
                 already_seen_key = result.features["template_sequence"]
-                if(already_seen_key in already_seen):
+                if (already_seen_key in already_seen):
                     continue
                 # Increment the hit counter, since we got features out of this hit.
                 already_seen.add(already_seen_key)

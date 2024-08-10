@@ -7,7 +7,7 @@ import pickle
 from typing import Optional, Sequence, Any, Union
 
 import ml_collections as mlc
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 import torch
 from torch.utils.data import RandomSampler
 from src.common.residue_constants import restypes
@@ -1065,6 +1065,8 @@ class OpenFoldDataModule(pl.LightningDataModule):
 
     def predict_dataloader(self):
         return self._gen_dataloader("predict")
+
+    # TODO: prepare_data seems missing!
 
 
 class OpenFoldMultimerDataModule(OpenFoldDataModule):
