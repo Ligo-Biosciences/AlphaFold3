@@ -30,6 +30,9 @@ class AlphaFoldWrapper(LightningModule):
         self.last_lr_step = -1
         self.save_hyperparameters()
 
+        # Set matmul precision
+        torch.set_float32_matmul_precision(self.globals.matmul_precision)
+
     def forward(self, batch, training=True):
         return self.model(batch, train=training)
 
@@ -49,7 +52,7 @@ class AlphaFoldWrapper(LightningModule):
         other_metrics = self._compute_validation_metrics(
             batch,
             outputs,
-            superimposition_metrics=(not train)
+            superimposition_metrics=True,  # (not train)
         )
 
         for k, v in other_metrics.items():

@@ -171,3 +171,5 @@ globals:
   samples_per_trunk: 48  # Number of diffusion module replicas per trunk
   rollout_samples_per_trunk: 1  # Number of mini rollouts per trunk
   eps: 0.00000001
+  # internal precision of float32 matrix multiplications. "high" or "medium" will utilize Tensor cores
+  matmul_precision: "medium"
