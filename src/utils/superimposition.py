@@ -34,7 +34,7 @@ def superimpose(reference, coords, mask):
     # Align the coordinates to the reference
     aligned_coords = weighted_rigid_align(coords, reference, weights=mask, mask=mask)
     aligned_coords = aligned_coords.to_tensor()
-
+    reference = reference.to_tensor()
     # Compute RMSD
     rmsds = compute_rmsd(reference, aligned_coords)
     return aligned_coords, rmsds
