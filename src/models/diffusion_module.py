@@ -86,7 +86,7 @@ class DiffusionModule(torch.nn.Module):
             n_keys=atom_attention_n_keys,
             trunk_conditioning=True,
             clear_cache_between_blocks=clear_cache_between_blocks,
-            compile_module=compile_module
+            compile_module=False  # compile_module
         )
 
         # Full self-attention on token level
@@ -102,7 +102,7 @@ class DiffusionModule(torch.nn.Module):
             dropout=dropout,
             clear_cache_between_blocks=clear_cache_between_blocks,
             blocks_per_ckpt=blocks_per_ckpt,
-            compile_module=compile_module
+            compile_module=False  # compile_module
         )
         self.token_post_layer_norm = LayerNorm(c_token)
 
@@ -116,14 +116,14 @@ class DiffusionModule(torch.nn.Module):
             dropout=dropout,
             n_queries=atom_attention_n_queries,
             n_keys=atom_attention_n_keys,
-            compile_module=compile_module
+            compile_module=False,  # compile_module
             # blocks_per_ckpt=blocks_per_ckpt
         )
         if compile_module:
             self.diffusion_conditioning = torch.compile(self.diffusion_conditioning)
-            # self.atom_attention_encoder = torch.compile(self.atom_attention_encoder)
-            # diffusion_transformer = torch.compile(self.diffusion_transformer)
-            # self.atom_attention_decoder = torch.compile(self.atom_attention_decoder)
+            self.atom_attention_encoder = torch.compile(self.atom_attention_encoder)
+            self.diffusion_transformer = torch.compile(self.diffusion_transformer)
+            self.atom_attention_decoder = torch.compile(self.atom_attention_decoder)
 
     def scale_inputs(
             self,

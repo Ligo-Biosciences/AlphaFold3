@@ -19,9 +19,9 @@ def compute_covariance_matrix(P, Q):
 
 
 def weighted_rigid_align(
-        x: Vec3Array,  # (*, n_atoms)
-        x_gt: Vec3Array,  # (*, n_atoms)
-        weights: torch.Tensor,  # (*, n_atoms)
+        x: Vec3Array,  # (bs, n_atoms)
+        x_gt: Vec3Array,  # (bs, n_atoms)
+        weights: torch.Tensor,  # (bs, n_atoms)
         mask: torch.Tensor = None  # (bs, n_atoms)
 ) -> Vec3Array:
     """Performs a weighted alignment of x to x_gt. Warning: ground truth here only refers to the structure

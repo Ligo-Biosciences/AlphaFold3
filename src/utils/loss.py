@@ -245,8 +245,8 @@ class AlphaFold3Loss(nn.Module):
     def loss(self, out, batch, _return_breakdown=False):
         loss_fns = {
             "distogram": lambda: distogram_loss(
-                logits=out["distogram_logits"],
-                **{**batch, **self.config.distogram}
+               logits=out["distogram_logits"],
+               **{**batch, **self.config.distogram}
             ),
             # TODO: no confidence losses for now
             # "experimentally_resolved": lambda: experimentally_resolved_loss(

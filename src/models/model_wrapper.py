@@ -52,7 +52,7 @@ class AlphaFoldWrapper(LightningModule):
         other_metrics = self._compute_validation_metrics(
             batch,
             outputs,
-            superimposition_metrics=(not train)
+            superimposition_metrics=True  # (not train)
         )
 
         for k, v in other_metrics.items():
