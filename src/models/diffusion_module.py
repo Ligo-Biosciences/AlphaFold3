@@ -172,7 +172,7 @@ class DiffusionModule(torch.nn.Module):
     def forward(
             self,
             noisy_atoms: Tensor,  # (bs, S, n_atoms, 3)
-            timesteps: Tensor,  # (bs, 1)
+            timesteps: Tensor,  # (bs, S, 1)
             features: Dict[str, Tensor],  # input feature dict
             s_inputs: Tensor,  # (bs, n_tokens, c_token)
             s_trunk: Tensor,  # (bs, n_tokens, c_token)

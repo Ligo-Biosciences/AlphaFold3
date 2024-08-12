@@ -33,7 +33,7 @@ loss:
       #    weight_protein: 1.0
       # smooth_lddt:
       #    weight: 1.0
-      use_smooth_lddt: false
+      use_smooth_lddt: true
       sd_data: 16.0
       weight: 4.0
 

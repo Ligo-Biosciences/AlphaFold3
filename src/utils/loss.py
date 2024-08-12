@@ -121,7 +121,7 @@ def diffusion_loss(
 
     # Smooth LDDT Loss
     if use_smooth_lddt:
-        lddt_loss = smooth_lddt_loss(pred_atoms, aligned_gt_atoms, atom_is_rna, atom_is_dna, mask)
+        lddt_loss = smooth_lddt_loss(pred_atoms, gt_atoms, atom_is_rna, atom_is_dna, mask)
         loss_diffusion = loss_diffusion + lddt_loss
 
     # Average over batch dimension
