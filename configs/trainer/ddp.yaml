@@ -1,8 +1,9 @@
 defaults:
   - default
 
-strategy: ddp
+strategy: ddp_find_unused_parameters_true
 
 accelerator: gpu
 devices: auto  # all available devices should be used
 num_nodes: 1
+limit_val_batches: 0.0
