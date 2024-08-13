@@ -38,7 +38,7 @@ p-tqdm
 proteinflow~=2.7.0
 biopython~=1.79
 omegaconf~=2.3.0
-setuptools~=68.2.2
+setuptools~=72.1.0
 # numpy~=1.24.4
 # scipy~=1.12.0
 # jax~=0.4.23
