@@ -220,5 +220,10 @@ config:
       - "between_segment_residues"
       - "deletion_matrix"
       - "no_recycling_iters"
-    use_templates: false
+    use_templates: true
     use_template_torsion_angles: false
+    template_features:
+      - "template_all_atom_positions"
+      - "template_sum_probs"
+      - "template_aatype"
+      - "template_all_atom_mask"

@@ -103,6 +103,13 @@ model:
     blocks_per_ckpt: ${model.model.blocks_per_ckpt}
     inf: 1e8
 
+  # Template Embedder
+  template_embedder:
+    no_blocks: 2
+    c_template: 64
+    c_z: ${model.model.c_pair}
+    clear_cache_between_blocks: ${model.model.clear_cache_between_blocks}
+
   # PairformerStack
   pairformer_stack:
     c_s: ${model.model.c_token}
@@ -172,4 +179,4 @@ globals:
   rollout_samples_per_trunk: 1  # Number of mini rollouts per trunk
   eps: 0.00000001
   # internal precision of float32 matrix multiplications. "high" or "medium" will utilize Tensor cores
-  matmul_precision: "medium"
+  matmul_precision: "high"

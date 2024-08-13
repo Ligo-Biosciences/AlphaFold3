@@ -1,0 +1,35 @@
+# @package _global_
+
+# to execute this experiment run:
+# python train.py experiment=example
+
+defaults:
+  - override /data: erebor
+  - override /model: alphafold3
+  - override /trainer: ddp
+
+# all parameters below will be merged with parameters from default configurations set above
+# this allows you to overwrite only specified parameters
+
+tags: ["single-chain", "template", "smooth_lddt_loss"]
+
+seed: 12345
+
+model:
+  optimizer:
+    lr: 0.002
+  net:
+    lin1_size: 128
+    lin2_size: 256
+    lin3_size: 64
+  compile: false
+
+data:
+  batch_size: 64
+
+logger:
+  wandb:
+    tags: ${tags}
+    group: "mnist"
+  aim:
+    experiment: "mnist"

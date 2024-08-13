@@ -11,7 +11,7 @@ from src.models.template import TemplatePairStack
 from src.utils.tensor_utils import add
 from src.utils.checkpointing import get_checkpoint_fn
 from src.utils.geometry.vector import Vec3Array
-
+from src.common import residue_constants as rc
 checkpoint = get_checkpoint_fn()
 
 
@@ -216,11 +216,31 @@ class InputEmbedder(nn.Module):
         return s_inputs, s_init, z_init
 
 
+# Template Embedder #
+
+def dgram_from_positions(
+        pos: torch.Tensor,
+        min_bin: float = 3.25,
+        max_bin: float = 50.75,
+        no_bins: int = 39,
+        inf: float = 1e8,
+):
+    """Computes a distogram given a position tensor."""
+    dgram = torch.sum(
+        (pos[..., None, :] - pos[..., None, :, :]) ** 2, dim=-1, keepdim=True
+    )
+    lower = torch.linspace(min_bin, max_bin, no_bins, device=pos.device) ** 2
+    upper = torch.cat([lower[1:], lower.new_tensor([inf])], dim=-1)
+    dgram = ((dgram > lower) * (dgram < upper)).type(dgram.dtype)
+
+    return dgram
+
+
 class TemplateEmbedder(nn.Module):
     def __init__(
             self,
             no_blocks: int = 2,
-            c_template: int = 32,
+            c_template: int = 64,
             c_z: int = 128,
             clear_cache_between_blocks: bool = False
     ):
@@ -230,7 +250,7 @@ class TemplateEmbedder(nn.Module):
             LayerNorm(c_z),
             LinearNoBias(c_z, c_template)
         )
-        no_template_features = 108
+        no_template_features = 84  # 108
         self.linear_templ_feat = LinearNoBias(no_template_features, c_template)
         self.pair_stack = TemplatePairStack(
             no_blocks=no_blocks,
@@ -240,7 +260,7 @@ class TemplateEmbedder(nn.Module):
         self.v_to_u_ln = LayerNorm(c_template)
         self.output_proj = nn.Sequential(
             nn.ReLU(),
-            LinearNoBias(c_template, c_template)
+            LinearNoBias(c_template, c_z)
         )
         self.clear_cache_between_blocks = clear_cache_between_blocks
 
@@ -251,7 +271,6 @@ class TemplateEmbedder(nn.Module):
             pair_mask: Tensor,
             chunk_size: Optional[int] = None,
             use_deepspeed_evo_attention: bool = False,
-            use_lma: bool = False,
             inplace_safe: bool = False,
     ) -> Tensor:
         """
@@ -260,21 +279,13 @@ class TemplateEmbedder(nn.Module):
         Args:
             features:
                 Dictionary containing the template features:
-                    "template_restype":
+                    "template_aatype":
                         [*, N_templ, N_token, 32] One-hot encoding of the template sequence.
+                    "template_pseudo_beta":
+                        [*, N_templ, N_token, 3] coordinates of the representative atoms
                     "template_pseudo_beta_mask":
                         [*, N_templ, N_token] Mask indicating if the Cβ (Cα for glycine)
                         has coordinates for the template at this residue.
-                    "template_backbone_frame_mask":
-                        [*, N_templ, N_token] Mask indicating if coordinates exist for all
-                        atoms required to compute the backbone frame (used in the template_unit_vector feature).
-                    "template_distogram":
-                        [*, N_templ, N_token, N_token, 39] A one-hot pairwise feature indicating the distance
-                        between Cβ atoms (Cα for glycine). Pairwise distances are discretized into 38 bins of
-                        equal width between 3.25 Å and 50.75 Å; one more bin contains any larger distances.
-                    "template_unit_vector":
-                        [*, N_templ, N_token, N_token, 3] The unit vector of the displacement of the Cα atom of
-                        all residues within the local frame of each residue.
                     "asym_id":
                         [*, N_token] Unique integer for each distinct chain.
             z_trunk:
@@ -285,41 +296,58 @@ class TemplateEmbedder(nn.Module):
                 Chunk size for the pair stack.
             use_deepspeed_evo_attention:
                 Whether to use DeepSpeed Evo attention within the pair stack.
-            use_lma:
-                Whether to use LMA within the pair stack.
             inplace_safe:
                 Whether to use inplace operations.
         """
         # Grab data about the inputs
-        *bs, n_templ, n_token, _ = features["template_restype"].shape
-        bs = tuple(bs)
+        bs, n_templ, n_token = features["template_aatype"].shape
+
+        # Compute template distogram
+        template_distogram = dgram_from_positions(features["template_pseudo_beta"])
+
+        # Compute the unit vector
+        # pos = Vec3Array.from_array(features["template_pseudo_beta"])
+        # template_unit_vector = (pos / pos.norm()).to_tensor().to(template_distogram.dtype)
+        # print(f"template_unit_vector shape: {template_unit_vector.shape}")
+
+        # One-hot encode template restype
+        template_restype = F.one_hot(  # [*, N_templ, N_token, 22]
+            features["template_aatype"],
+            num_classes=22  # 20 amino acids + UNK + gap
+        ).to(template_distogram.dtype)
+
+        # TODO: add template backbone frame feature
 
         # Compute masks
-        b_frame_mask = features["template_backbone_frame_mask"]
-        b_frame_mask = b_frame_mask[..., None] * b_frame_mask[..., None, :]  # [*, n_templ, n_token, n_token]
+        # b_frame_mask = features["template_backbone_frame_mask"]
+        # b_frame_mask = b_frame_mask[..., None] * b_frame_mask[..., None, :]  # [*, n_templ, n_token, n_token]
         b_pseudo_beta_mask = features["template_pseudo_beta_mask"]
         b_pseudo_beta_mask = b_pseudo_beta_mask[..., None] * b_pseudo_beta_mask[..., None, :]
 
         template_feat = torch.cat([
-            features["template_distogram"],
-            b_frame_mask[..., None],  # [*, n_templ, n_token, n_token, 1]
-            features["template_unit_vector"],
+            template_distogram,
+            # b_frame_mask[..., None],  # [*, n_templ, n_token, n_token, 1]
+            # template_unit_vector,
             b_pseudo_beta_mask[..., None]
         ], dim=-1)
 
         # Mask out features that are not in the same chain
-        asym_id_i = features["asym_id"][..., None, :].expand((bs + (n_templ, n_token, n_token)))
-        asym_id_j = features["asym_id"][..., None].expand((bs + (n_templ, n_token, n_token)))
-        same_asym_id = torch.isclose(asym_id_i, asym_id_j).to(template_feat.dtype)
+        asym_id_i = features["asym_id"][..., None, :].expand((bs, n_token, n_token))
+        asym_id_j = features["asym_id"][..., None].expand((bs, n_token, n_token))
+        same_asym_id = torch.isclose(asym_id_i, asym_id_j).to(template_feat.dtype)  # [*, n_token, n_token]
+        same_asym_id = same_asym_id.unsqueeze(-3)  # for N_templ broadcasting
         template_feat = template_feat * same_asym_id.unsqueeze(-1)
 
         # Add residue type information
-        temp_restype_i = features["template_restype"][..., None, :].expand(bs + (n_templ, n_token, n_token, -1))
-        temp_restype_j = features["template_restype"][..., None, :, :].expand(bs + (n_templ, n_token, n_token, -1))
+        temp_restype_i = template_restype[..., None, :].expand((bs, n_templ, n_token, n_token, -1))
+        temp_restype_j = template_restype[..., None, :, :].expand((bs, n_templ, n_token, n_token, -1))
         template_feat = torch.cat([template_feat, temp_restype_i, temp_restype_j], dim=-1)
 
+        # Mask the invalid features
+        template_feat = template_feat * b_pseudo_beta_mask[..., None]
+
         # Run the pair stack per template
-        single_templates = torch.unbind(template_feat, dim=-4)  # each element shape [*, n_token, n_token, c_template]
+        single_templates = torch.unbind(template_feat, dim=-4)  # each element shape [*, n_token, n_token, no_feat]
         z_proj = self.proj_pair(z_trunk)
         u = torch.zeros_like(z_proj)
         for t in range(len(single_templates)):
@@ -331,7 +359,7 @@ class TemplateEmbedder(nn.Module):
                                     pair_mask=pair_mask,
                                     chunk_size=chunk_size,
                                     use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-                                    use_lma=use_lma, inplace_safe=inplace_safe),
+                                    inplace_safe=inplace_safe),
                     inplace=inplace_safe
                     )
             # Normalize and add to u

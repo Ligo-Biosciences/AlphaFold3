@@ -22,9 +22,9 @@ class AlphaFold3(nn.Module):
             **self.config["input_embedder"]
         )
 
-        # self.template_embedder = TemplateEmbedder(
-        #     **self.config["template_embedder"]
-        # )
+        self.template_embedder = TemplateEmbedder(
+            **self.config["template_embedder"]
+        )
 
         self.msa_module = MSAModule(
             **self.config["msa_module"]
@@ -106,18 +106,18 @@ class AlphaFold3(nn.Module):
 
         del s_prev, z_prev, s_init, z_init
 
-        # Embed the templates  TODO: add the templates
-        # z = add(z,
-        #        self.template_embedder(
-        #            feats,
-        #            z,
-        #            pair_mask=pair_mask,
-        #            chunk_size=self.globals.chunk_size,
-        #            use_deepspeed_evo_attention=self.globals.use_deepspeed_evo_attention,
-        #            inplace_safe=inplace_safe
-        #        ),
-        #        inplace=inplace_safe
-        #        )
+        # Embed the templates
+        z = add(z,
+                self.template_embedder(
+                    feats,
+                    z,
+                    pair_mask=pair_mask,
+                    chunk_size=self.globals.chunk_size,
+                    use_deepspeed_evo_attention=self.globals.use_deepspeed_evo_attention,
+                    inplace_safe=inplace_safe
+                ),
+                inplace=inplace_safe
+                )
 
         # Process the MSA
         z = add(z,
@@ -392,4 +392,3 @@ class AlphaFold3(nn.Module):
         # update the outputs dictionary with the confidence head outputs
         # outputs.update(confidences)
         return outputs
-

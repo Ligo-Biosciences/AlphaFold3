@@ -240,12 +240,17 @@ def reshape_features(batch):
     batch["atom_mask"] = batch["all_atom_mask"].reshape(-1, n_res * 4, n_cycle)
     batch["token_mask"] = batch["seq_mask"]
     batch["token_index"] = batch["residue_index"]
+
+    # TODO: One-hot encode the restypes: aatype and template_aatype
+
     # Add assembly features
     batch["asym_id"] = torch.zeros_like(batch["seq_mask"])  # int
     batch["entity_id"] = torch.zeros_like(batch["seq_mask"])  # int
     batch["sym_id"] = torch.zeros_like(batch["seq_mask"])  # , dtype=torch.float32
+
     # Remove gt_features key, the item is usually none
     batch.pop("gt_features")
+
     # Compute and add atom_to_token
     atom_to_token = torch.arange(n_res).unsqueeze(-1).expand(n_res, 4).long()  # (n_res, 4)
     atom_to_token = atom_to_token[None, ..., None].expand(bs, n_res, 4, n_cycle)  # (bs, n_res, 4, n_cycle)
