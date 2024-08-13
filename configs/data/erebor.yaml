@@ -100,7 +100,7 @@ config:
   data_module:
     use_small_bfd: false
     data_loaders:
-        batch_size: 1
+        batch_size: 2
         num_workers: 16
         pin_memory: true
 
@@ -220,7 +220,7 @@ config:
       - "between_segment_residues"
       - "deletion_matrix"
       - "no_recycling_iters"
-    use_templates: true
+    use_templates: false
     use_template_torsion_angles: false
     template_features:
       - "template_all_atom_positions"
