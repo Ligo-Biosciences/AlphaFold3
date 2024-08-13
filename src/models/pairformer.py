@@ -207,11 +207,14 @@ class PairformerStackBlock(nn.Module):
             use_deepspeed_evo_attention=use_deepspeed_evo_attention,
             inplace_safe=inplace_safe,
         )
-        s = self.attention(
-            single_repr=s,
-            pair_repr=z,
-            mask=single_mask,
-            use_deepspeed_evo_attention=use_deepspeed_evo_attention,
+        s = add(
+            s,
+            self.attention(
+                single_repr=s,
+                pair_repr=z,
+                mask=single_mask,
+                use_deepspeed_evo_attention=use_deepspeed_evo_attention),
+            inplace=inplace_safe
         )
         s = add(s, self.transition(s), inplace=inplace_safe)
         return s, z
@@ -367,4 +370,3 @@ class PairformerStack(nn.Module):
         )
         s = s.squeeze(-3)  # Remove singleton N_seq dimension
         return s, z
-
