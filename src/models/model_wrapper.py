@@ -142,12 +142,14 @@ class AlphaFoldWrapper(LightningModule):
         """Compute validation metrics for the model."""
         with torch.no_grad():
             batch_size, n_tokens = batch["residue_index"].shape
-            S = self.globals.samples_per_trunk
             metrics = {}
 
-            gt_coords = batch["all_atom_positions"]  # (bs, n_atoms, 3) gt_atoms after augmentation
+            gt_coords = outputs["all_atom_positions"]  # (bs, n_atoms, 3) gt_atoms after augmentation
             pred_coords = outputs["sampled_positions"].squeeze(-3)  # remove S dimension (bs, 1, n_atoms, 3)
             all_atom_mask = batch["atom_mask"]  # (bs, n_atoms)
+
+            # Center the gt_coords
+            gt_coords = gt_coords - torch.mean(gt_coords, dim=-2, keepdim=True)
 
             gt_coords_masked = gt_coords * all_atom_mask[..., None]
             pred_coords_masked = pred_coords * all_atom_mask[..., None]
