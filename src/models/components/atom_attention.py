@@ -8,8 +8,8 @@ from src.models.components.transition import ConditionedTransitionBlock
 from einops import rearrange
 from functools import partial
 from src.utils.checkpointing import checkpoint_blocks, get_checkpoint_fn
-
 checkpoint = get_checkpoint_fn()
+from src.utils.tensor_utils import add
 
 
 def partition_tensor(
@@ -303,8 +303,12 @@ class AtomTransformerBlock(nn.Module):
             atom_pair_local: Tensor,
             mask: Optional[Tensor] = None
     ) -> Tuple[Tensor, Tensor, Tensor]:
-        a = self.atom_attention(atom_single, atom_proj, atom_pair_local, mask)
-        atom_single = a + self.transition(atom_single, atom_proj)
+        a = add(
+            atom_single,
+            self.atom_attention(atom_single, atom_proj, atom_pair_local, mask),
+            inplace=False
+        )
+        atom_single = add(a, self.transition(atom_single, atom_proj), inplace=False)
         return atom_single, atom_proj, atom_pair_local
 
 
