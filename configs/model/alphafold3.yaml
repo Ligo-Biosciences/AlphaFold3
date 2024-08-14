@@ -114,7 +114,7 @@ model:
   pairformer_stack:
     c_s: ${model.model.c_token}
     c_z: ${model.model.c_pair}
-    no_blocks: 24  # 48
+    no_blocks: 48
     c_hidden_mul: ${model.model.c_hidden_tri_mul}
     c_hidden_pair_attn: ${model.model.c_hidden_pair_attn}
     no_heads_tri_attn: ${model.model.no_heads_tri_attn}
@@ -139,7 +139,7 @@ model:
     atom_attention_n_keys: 128
     atom_decoder_blocks: 3
     atom_decoder_heads: 16
-    token_transformer_blocks: 12 # 24
+    token_transformer_blocks: 24
     token_transformer_heads: 16
     sd_data: 16.0
     s_max: 160.0
