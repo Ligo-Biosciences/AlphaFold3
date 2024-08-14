@@ -144,7 +144,7 @@ class AlphaFoldWrapper(LightningModule):
             batch_size, n_tokens = batch["residue_index"].shape
             metrics = {}
 
-            gt_coords = outputs["all_atom_positions"]  # (bs, n_atoms, 3) gt_atoms after augmentation
+            gt_coords = batch["all_atom_positions"]  # (bs, n_atoms, 3) gt_atoms after augmentation
             pred_coords = outputs["sampled_positions"].squeeze(-3)  # remove S dimension (bs, 1, n_atoms, 3)
             all_atom_mask = batch["atom_mask"]  # (bs, n_atoms)
 
