@@ -60,7 +60,7 @@ class AttentionPairBias(nn.Module):
 
         # Attention
         self.attention = Attention(
-            c_q=dim,
+            c_q=dim,  # TODO: this Q needs to be projected from a linear layer with bias
             c_k=dim,
             c_v=dim,
             c_hidden=dim // no_heads,
