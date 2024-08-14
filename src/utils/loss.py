@@ -147,6 +147,7 @@ def distogram_loss(
         **kwargs,
 ) -> Tensor:  # (bs,)
     # TODO: this is an inelegant implementation, integrate with the data pipeline
+    # TODO: it throws an error for batch size more than 1, careful, indicative of bug!
     batch_size, n_tokens = token_mask.shape
 
     # Compute pseudo beta and mask
