@@ -63,11 +63,15 @@ def mean_squared_error(
     atom_mse = square_euclidean_distance(pred_atoms, gt_atoms, epsilon=epsilon)  # (bs, n_atoms)
 
     # Mask positions
-    if mask is not None:
-        atom_mse *= mask
+    if mask is None:
+        mask = weights.new_ones(weights.shape)
+    atom_mse = atom_mse * mask
 
     # Weighted mean
-    mse = torch.mean(atom_mse * weights, dim=1)
+    weighted_mse = atom_mse * weights
+    sum_error = torch.sum(weighted_mse, dim=-1)
+    denom = epsilon + torch.sum(mask, dim=-1)
+    mse = sum_error / denom
     return torch.div(mse, 3.0)
 
 
@@ -109,8 +113,8 @@ def diffusion_loss(
     pred_atoms = Vec3Array.from_array(pred_atoms)
     gt_atoms = Vec3Array.from_array(gt_atoms)
 
-    # Align the gt_atoms to pred_atoms
-    aligned_gt_atoms = weighted_rigid_align(x=gt_atoms, x_gt=pred_atoms, weights=weights, mask=mask)
+    # Align the gt_atoms to pred_atoms, TODO: put the alignment back in
+    aligned_gt_atoms = gt_atoms  # weighted_rigid_align(x=gt_atoms, x_gt=pred_atoms, weights=weights, mask=mask)
 
     # MSE loss
     mse = mean_squared_error(pred_atoms, aligned_gt_atoms, weights, mask)
@@ -140,8 +144,8 @@ def distogram_loss(
         logits: Tensor,  # (bs, n_tokens, n_tokens, n_bins)
         all_atom_positions,  # (bs, n_tokens * 4, 3)
         token_mask,  # (bs, n_tokens)
-        min_bin: float = 2.0,
-        max_bin: float = 22.0,
+        min_bin: float = 0.0,
+        max_bin: float = 32.0,
         no_bins: int = 64,
         eps: float = 1e-6,
         **kwargs,
@@ -182,6 +186,7 @@ def distogram_loss(
     mean = errors * square_mask
     mean = torch.sum(mean, dim=-1)
     mean = mean / denom[..., None]
+    mean = torch.sum(mean, dim=-1)
 
     # Average over the batch dimensions
     mean = torch.mean(mean)

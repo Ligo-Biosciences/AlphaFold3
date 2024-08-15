@@ -481,8 +481,8 @@ class DiffusionModule(torch.nn.Module):
 
             # Create the noise schedule with float64 dtype to prevent numerical issues
             t = torch.linspace(0, 1, n_steps, device=device, dtype=torch.float64).unsqueeze(-1)  # (n_steps, 1)
-            s_max_root = math.pow(self.s_max, 1 / self.p)
-            s_min_root = math.pow(self.s_min, 1 / self.p)
+            s_max_root = 2.0647  # math.pow(self.s_max, 1 / self.p)  s_max==160
+            s_min_root = 0.327  # math.pow(self.s_min, 1 / self.p)  s_min==4e-4
             noise_schedule = self.sd_data * (s_max_root + t * (s_min_root - s_max_root)) ** self.p
 
             for i in range(1, n_steps):

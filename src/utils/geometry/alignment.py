@@ -39,8 +39,8 @@ def weighted_rigid_align(
 
         # Mask atoms before computing covariance matrix
         if mask is not None:
-            x *= mask
-            x_gt *= mask
+            x = x * mask
+            x_gt = x_gt * mask
 
         # Find optimal rotation from singular value decomposition in float32 precision
         U, S, Vh = torch.linalg.svd(

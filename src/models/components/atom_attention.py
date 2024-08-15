@@ -140,7 +140,7 @@ class AtomAttentionPairBias(nn.Module):
 
         # Pair bias
         self.layer_norm_pair = LayerNorm(self.c_atompair)
-        self.linear_pair = LinearNoBias(self.c_atompair, self.no_heads, init='default')
+        self.linear_pair = LinearNoBias(self.c_atompair, self.no_heads, init='normal')
 
     def _prep_biases(
             self,
@@ -384,7 +384,7 @@ class AtomTransformer(nn.Module):
         """Prepare the input tensors for each AtomTransformerBlock."""
         blocks = [
             partial(
-                block if not self.compile_module else torch.compile(block),
+                block,
                 mask=mask,
             )
             for block in self.blocks
@@ -639,14 +639,14 @@ class AtomAttentionEncoder(nn.Module):
         if trunk_conditioning:
             self.proj_trunk_single = nn.Sequential(
                 LayerNorm(c_token),
-                LinearNoBias(c_token, c_atom, init='final')
+                LinearNoBias(c_token, c_atom)
             )
             self.proj_trunk_pair = nn.Sequential(
                 LayerNorm(c_trunk_pair),
-                LinearNoBias(c_trunk_pair, c_atompair, init='final')
+                LinearNoBias(c_trunk_pair, c_atompair)
             )
 
-            self.linear_noisy_pos = LinearNoBias(3, c_atom, init='final')
+            self.linear_noisy_pos = LinearNoBias(3, c_atom)
 
         # Adding the single conditioning to the pair representation
         self.linear_single_to_pair_row = LinearNoBias(c_atom, c_atompair, init='relu')

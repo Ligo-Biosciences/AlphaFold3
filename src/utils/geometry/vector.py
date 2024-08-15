@@ -196,7 +196,7 @@ def square_euclidean_distance(
         vec2: Vec3Array,
         epsilon: Optional[float] = 1e-6
 ) -> torch.Tensor:
-    """Computes square of euclidean distance between 'vec1' and 'vec2'.
+    """Computes square of Euclidean distance between 'vec1' and 'vec2'.
 
     Args:
         vec1: Vec3Array to compute    distance to
@@ -205,7 +205,7 @@ def square_euclidean_distance(
         epsilon: distance is clipped from below to be at least epsilon
 
     Returns:
-        Array of square euclidean distances;
+        Array of square Euclidean distances;
         shape will be result of broadcasting 'vec1' and 'vec2'
     """
     difference = vec1 - vec2
