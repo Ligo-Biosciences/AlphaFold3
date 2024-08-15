@@ -2,7 +2,8 @@ import hydra
 import lightning as L
 import rootutils
 import torch
-from lightning import Callback, LightningDataModule, LightningModule, Trainer
+from lightning import LightningModule
+from lightning.pytorch.utilities import grad_norm
 from src.utils.tensor_utils import tensor_tree_map
 from src.models.model import AlphaFold3
 from src.utils.loss import AlphaFold3Loss
@@ -212,6 +213,11 @@ class AlphaFoldWrapper(LightningModule):
                 # "frequency": 1,
             },
         }
+
+    def on_before_optimizer_step(self, optimizer):
+        """Keeps an eye on gradient norms during training."""
+        norms = grad_norm(self.model, norm_type=2)
+        self.log_dict(norms)
 
     def on_load_checkpoint(self, checkpoint):
         # Load the EMA model weights
