@@ -4,6 +4,7 @@ from torch import Tensor
 import torch.nn as nn
 from src.models.components.transition import ConditionedTransitionBlock
 from src.models.components.attention_pair_bias import AttentionPairBias
+from src.models.components.primitives import LayerNorm
 from typing import Optional
 from functools import partial
 from src.utils.checkpointing import checkpoint_blocks
@@ -58,21 +59,20 @@ class DiffusionTransformerBlock(nn.Module):
         TODO: the single_proj and pair_repr do not actually change as a result of this function.
             Returning them here is a bit misleading. Also, saving them between blocks is unnecessary.
         """
-        b = add(  # TODO: this residual connection does not exist in the paper!
-            single_repr,
-            self.attention_block(
-                single_repr=single_repr,
-                single_proj=single_proj,
-                pair_repr=pair_repr,
-                mask=mask,
-                use_deepspeed_evo_attention=use_deepspeed_evo_attention),
-            inplace=False
+        b = self.attention_block(
+            single_repr=single_repr,
+            single_proj=single_proj,
+            pair_repr=pair_repr,
+            mask=mask,
+            use_deepspeed_evo_attention=use_deepspeed_evo_attention
         )
+
         single_repr = add(
             b,
             self.conditioned_transition_block(single_repr, single_proj),
             inplace=False
         )
+
         return single_repr, single_proj, pair_repr
 
 

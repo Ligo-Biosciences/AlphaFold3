@@ -303,11 +303,7 @@ class AtomTransformerBlock(nn.Module):
             atom_pair_local: Tensor,
             mask: Optional[Tensor] = None
     ) -> Tuple[Tensor, Tensor, Tensor]:
-        a = add(
-            atom_single,
-            self.atom_attention(atom_single, atom_proj, atom_pair_local, mask),
-            inplace=False
-        )
+        a = self.atom_attention(atom_single, atom_proj, atom_pair_local, mask),
         atom_single = add(a, self.transition(atom_single, atom_proj), inplace=False)
         return atom_single, atom_proj, atom_pair_local
 
