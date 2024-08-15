@@ -47,7 +47,7 @@ dependencies:
   - pandas
   - pip:
       - proteinflow==2.8.0
-      - biopython==1.81
+      - biopython
       - deepspeed==0.14.4
       - dm-tree>=0.1.8,<0.2.0
       - torchmetrics
