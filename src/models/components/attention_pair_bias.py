@@ -18,6 +18,7 @@ class AttentionPairBias(nn.Module):
             no_heads: int = 8,
             dropout: float = 0.0,
             input_gating: bool = True,
+            residual: bool = True,
             inf: float = 1e8,
     ):
         """Initialize the AttentionPairBias module.
@@ -31,6 +32,9 @@ class AttentionPairBias(nn.Module):
                 (i.e. each head will have dimension c_atom // no_heads).
             dropout:
                 Dropout probability on attn_output_weights. Default: 0.0 (no dropout).
+            residual:
+                Whether the module is used as a residual block. Default: True. This affects the initialization
+                of the final projection layer of the MHA attention.
             input_gating:
                 Whether the single representation should be gated with another single-like representation using
                 adaptive layer normalization. Default: True.
@@ -65,7 +69,8 @@ class AttentionPairBias(nn.Module):
             c_v=dim,
             c_hidden=dim // no_heads,
             no_heads=no_heads,
-            gating=True
+            gating=True,
+            residual=residual,
         )
 
         # Pair bias

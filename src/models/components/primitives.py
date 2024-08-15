@@ -285,6 +285,7 @@ class Attention(nn.Module):
             c_hidden: int,
             no_heads: int,
             gating: bool = True,
+            residual: bool = True,
     ):
         """
         Args:
@@ -300,6 +301,9 @@ class Attention(nn.Module):
                 Number of attention heads
             gating:
                 Whether the output should be gated using query data
+            residual:
+                If the output is residual, then the final linear layer is initialized to
+                zeros so that the residual layer acts as the identity at initialization.
         TODO: generalize this function to use the triton kernels
         """
         super(Attention, self).__init__()
@@ -327,7 +331,7 @@ class Attention(nn.Module):
             split_heads
         )
         self.linear_o = LinearNoBias(
-            self.c_hidden * self.no_heads, self.c_q, init="final"
+            self.c_hidden * self.no_heads, self.c_q, init="final" if residual else "default"
         )
 
         self.to_gamma = None

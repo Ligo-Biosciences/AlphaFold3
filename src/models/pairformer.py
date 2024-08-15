@@ -184,6 +184,7 @@ class PairformerStackBlock(nn.Module):
             c_pair=c_z,
             no_heads=no_heads_single_attn,
             input_gating=False,  # no single representation gating within Pairformer
+            residual=True  # acts as a residual connection
         )
         self.transition = Transition(
             c_s,

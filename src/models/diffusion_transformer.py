@@ -44,7 +44,9 @@ class DiffusionTransformerBlock(nn.Module):
         self.num_heads = no_heads
         self.dropout = dropout
 
-        self.attention_block = AttentionPairBias(c_token, c_pair, no_heads, dropout, input_gating=True)
+        self.attention_block = AttentionPairBias(
+            c_token, c_pair, no_heads, dropout, input_gating=True, residual=False
+        )
         self.conditioned_transition_block = ConditionedTransitionBlock(c_token)
 
     def forward(
