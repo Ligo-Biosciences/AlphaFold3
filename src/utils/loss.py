@@ -28,9 +28,12 @@ def smooth_lddt_loss(
 
     # Compute distance difference for all pairs of atoms
     delta_lm = torch.abs(delta_x_gt_lm - delta_x_lm)  # (bs, n_atoms, n_atoms)
-    epsilon_lm = torch.div((F.sigmoid(torch.sub(0.5, delta_lm)) + F.sigmoid(torch.sub(1.0, delta_lm)) +
-                            F.sigmoid(torch.sub(2.0, delta_lm)) + F.sigmoid(torch.sub(4.0, delta_lm))),
-                           4.0)
+    epsilon_lm = torch.div(
+        (F.sigmoid(torch.sub(0.5, delta_lm)) +
+         F.sigmoid(torch.sub(1.0, delta_lm)) +
+         F.sigmoid(torch.sub(2.0, delta_lm)) +
+         F.sigmoid(torch.sub(4.0, delta_lm))),
+        4.0)
 
     # Restrict to bespoke inclusion radius
     atom_is_nucleotide = (atom_is_dna + atom_is_rna).unsqueeze(-1).expand_as(delta_x_gt_lm)
@@ -151,7 +154,6 @@ def distogram_loss(
         **kwargs,
 ) -> Tensor:  # (bs,)
     # TODO: this is an inelegant implementation, integrate with the data pipeline
-    # TODO: it throws an error for batch size more than 1, careful, indicative of bug!
     batch_size, n_tokens = token_mask.shape
 
     # Compute pseudo beta and mask
@@ -244,6 +246,7 @@ def predicted_aligned_error_loss():
 
 class AlphaFold3Loss(nn.Module):
     """Aggregation of various losses described in the supplement."""
+
     def __init__(self, config):
         super(AlphaFold3Loss, self).__init__()
         self.config = config
@@ -251,8 +254,8 @@ class AlphaFold3Loss(nn.Module):
     def loss(self, out, batch, _return_breakdown=False):
         loss_fns = {
             "distogram": lambda: distogram_loss(
-               logits=out["distogram_logits"],
-               **{**batch, **self.config.distogram}
+                logits=out["distogram_logits"],
+                **{**batch, **self.config.distogram}
             ),
             # TODO: no confidence losses for now
             # "experimentally_resolved": lambda: experimentally_resolved_loss(
@@ -297,4 +300,3 @@ class AlphaFold3Loss(nn.Module):
         else:
             cumulative_loss, losses = self.loss(out, batch, _return_breakdown)
             return cumulative_loss, losses
-

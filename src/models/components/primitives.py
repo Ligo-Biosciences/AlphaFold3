@@ -271,27 +271,6 @@ class AdaLN(nn.Module):
         return a
 
 
-@torch.jit.ignore
-def softmax_no_cast(t: torch.Tensor, dim: int = -1) -> torch.Tensor:
-    """
-        Softmax, but without automatic casting to fp32 when the input is of
-        type bfloat16
-    TODO: switch to fused softmax here.
-    """
-    d = t.dtype
-    deepspeed_is_initialized = (
-            deepspeed_is_installed and
-            deepspeed.comm.comm.is_initialized()
-
-    )
-    if d is torch.bfloat16 and not deepspeed_is_initialized:
-        with torch.amp.autocast("cuda", enabled=False):
-            s = F.softmax(t, dim=dim)
-    else:
-        s = F.softmax(t, dim=dim)
-    return s
-
-
 class Attention(nn.Module):
     """
     Standard multi-head attention using AlphaFold's default layer
@@ -470,7 +449,7 @@ def _attention(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, bias
     for b in biases:
         a = a + b
 
-    a = softmax_no_cast(a, -1)
+    a = F.softmax(a, -1)
 
     # [*, H, Q, C_hidden]
     a = torch.matmul(a, value)
