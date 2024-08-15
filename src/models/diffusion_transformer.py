@@ -58,7 +58,7 @@ class DiffusionTransformerBlock(nn.Module):
         TODO: the single_proj and pair_repr do not actually change as a result of this function.
             Returning them here is a bit misleading. Also, saving them between blocks is unnecessary.
         """
-        b = add(
+        b = add(  # TODO: this residual connection does not exist in the paper!
             single_repr,
             self.attention_block(
                 single_repr=single_repr,

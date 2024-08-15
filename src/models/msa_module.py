@@ -64,7 +64,7 @@ class MSAPairWeightedAveraging(nn.Module):
         # Pair
         self.proj_pair_bias = nn.Sequential(
             LayerNorm(c_z),
-            LinearNoBias(c_z, no_heads)
+            LinearNoBias(c_z, no_heads, init="normal")
         )
 
         # Output projection

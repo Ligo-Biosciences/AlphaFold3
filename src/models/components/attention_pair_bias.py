@@ -71,7 +71,7 @@ class AttentionPairBias(nn.Module):
         # Pair bias
         self.proj_pair_bias = nn.Sequential(
             LayerNorm(self.c_pair),
-            LinearNoBias(self.c_pair, self.num_heads, init='default')
+            LinearNoBias(self.c_pair, self.num_heads, init='normal')
         )
 
     def _prep_biases(
