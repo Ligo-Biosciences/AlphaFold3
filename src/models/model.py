@@ -351,7 +351,7 @@ class AlphaFold3(nn.Module):
         # Run the diffusion module
         n_steps = 200
         if train:
-            n_steps = 20  # Mini roll-out for training
+            n_steps = 10  # Mini roll-out for training
 
             # Run the diffusion module once for denoising during training
             diff_output = self.diffusion_module.train_step(

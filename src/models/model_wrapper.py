@@ -214,10 +214,10 @@ class AlphaFoldWrapper(LightningModule):
             },
         }
 
-    def on_before_optimizer_step(self, optimizer):
-        """Keeps an eye on gradient norms during training."""
-        norms = grad_norm(self.model, norm_type=2)
-        self.log_dict(norms)
+    # def on_before_optimizer_step(self, optimizer):
+    #    """Keeps an eye on gradient norms during training."""
+    #    norms = grad_norm(self.model, norm_type=2)
+    #    self.log_dict(norms)
 
     def on_load_checkpoint(self, checkpoint):
         # Load the EMA model weights
