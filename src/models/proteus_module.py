@@ -169,7 +169,7 @@ class ProteusLitModule(LightningModule):
 
         # update and log metrics
         self.train_loss(loss)
-        self.log("train/loss", self.train_loss, on_step=False, on_epoch=False, prog_bar=True)
+        self.log("train/loss", self.train_loss, on_step=True, on_epoch=False, prog_bar=True)
 
         # return loss or backpropagation will fail
         return loss
