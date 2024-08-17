@@ -374,6 +374,15 @@ class Attention(nn.Module):
         return o
 
 
+def safe_softmax(x, axis=-1):
+    """A softmax that returns 0.0s instead of NaNs when all inputs to the softmax
+    dim are NaNs. This occurs during sequence-local atom attention if the input is also
+    padded. """
+    a = F.softmax(x, axis)
+    a = torch.nan_to_num(a, nan=0.0)
+    return a
+
+
 # @torch.compile(mode="max-autotune")
 def _attention(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, biases: List[torch.Tensor]) -> torch.Tensor:
     """A stock PyTorch implementation of the attention mechanism.
@@ -399,7 +408,7 @@ def _attention(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, bias
     for b in biases:
         a = a + b
 
-    a = F.softmax(a, -1)
+    a = safe_softmax(a, -1)
 
     # [*, H, Q, C_hidden]
     a = torch.matmul(a, value)
