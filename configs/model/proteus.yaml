@@ -32,7 +32,7 @@ loss:
       #    weight_protein: 1.0
       # smooth_lddt:
       #    weight: 1.0
-      use_smooth_lddt: false
+      use_smooth_lddt: true
       sd_data: 16.0
       weight: 4.0
 
@@ -51,7 +51,7 @@ model:
     atom_attention_n_keys: 128
     atom_decoder_blocks: 3
     atom_decoder_heads: 16
-    token_transformer_blocks: 24
+    token_transformer_blocks: 12
     token_transformer_heads: 16
     clear_cache_between_blocks: false
     compile_module: false
@@ -75,7 +75,7 @@ ema_decay: 0.999
 compile: false
 
 # internal precision of float32 matrix multiplications. "high" or "medium" will utilize Tensor cores
-matmul_precision: "medium"
+matmul_precision: "high"
 
 globals:
   chunk_size: null  # 4

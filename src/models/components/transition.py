@@ -46,7 +46,7 @@ class ConditionedTransitionBlock(nn.Module):
         self.ada_ln = AdaLN(input_dim)
         self.hidden_gating_linear = LinearNoBias(input_dim, n * input_dim, init='relu')
         self.hidden_linear = LinearNoBias(input_dim, n * input_dim, init='default')
-        self.output_linear = Linear(input_dim * n, input_dim, init='final')
+        self.output_linear = Linear(input_dim * n, input_dim, init='default')
         # TODO: check if this is in line with the adaLN-Zero initialization
         self.output_gating_linear = Linear(input_dim, input_dim, init='gating')
         self.output_gating_linear.bias = nn.Parameter(torch.ones(input_dim) * -2.0)  # gate values will be ~0.11
