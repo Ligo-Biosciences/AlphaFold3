@@ -42,7 +42,7 @@ loss:
       max_bin: 32.0
       no_bins: 64
       eps: 0.000006  # 1e-6
-      weight: 1.0
+      weight: 0.03
 
   experimentally_resolved:
       eps: 0.00000001  # 1e-8,
