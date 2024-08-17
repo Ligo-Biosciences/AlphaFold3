@@ -2,12 +2,13 @@
 import torch
 from torch import nn
 from torch import Tensor
+from torch.nn import LayerNorm
 from src.models.embedders import InputEmbedder, TemplateEmbedder
 from src.models.pairformer import PairformerStack
 from src.models.msa_module import MSAModule
 from src.models.diffusion_module import DiffusionModule
 from src.models.heads import DistogramHead, ConfidenceHead
-from src.models.components.primitives import LinearNoBias, LayerNorm
+from src.models.components.primitives import LinearNoBias
 from src.utils.tensor_utils import add, tensor_tree_map
 from typing import Tuple, Dict
 

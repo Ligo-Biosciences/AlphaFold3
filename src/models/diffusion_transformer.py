@@ -4,7 +4,6 @@ from torch import Tensor
 import torch.nn as nn
 from src.models.components.transition import ConditionedTransitionBlock
 from src.models.components.attention_pair_bias import AttentionPairBias
-from src.models.components.primitives import LayerNorm
 from typing import Optional
 from functools import partial
 from src.utils.checkpointing import checkpoint_blocks

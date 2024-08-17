@@ -23,7 +23,6 @@ import torch.nn as nn
 
 from src.models.components.primitives import Linear
 from src.utils.chunk_utils import chunk_layer
-from src.utils.precision_utils import is_fp16_enabled
 
 
 class OuterProductMean(nn.Module):
@@ -96,7 +95,7 @@ class OuterProductMean(nn.Module):
 
         return outer
 
-    def _forward(self,
+    def forward(self,
                  m: torch.Tensor,
                  mask: Optional[torch.Tensor] = None,
                  chunk_size: Optional[int] = None,
@@ -108,6 +107,10 @@ class OuterProductMean(nn.Module):
                 [*, N_seq, N_res, C_m] MSA embedding
             mask:
                 [*, N_seq, N_res] MSA mask
+            chunk_size:
+                chunk size
+            inplace_safe:
+                whether to apply operations in-place to save memory
         Returns:
             [*, N_res, N_res, C_z] pair embedding update
         """
@@ -146,16 +149,4 @@ class OuterProductMean(nn.Module):
             outer = outer / norm
 
         return outer
-
-    def forward(self,
-                m: torch.Tensor,
-                mask: Optional[torch.Tensor] = None,
-                chunk_size: Optional[int] = None,
-                inplace_safe: bool = False,
-                ) -> torch.Tensor:
-        if is_fp16_enabled():
-            with torch.cuda.amp.autocast(enabled=False):
-                return self._forward(m.float(), mask, chunk_size, inplace_safe)
-        else:
-            return self._forward(m, mask, chunk_size, inplace_safe)
 

@@ -19,8 +19,8 @@ from abc import ABC, abstractmethod
 
 import torch
 import torch.nn as nn
-
-from src.models.components.primitives import Linear, LayerNorm
+from torch.nn import LayerNorm
+from src.models.components.primitives import Linear
 from src.utils.chunk_utils import chunk_layer
 from src.utils.precision_utils import is_fp16_enabled
 from src.utils.tensor_utils import add, permute_final_dims

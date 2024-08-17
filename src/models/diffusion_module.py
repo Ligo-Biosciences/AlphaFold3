@@ -11,16 +11,15 @@ but with several modifications to make it more amenable to the task. The main ch
 import torch
 from torch import nn
 from torch import Tensor
+from torch.nn import LayerNorm
 from typing import Dict, Tuple
 from src.models.diffusion_conditioning import DiffusionConditioning
 from src.models.diffusion_transformer import DiffusionTransformer
 from src.models.components.atom_attention import AtomAttentionEncoder, AtomAttentionDecoder
-from src.models.components.primitives import LinearNoBias, LayerNorm
-from src.utils.tensor_utils import tensor_tree_map
+from src.models.components.primitives import LinearNoBias
 from src.utils.geometry.vector import Vec3Array
 from src.diffusion.augmentation import centre_random_augmentation
 from src.diffusion.sample import sample_noise_level, noise_positions
-import math
 
 
 class DiffusionModule(torch.nn.Module):

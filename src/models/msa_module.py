@@ -20,7 +20,8 @@ import torch
 from torch import Tensor
 from torch import nn
 from typing import Optional
-from src.models.components.primitives import LinearNoBias, LayerNorm
+from torch.nn import LayerNorm
+from src.models.components.primitives import LinearNoBias
 from src.models.pairformer import PairStack
 from src.models.components.outer_product_mean import OuterProductMean
 from src.models.components.transition import Transition

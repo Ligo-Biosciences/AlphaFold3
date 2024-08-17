@@ -3,7 +3,8 @@ from torch import Tensor
 from torch import nn
 from torch.nn import functional as F
 from typing import Dict, NamedTuple, Optional, Tuple
-from src.models.components.primitives import AdaLN, Linear, LinearNoBias, Attention, LayerNorm
+from src.models.components.primitives import AdaLN, Linear, LinearNoBias, Attention
+from torch.nn import LayerNorm
 from src.models.components.transition import ConditionedTransitionBlock
 from einops import rearrange
 from functools import partial

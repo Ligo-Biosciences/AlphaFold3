@@ -20,6 +20,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn import LayerNorm
 from scipy.stats import truncnorm
 from src.utils.tensor_utils import (
     permute_final_dims,
@@ -33,9 +34,6 @@ if deepspeed_is_installed:
 
 if ds4s_is_installed:
     from deepspeed.ops.deepspeed4science import DS4Sci_EvoformerAttention
-
-# from flash_attn.bert_padding import unpad_input
-# from flash_attn.flash_attn_interface import flash_attn_unpadded_func
 
 
 def _prod(nums):
@@ -177,23 +175,6 @@ class Linear(nn.Linear):
         self.precision = precision
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        d = x.dtype
-        deepspeed_is_initialized = (
-                deepspeed_is_installed and
-                deepspeed.comm.comm.is_initialized()
-        )
-        if self.precision is not None:
-            with torch.amp.autocast("cuda", enabled=False):
-                bias = self.bias.to(dtype=self.precision) if self.bias is not None else None
-                return F.linear(x.to(dtype=self.precision),
-                                self.weight.to(dtype=self.precision),
-                                bias).to(dtype=d)
-
-        if d is torch.bfloat16 and not deepspeed_is_initialized:
-            with torch.amp.autocast("cuda", enabled=False):
-                bias = self.bias.to(dtype=d) if self.bias is not None else None
-                return F.linear(x, self.weight.to(dtype=d), bias)
-
         return F.linear(x, self.weight, self.bias)
 
 
@@ -204,57 +185,22 @@ class LinearNoBias(Linear):
     __init__ = partialmethod(Linear.__init__, bias=False)
 
 
-class LayerNorm(nn.Module):
-    # TODO: add elementwise_affine and bias option
-    # TODO: do this with the Fastfold kernel (if the kernel is worth its salt)
-    def __init__(self, c_in, eps=1e-5):
-        super(LayerNorm, self).__init__()
-
-        self.c_in = (c_in,)
-        self.eps = eps
-
-        self.weight = nn.Parameter(torch.ones(c_in))
-        self.bias = nn.Parameter(torch.zeros(c_in))
-
-    def forward(self, x):
-        d = x.dtype
-        deepspeed_is_initialized = (
-                deepspeed_is_installed and
-                deepspeed.comm.comm.is_initialized()
-        )
-        if d is torch.bfloat16 and not deepspeed_is_initialized:
-            with torch.amp.autocast("cuda", enabled=False):
-                out = F.layer_norm(
-                    x,
-                    self.c_in,
-                    self.weight.to(dtype=d),
-                    self.bias.to(dtype=d),
-                    self.eps
-                )
-        else:
-            out = F.layer_norm(
-                x,
-                self.c_in,
-                self.weight,
-                self.bias,
-                self.eps,
-            )
-
-        return out
-
-
 class AdaLN(nn.Module):
     """Adaptive Layer Normalization."""
 
     def __init__(self, normalized_shape):
         super(AdaLN, self).__init__()
         # Layer norms
-        self.a_layer_norm = nn.LayerNorm(normalized_shape,  # equivalent to scale=False, offset=False in Haiku
-                                         elementwise_affine=False,
-                                         bias=False)
-        self.s_layer_norm = nn.LayerNorm(normalized_shape,  # equivalent to scale=True, offset=False in Haiku
-                                         elementwise_affine=True,
-                                         bias=False)
+        self.a_layer_norm = LayerNorm(
+            normalized_shape,  # equivalent to scale=False, offset=False in Haiku
+            elementwise_affine=False,
+            bias=False
+        )
+        self.s_layer_norm = LayerNorm(
+            normalized_shape,  # equivalent to scale=True, offset=False in Haiku
+            elementwise_affine=True,
+            bias=False
+        )
 
         # Linear layers for gating and the skip connection
         dim = normalized_shape if isinstance(normalized_shape, int) else normalized_shape[-1]

@@ -3,7 +3,8 @@
 import torch
 from torch import nn
 from torch import Tensor
-from src.models.components.primitives import LinearNoBias, LayerNorm
+from torch.nn import LayerNorm
+from src.models.components.primitives import LinearNoBias
 from src.models.components.relative_position_encoding import RelativePositionEncoding
 from src.models.components.transition import Transition
 from typing import Dict, Tuple

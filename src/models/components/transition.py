@@ -3,6 +3,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn import LayerNorm
 from src.models.components.primitives import AdaLN
 from src.models.components.primitives import Linear, LinearNoBias
 
@@ -19,7 +20,7 @@ class Transition(nn.Module):
                 channel expansion factor for hidden dimensions
         """
         super(Transition, self).__init__()
-        self.layer_norm = nn.LayerNorm(input_dim)
+        self.layer_norm = LayerNorm(input_dim)
         self.linear_1 = LinearNoBias(input_dim, n * input_dim, init='relu')
         self.linear_2 = LinearNoBias(input_dim, n * input_dim, init='default')
         self.output_linear = LinearNoBias(input_dim * n, input_dim, init='final')

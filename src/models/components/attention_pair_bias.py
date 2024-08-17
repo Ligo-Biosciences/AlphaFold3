@@ -1,8 +1,9 @@
 import torch
 from torch import nn
+from torch.nn import LayerNorm
 from torch.nn import functional as F
 from src.models.components.primitives import (
-    Linear, LinearNoBias, AdaLN, LayerNorm, Attention
+    Linear, LinearNoBias, AdaLN, Attention
 )
 from typing import Optional
 from einops import rearrange

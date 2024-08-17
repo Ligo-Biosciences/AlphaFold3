@@ -14,13 +14,11 @@
 # limitations under the License.
 
 from functools import partialmethod, partial
-import math
 from typing import Optional, List
-
 import torch
 import torch.nn as nn
-
-from src.models.components.primitives import Linear, LayerNorm, Attention
+from torch.nn import LayerNorm
+from src.models.components.primitives import Attention, LinearNoBias
 from src.utils.chunk_utils import chunk_layer
 from src.utils.tensor_utils import (
     permute_final_dims,
@@ -51,7 +49,7 @@ class TriangleAttention(nn.Module):
 
         self.layer_norm = LayerNorm(self.c_in)
 
-        self.linear = Linear(c_in, self.no_heads, bias=False, init="normal")
+        self.linear = LinearNoBias(c_in, self.no_heads, init="normal")
 
         self.mha = Attention(
             self.c_in, self.c_in, self.c_in, self.c_hidden, self.no_heads

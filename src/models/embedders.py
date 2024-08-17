@@ -3,15 +3,15 @@ import torch
 from torch import Tensor
 from torch import nn
 from torch.nn import functional as F
+from torch.nn import LayerNorm
 from src.models.components.atom_attention import AtomAttentionEncoder
 from typing import Dict, NamedTuple, Tuple, Optional
-from src.models.components.primitives import LinearNoBias, LayerNorm, Linear
+from src.models.components.primitives import LinearNoBias, Linear
 from src.models.components.relative_position_encoding import RelativePositionEncoding
 from src.models.template import TemplatePairStack
 from src.utils.tensor_utils import add
 from src.utils.checkpointing import get_checkpoint_fn
 from src.utils.geometry.vector import Vec3Array
-from src.common import residue_constants as rc
 checkpoint = get_checkpoint_fn()
 
 
