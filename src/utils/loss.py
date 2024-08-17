@@ -17,10 +17,20 @@ def smooth_lddt_loss(
         gt_atoms: Vec3Array,  # (bs, n_atoms)
         atom_is_rna: Tensor,  # (bs, n_atoms)
         atom_is_dna: Tensor,  # (bs, n_atoms)
-        mask: Tensor = None  # (bs, n_atoms)
+        mask: Tensor = None,  # (bs, n_atoms)
+        epsilon: float = 1e-5,
+        **kwargs
 ) -> Tensor:  # (bs,)
     """Smooth local distance difference test (LDDT) auxiliary loss."""
     bs, n_atoms = pred_atoms.shape
+
+    # Shape wrangling
+    samples_per_trunk = pred_atoms.shape[0] // bs
+    expand_batch = lambda tensor: tensor.repeat_interleave(samples_per_trunk, dim=0)
+    atom_is_rna = expand_batch(atom_is_rna)
+    atom_is_dna = expand_batch(atom_is_dna)
+    if mask is not None:
+        mask = expand_batch(mask)
 
     # Compute distances between all pairs of atoms
     delta_x_lm = euclidean_distance(pred_atoms[:, :, None], pred_atoms[:, None, :])  # (bs, n_atoms, n_atoms)
@@ -49,8 +59,10 @@ def smooth_lddt_loss(
     self_mask = self_mask.unsqueeze(0).expand_as(c_lm).to(c_lm.dtype)  # (bs, n_atoms, n_atoms)
     self_mask = torch.add(torch.neg(self_mask), 1.0)
     c_lm = c_lm * self_mask
-    lddt = torch.mean(epsilon_lm * c_lm, dim=(1, 2)) / torch.mean(c_lm, dim=(1, 2))
-    return torch.add(torch.neg(lddt), 1.0)  # (1 - lddt)
+    denom = torch.mean(c_lm, dim=(1, 2)) + epsilon  # for numerical stability
+    lddt = torch.mean(epsilon_lm * c_lm, dim=(1, 2)) / denom
+    per_batch_loss = torch.add(torch.neg(lddt), 1.0)  # (1 - lddt)
+    return torch.mean(per_batch_loss)  # average over batch dim
 
 
 def mean_squared_error(
@@ -92,12 +104,9 @@ def diffusion_loss(
         pred_atoms: Tensor,  # (bs * samples_per_trunk, n_atoms, 3)
         gt_atoms: Tensor,  # (bs * samples_per_trunk, n_atoms, 3)
         timesteps: Tensor,  # (bs * samples_per_trunk, 1)
-        atom_is_rna: Tensor,  # (bs, n_atoms)
-        atom_is_dna: Tensor,  # (bs, n_atoms)
         weights: Tensor,  # (bs, n_atoms)
         mask: Optional[Tensor] = None,  # (bs, n_atoms)
         sd_data: float = 16.0,  # Standard deviation of the data
-        use_smooth_lddt: bool = False,
         **kwargs
 ) -> Tensor:  # (bs,)
     """Diffusion loss that scales the MSE and LDDT losses by the noise level (timestep)."""
@@ -106,8 +115,6 @@ def diffusion_loss(
     # Shape wrangling
     samples_per_trunk = pred_atoms.shape[0] // bs
     expand_batch = lambda tensor: tensor.repeat_interleave(samples_per_trunk, dim=0)
-    atom_is_rna = expand_batch(atom_is_rna)
-    atom_is_dna = expand_batch(atom_is_dna)
     weights = expand_batch(weights)
     if mask is not None:
         mask = expand_batch(mask)
@@ -127,9 +134,9 @@ def diffusion_loss(
     loss_diffusion = scaling_factor * mse
 
     # Smooth LDDT Loss
-    if use_smooth_lddt:
-        lddt_loss = smooth_lddt_loss(pred_atoms, gt_atoms, atom_is_rna, atom_is_dna, mask)
-        loss_diffusion = loss_diffusion + lddt_loss
+    # if use_smooth_lddt:
+    #    lddt_loss = smooth_lddt_loss(pred_atoms, gt_atoms, atom_is_rna, atom_is_dna, mask)
+    #    loss_diffusion = loss_diffusion + lddt_loss
 
     # Average over batch dimension
     return torch.mean(loss_diffusion)
@@ -257,6 +264,13 @@ class AlphaFold3Loss(nn.Module):
                 logits=out["distogram_logits"],
                 **{**batch, **self.config.distogram}
             ),
+            "smooth_lddt_loss": lambda: smooth_lddt_loss(
+                pred_atoms=out["denoised_atoms"],
+                gt_atoms=out["augmented_gt_atoms"],
+                atom_is_rna=batch["ref_mask"].new_zeros(batch["ref_mask"].shape),  # (bs, n_atoms)
+                atom_is_dna=batch["ref_mask"].new_zeros(batch["ref_mask"].shape),  # (bs, n_atoms)
+                mask=batch["atom_exists"],
+            ),
             # TODO: no confidence losses for now
             # "experimentally_resolved": lambda: experimentally_resolved_loss(
             #    logits=out["experimentally_resolved_logits"],
@@ -271,8 +285,6 @@ class AlphaFold3Loss(nn.Module):
                 gt_atoms=out["augmented_gt_atoms"],  # rotated gt atoms from diffusion module
                 timesteps=out["timesteps"],
                 weights=batch["atom_exists"],
-                atom_is_rna=batch["ref_mask"].new_zeros(batch["ref_mask"].shape),  # (bs, n_atoms)
-                atom_is_dna=batch["ref_mask"].new_zeros(batch["ref_mask"].shape),  # (bs, n_atoms)
                 mask=batch["atom_exists"],
                 **{**self.config.diffusion_loss},
             )
@@ -311,13 +323,18 @@ class ProteusLoss(nn.Module):
 
     def loss(self, out, batch, _return_breakdown=False):
         loss_fns = {
+            "smooth_lddt_loss": lambda: smooth_lddt_loss(
+                pred_atoms=out["denoised_atoms"],
+                gt_atoms=out["augmented_gt_atoms"],
+                atom_is_rna=batch["ref_mask"].new_zeros(batch["ref_mask"].shape),  # (bs, n_atoms)
+                atom_is_dna=batch["ref_mask"].new_zeros(batch["ref_mask"].shape),  # (bs, n_atoms)
+                mask=batch["atom_exists"],
+            ),
             "diffusion_loss": lambda: diffusion_loss(
                 pred_atoms=out["denoised_atoms"],
                 gt_atoms=out["augmented_gt_atoms"],  # rotated gt atoms from diffusion module
                 timesteps=out["timesteps"],
                 weights=batch["atom_exists"],
-                atom_is_rna=batch["ref_mask"].new_zeros(batch["ref_mask"].shape),  # (bs, n_atoms)
-                atom_is_dna=batch["ref_mask"].new_zeros(batch["ref_mask"].shape),  # (bs, n_atoms)
                 mask=batch["atom_exists"],
                 **{**self.config.diffusion_loss},
             )

@@ -377,7 +377,8 @@ class Attention(nn.Module):
 def safe_softmax(x, axis=-1):
     """A softmax that returns 0.0s instead of NaNs when all inputs to the softmax
     dim are NaNs. This occurs during sequence-local atom attention if the input is also
-    padded. """
+    padded. This function will be made obsolete once we switch to FlexAttention
+    (pending bias gradient support). """
     a = F.softmax(x, axis)
     a = torch.nan_to_num(a, nan=0.0)
     return a
