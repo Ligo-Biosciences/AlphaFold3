@@ -13,8 +13,8 @@ import logging
 
 
 def smooth_lddt_loss(
-        pred_atoms: Vec3Array,  # (bs, n_atoms)
-        gt_atoms: Vec3Array,  # (bs, n_atoms)
+        pred_atoms: Tensor,  # (bs, n_atoms)
+        gt_atoms: Tensor,  # (bs, n_atoms)
         atom_is_rna: Tensor,  # (bs, n_atoms)
         atom_is_dna: Tensor,  # (bs, n_atoms)
         mask: Tensor = None,  # (bs, n_atoms)
@@ -22,6 +22,8 @@ def smooth_lddt_loss(
         **kwargs
 ) -> Tensor:  # (bs,)
     """Smooth local distance difference test (LDDT) auxiliary loss."""
+    pred_atoms = Vec3Array.from_array(pred_atoms)
+    gt_atoms = Vec3Array.from_array(gt_atoms)
     bs, n_atoms = pred_atoms.shape
 
     # Shape wrangling
