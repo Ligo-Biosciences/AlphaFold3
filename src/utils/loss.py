@@ -300,3 +300,48 @@ class AlphaFold3Loss(nn.Module):
         else:
             cumulative_loss, losses = self.loss(out, batch, _return_breakdown)
             return cumulative_loss, losses
+
+
+class ProteusLoss(nn.Module):
+    """Convenience class that just includes the diffusion loss for training the Proteus Module."""
+
+    def __init__(self, config):
+        super(ProteusLoss, self).__init__()
+        self.config = config
+
+    def loss(self, out, batch, _return_breakdown=False):
+        loss_fns = {
+            "diffusion_loss": lambda: diffusion_loss(
+                pred_atoms=out["denoised_atoms"],
+                gt_atoms=out["augmented_gt_atoms"],  # rotated gt atoms from diffusion module
+                timesteps=out["timesteps"],
+                weights=batch["atom_exists"],
+                atom_is_rna=batch["ref_mask"].new_zeros(batch["ref_mask"].shape),  # (bs, n_atoms)
+                atom_is_dna=batch["ref_mask"].new_zeros(batch["ref_mask"].shape),  # (bs, n_atoms)
+                mask=batch["atom_exists"],
+                **{**self.config.diffusion_loss},
+            )
+        }
+        cumulative_loss = 0.0
+        losses = {}
+        for loss_name, loss_fn in loss_fns.items():
+            weight = self.config[loss_name].weight
+            loss = loss_fn()
+            if torch.isnan(loss) or torch.isinf(loss):
+                logging.warning(f"{loss_name} loss is NaN. Skipping...")
+                loss = loss.new_tensor(0., requires_grad=True)
+            cumulative_loss = cumulative_loss + weight * loss
+            losses[loss_name] = loss.detach().clone()
+        losses["unscaled_loss"] = cumulative_loss.detach().clone()
+        losses["loss"] = cumulative_loss.detach().clone()
+        if not _return_breakdown:
+            return cumulative_loss
+        return cumulative_loss, losses
+
+    def forward(self, out, batch, _return_breakdown=False):
+        if not _return_breakdown:
+            cumulative_loss = self.loss(out, batch, _return_breakdown)
+            return cumulative_loss
+        else:
+            cumulative_loss, losses = self.loss(out, batch, _return_breakdown)
+            return cumulative_loss, losses

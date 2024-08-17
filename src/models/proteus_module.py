@@ -8,7 +8,7 @@ from lightning.pytorch.utilities import grad_norm
 from torchmetrics import MeanMetric
 from src.utils.exponential_moving_average import ExponentialMovingAverage
 from src.utils.tensor_utils import tensor_tree_map
-from src.utils.loss import AlphaFold3Loss
+from src.utils.loss import ProteusLoss
 from einops import rearrange
 
 
@@ -99,7 +99,7 @@ class ProteusLitModule(LightningModule):
         self.train_loss = MeanMetric()
         self.val_loss = MeanMetric()
         self.test_loss = MeanMetric()
-        self.loss_fn = AlphaFold3Loss(config.loss)
+        self.loss_fn = ProteusLoss(config.loss)
 
         # Set matmul precision
         torch.set_float32_matmul_precision(config.matmul_precision)
