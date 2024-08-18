@@ -9,7 +9,7 @@ wandb:
   anonymous: null # enable anonymous logging
   project: "alphafold3"
   entity: "ligo-technologies"
-  log_model: true # upload lightning checkpoints to wandb
+  log_model: false # upload lightning checkpoints to wandb
   prefix: "" # a string to put at the beginning of metric keys
   # entity: "" # set to name of your wandb team
   group: ""
