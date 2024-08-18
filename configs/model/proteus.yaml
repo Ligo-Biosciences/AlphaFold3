@@ -32,9 +32,11 @@ loss:
       #    weight_protein: 1.0
       # smooth_lddt:
       #    weight: 1.0
-      use_smooth_lddt: true
       sd_data: 16.0
       weight: 4.0
+  smooth_lddt_loss:
+    weight: 1.0
+    epsilon: 1e-5
 
 model:
   _target_: src.models.proteus_module.Proteus
