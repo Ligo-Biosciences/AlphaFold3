@@ -22,7 +22,7 @@ def smooth_lddt_loss(
         **kwargs
 ) -> Tensor:  # (bs,)
     """Smooth local distance difference test (LDDT) auxiliary loss."""
-    bs, n_atoms, _ = pred_atoms.shape
+    bs, n_atoms = atom_is_rna.shape
 
     # Shape wrangling
     samples_per_trunk = pred_atoms.shape[0] // bs
