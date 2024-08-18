@@ -22,8 +22,6 @@ def smooth_lddt_loss(
         **kwargs
 ) -> Tensor:  # (bs,)
     """Smooth local distance difference test (LDDT) auxiliary loss."""
-    pred_atoms = Vec3Array.from_array(pred_atoms)
-    gt_atoms = Vec3Array.from_array(gt_atoms)
     bs, n_atoms = pred_atoms.shape
 
     # Shape wrangling
@@ -33,6 +31,10 @@ def smooth_lddt_loss(
     atom_is_dna = expand_batch(atom_is_dna)
     if mask is not None:
         mask = expand_batch(mask)
+
+    # Cast to Vec3Array
+    pred_atoms = Vec3Array.from_array(pred_atoms)
+    gt_atoms = Vec3Array.from_array(gt_atoms)
 
     # Compute distances between all pairs of atoms
     delta_x_lm = euclidean_distance(pred_atoms[:, :, None], pred_atoms[:, None, :])  # (bs, n_atoms, n_atoms)
@@ -61,8 +63,8 @@ def smooth_lddt_loss(
     self_mask = self_mask.unsqueeze(0).expand_as(c_lm).to(c_lm.dtype)  # (bs, n_atoms, n_atoms)
     self_mask = torch.add(torch.neg(self_mask), 1.0)
     c_lm = c_lm * self_mask
-    denom = torch.mean(c_lm, dim=(1, 2)) + epsilon  # for numerical stability
-    lddt = torch.mean(epsilon_lm * c_lm, dim=(1, 2)) / denom
+    denom = torch.sum(c_lm, dim=(1, 2)) + epsilon  # for numerical stability
+    lddt = torch.sum(epsilon_lm * c_lm, dim=(1, 2)) / denom
     per_batch_loss = torch.add(torch.neg(lddt), 1.0)  # (1 - lddt)
     return torch.mean(per_batch_loss)  # average over batch dim
 
