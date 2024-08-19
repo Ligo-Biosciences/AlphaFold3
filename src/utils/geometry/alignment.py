@@ -18,6 +18,7 @@ def compute_covariance_matrix(P, Q):
     return torch.matmul(P.transpose(-2, -1), Q).float()
 
 
+@torch.no_grad()
 def weighted_rigid_align(
         x: Vec3Array,  # (bs, n_atoms)
         x_gt: Vec3Array,  # (bs, n_atoms)
@@ -27,45 +28,44 @@ def weighted_rigid_align(
 ) -> Vec3Array:
     """Performs a weighted alignment of x to x_gt. Warning: ground truth here only refers to the structure
     not being moved, not to be confused with ground truth during training."""
-    with torch.no_grad():
-        # Set matmul precision to high
-        original_precision = torch.get_float32_matmul_precision()
-        torch.set_float32_matmul_precision("highest")
+    # Set matmul precision to high
+    original_precision = torch.get_float32_matmul_precision()
+    torch.set_float32_matmul_precision("highest")
 
-        # Mean-centre positions
-        mu = (x * weights).sum(dim=-1, keepdim=True) / (weights.sum(dim=-1, keepdim=True) + eps)
-        mu_gt = (x_gt * weights).sum(dim=-1, keepdim=True) / (weights.sum(dim=-1, keepdim=True) + eps)
-        x -= mu  # Vec3Array of shape (*, n_atoms)
-        x_gt -= mu_gt
+    # Mean-centre positions
+    mu = (x * weights).sum(dim=-1, keepdim=True) / (weights.sum(dim=-1, keepdim=True) + eps)
+    mu_gt = (x_gt * weights).sum(dim=-1, keepdim=True) / (weights.sum(dim=-1, keepdim=True) + eps)
+    x -= mu  # Vec3Array of shape (*, n_atoms)
+    x_gt -= mu_gt
 
-        # Mask atoms before computing covariance matrix
-        if mask is not None:
-            x = x * mask
-            x_gt = x_gt * mask
+    # Mask atoms before computing covariance matrix
+    if mask is not None:
+        x = x * mask
+        x_gt = x_gt * mask
 
-        # Find optimal rotation from singular value decomposition in float32 precision
-        U, S, Vh = torch.linalg.svd(
-           compute_covariance_matrix(
-               x_gt.to_tensor().float(),
-               x.to_tensor().float()
-           )
-        )  # shapes: (bs, 3, 3)
-        R = U @ Vh
+    # Find optimal rotation from singular value decomposition in float32 precision
+    U, S, Vh = torch.linalg.svd(
+       compute_covariance_matrix(
+           x_gt.to_tensor().float(),
+           x.to_tensor().float()
+       )
+    )  # shapes: (bs, 3, 3)
+    R = U @ Vh
 
-        # Remove reflection
-        d = torch.sign(torch.linalg.det(R.float()))  # (bs,)
-        # TODO: make this work with arbitrary batch dimensions
-        reflection_matrix = torch.eye(3, device=U.device, dtype=U.dtype).unsqueeze(0).expand_as(R)  # (bs, 3, 3)
-        reflection_matrix = reflection_matrix.clone()  # avoid a memory issue
-        reflection_matrix[:, 2, 2] = d  # replace the bottom right element with the sign of the determinant
-        R = U @ reflection_matrix @ Vh  # (bs, 3, 3)
+    # Remove reflection
+    d = torch.sign(torch.linalg.det(R.float()))  # (bs,)
+    # TODO: make this work with arbitrary batch dimensions
+    reflection_matrix = torch.eye(3, device=U.device, dtype=U.dtype).unsqueeze(0).expand_as(R)  # (bs, 3, 3)
+    reflection_matrix = reflection_matrix.clone()  # avoid a memory issue
+    reflection_matrix[:, 2, 2] = d  # replace the bottom right element with the sign of the determinant
+    R = U @ reflection_matrix @ Vh  # (bs, 3, 3)
 
-        R = Rot3Array.from_array(R).unsqueeze(-1)  # (bs, 1)
+    R = Rot3Array.from_array(R).unsqueeze(-1)  # (bs, 1)
 
-        # Apply alignment
-        x_aligned = R.apply_to_point(x) + mu
+    # Apply alignment
+    x_aligned = R.apply_to_point(x) + mu
 
-        # Re-set the original precision
-        torch.set_float32_matmul_precision(original_precision)
-        return x_aligned
+    # Re-set the original precision
+    torch.set_float32_matmul_precision(original_precision)
+    return x_aligned
 

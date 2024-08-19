@@ -44,7 +44,6 @@ class DiffusionModule(torch.nn.Module):
             p: float = 7.0,
             clear_cache_between_blocks: bool = False,
             blocks_per_ckpt: int = 1,
-            compile_module: bool = False,
     ):
         super(DiffusionModule, self).__init__()
         self.c_atom = c_atom
@@ -84,8 +83,7 @@ class DiffusionModule(torch.nn.Module):
             n_queries=atom_attention_n_queries,
             n_keys=atom_attention_n_keys,
             trunk_conditioning=True,
-            clear_cache_between_blocks=clear_cache_between_blocks,
-            compile_module=False  # compile_module
+            clear_cache_between_blocks=clear_cache_between_blocks
         )
 
         # Full self-attention on token level
@@ -101,7 +99,6 @@ class DiffusionModule(torch.nn.Module):
             dropout=dropout,
             clear_cache_between_blocks=clear_cache_between_blocks,
             blocks_per_ckpt=blocks_per_ckpt,
-            compile_module=False  # compile_module
         )
         self.token_post_layer_norm = LayerNorm(c_token)
 
@@ -114,15 +111,8 @@ class DiffusionModule(torch.nn.Module):
             no_heads=atom_decoder_heads,
             dropout=dropout,
             n_queries=atom_attention_n_queries,
-            n_keys=atom_attention_n_keys,
-            compile_module=False,  # compile_module
-            # blocks_per_ckpt=blocks_per_ckpt
+            n_keys=atom_attention_n_keys
         )
-        if compile_module:
-            self.diffusion_conditioning = torch.compile(self.diffusion_conditioning)
-            self.atom_attention_encoder = torch.compile(self.atom_attention_encoder)
-            self.diffusion_transformer = torch.compile(self.diffusion_transformer)
-            self.atom_attention_decoder = torch.compile(self.atom_attention_decoder)
 
     def scale_inputs(
             self,
@@ -168,6 +158,7 @@ class DiffusionModule(torch.nn.Module):
         r_update_scale = torch.sqrt(noisy_pos_scale) * timesteps.unsqueeze(-1)
         return noisy_atoms * noisy_pos_scale + r_updates * r_update_scale
 
+    @torch.compile  # (mode="max-autotune")
     def forward(
             self,
             noisy_atoms: Tensor,  # (bs, S, n_atoms, 3)
@@ -390,6 +381,7 @@ class DiffusionModule(torch.nn.Module):
         }
         return outputs
 
+    @torch.no_grad()
     def sample(
             self,
             features: Dict[str, Tensor],  # input feature dict
@@ -470,54 +462,54 @@ class DiffusionModule(torch.nn.Module):
         Returns:
             [bs, samples_per_trunk, n_atoms, 3] sampled coordinates
         """
-        with torch.no_grad():  # no gradients during sampling
-            # Grab data about the input
-            batch_size, n_atoms, _ = features["ref_pos"].shape
-            dtype, device = s_inputs.dtype, s_inputs.device
 
-            # Sample random noise as the initial structure
-            x_l = Vec3Array.randn((batch_size, samples_per_trunk, n_atoms), device)  # float32
+        # Grab data about the input
+        batch_size, n_atoms, _ = features["ref_pos"].shape
+        dtype, device = s_inputs.dtype, s_inputs.device
 
-            # Create the noise schedule with float64 dtype to prevent numerical issues
-            t = torch.linspace(0, 1, n_steps, device=device, dtype=torch.float64).unsqueeze(-1)  # (n_steps, 1)
-            s_max_root = 2.0647  # math.pow(self.s_max, 1 / self.p)  s_max==160
-            s_min_root = 0.327  # math.pow(self.s_min, 1 / self.p)  s_min==4e-4
-            noise_schedule = self.sd_data * (s_max_root + t * (s_min_root - s_max_root)) ** self.p
+        # Sample random noise as the initial structure
+        x_l = Vec3Array.randn((batch_size, samples_per_trunk, n_atoms), device)  # float32
 
-            for i in range(1, n_steps):
-                # Centre random augmentation
-                x_l = centre_random_augmentation(x_l)
+        # Create the noise schedule with float64 dtype to prevent numerical issues
+        t = torch.linspace(0, 1, n_steps, device=device, dtype=torch.float64).unsqueeze(-1)  # (n_steps, 1)
+        s_max_root = 2.0647  # math.pow(self.s_max, 1 / self.p)  s_max==160
+        s_min_root = 0.327  # math.pow(self.s_min, 1 / self.p)  s_min==4e-4
+        noise_schedule = self.sd_data * (s_max_root + t * (s_min_root - s_max_root)) ** self.p
 
-                c_step = noise_schedule[i]
-                prev_step = noise_schedule[i - 1]
-                gamma = gamma_0 if c_step > gamma_min else 0.0
+        for i in range(1, n_steps):
+            # Centre random augmentation
+            x_l = centre_random_augmentation(x_l)
 
-                # Expand c_step and prev_step for proper broadcasting
-                c_step = c_step[None, None, ...].expand(batch_size, samples_per_trunk, 1)  # (bs, samples_per_trunk, 1)
-                prev_step = prev_step[None, None, ...].expand(batch_size, samples_per_trunk, 1)
+            c_step = noise_schedule[i]
+            prev_step = noise_schedule[i - 1]
+            gamma = gamma_0 if c_step > gamma_min else 0.0
 
-                t_hat = torch.mul(prev_step, torch.add(gamma, 1.0))
-                normal_noise = Vec3Array.randn((batch_size, samples_per_trunk, n_atoms), device)
-                zeta_factor = (noise_scale * torch.sqrt((t_hat ** 2 - prev_step ** 2))).to(normal_noise.x.dtype)
-                zeta = zeta_factor * normal_noise
-                x_noisy = x_l + zeta
+            # Expand c_step and prev_step for proper broadcasting
+            c_step = c_step[None, None, ...].expand(batch_size, samples_per_trunk, 1)  # (bs, samples_per_trunk, 1)
+            prev_step = prev_step[None, None, ...].expand(batch_size, samples_per_trunk, 1)
 
-                # Run DiffusionModule to denoise structure
-                x_denoised = self.forward(
-                    noisy_atoms=x_noisy.to_tensor().to(dtype),  # revert to model dtype
-                    timesteps=t_hat.to(dtype),  # (bs, samples_per_trunk, 1)
-                    features=features,
-                    s_inputs=s_inputs,
-                    s_trunk=s_trunk,
-                    z_trunk=z_trunk,
-                    use_deepspeed_evo_attention=use_deepspeed_evo_attention
-                )
-                # Back to Vec3Array (float32)
-                x_denoised = Vec3Array.from_array(x_denoised)
+            t_hat = torch.mul(prev_step, torch.add(gamma, 1.0))
+            normal_noise = Vec3Array.randn((batch_size, samples_per_trunk, n_atoms), device)
+            zeta_factor = (noise_scale * torch.sqrt((t_hat ** 2 - prev_step ** 2))).to(normal_noise.x.dtype)
+            zeta = zeta_factor * normal_noise
+            x_noisy = x_l + zeta
 
-                # Update the noisy structure
-                delta = (x_l - x_denoised) / t_hat
-                dt = c_step - t_hat
-                x_l = x_noisy + step_scale * dt * delta
+            # Run DiffusionModule to denoise structure
+            x_denoised = self.forward(
+                noisy_atoms=x_noisy.to_tensor().to(dtype),  # revert to model dtype
+                timesteps=t_hat.to(dtype),  # (bs, samples_per_trunk, 1)
+                features=features,
+                s_inputs=s_inputs,
+                s_trunk=s_trunk,
+                z_trunk=z_trunk,
+                use_deepspeed_evo_attention=use_deepspeed_evo_attention
+            )
+            # Back to Vec3Array (float32)
+            x_denoised = Vec3Array.from_array(x_denoised)
 
-            return x_l.to_tensor().to(dtype)  # revert to model dtype
+            # Update the noisy structure
+            delta = (x_l - x_denoised) / t_hat
+            dt = c_step - t_hat
+            x_l = x_noisy + step_scale * dt * delta
+
+        return x_l.to_tensor().to(dtype)  # revert to model dtype

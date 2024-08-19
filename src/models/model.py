@@ -59,6 +59,7 @@ class AlphaFold3(nn.Module):
             LinearNoBias(self.c_z, self.c_z)
         )
 
+    @torch.compile  # (mode="max-autotune")
     def run_trunk(
             self,
             feats: Dict[str, Tensor],
@@ -314,7 +315,6 @@ class AlphaFold3(nn.Module):
         for cycle_no in range(n_cycle):
             # Select the features for the current recycling cycle
             feats = tensor_tree_map(lambda t: t[..., cycle_no], batch)  # Remove recycling dimension
-            # feats = get_recycling_features(cycle_no)
 
             # Enable grad if we're training, and it's the final recycling layer
             is_final_iter = cycle_no == (n_cycle - 1)
@@ -351,7 +351,7 @@ class AlphaFold3(nn.Module):
         # Run the diffusion module
         n_steps = 200
         if train:
-            n_steps = 10  # Mini roll-out for training
+            n_steps = 20  # Mini roll-out for training
 
             # Run the diffusion module once for denoising during training
             diff_output = self.diffusion_module.train_step(

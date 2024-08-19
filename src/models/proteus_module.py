@@ -88,12 +88,10 @@ class ProteusLitModule(LightningModule):
         self.ema = ExponentialMovingAverage(
             model=self.model, decay=config.ema_decay
         )
-
-        self.cached_weights = None
         self.last_lr_step = -1
 
         # Save hyperparameters
-        self.save_hyperparameters(logger=False, ignore=["model"])
+        self.save_hyperparameters(logger=False)
 
         # for averaging loss across batches  TODO: remove these to reduce clutter
         self.train_loss = MeanMetric()
@@ -161,9 +159,6 @@ class ProteusLitModule(LightningModule):
         Returns:
             A tensor of losses between model predictions and targets.
         """
-        # Move the EMA to the GPU if not already there
-        if self.ema.device != batch["residue_index"].device:
-            self.ema.to(batch["residue_index"].device)
 
         loss = self.model_step(batch)
 
@@ -183,7 +178,7 @@ class ProteusLitModule(LightningModule):
         1. Updates the EMA of the model parameters.
         2. Keeps an eye on weight norms during training.
         """
-        self.ema.update(self.model)
+        self.ema.update_parameters(self.model)
 
         # Log weight norms
         weight_norms = {}
@@ -204,14 +199,6 @@ class ProteusLitModule(LightningModule):
             batch_idx:
                 The index of the current batch.
         """
-        # At the start of validation, load the EMA weights
-        if self.cached_weights is None:
-            # model.state_dict() contains references to model weights rather
-            # than copies. Therefore, we need to clone them before calling
-            # load_state_dict().
-            clone_param = lambda t: t.detach().clone()
-            self.cached_weights = tensor_tree_map(clone_param, self.model.state_dict())
-            self.model.load_state_dict(self.ema.state_dict()["params"])
 
         loss = self.model_step(batch)
 
@@ -221,19 +208,12 @@ class ProteusLitModule(LightningModule):
 
     def on_validation_epoch_end(self):
         # Restore the model weights to normal
-        self.model.load_state_dict(self.cached_weights)
-        self.cached_weights = None
+        # self.model.load_state_dict(self.cached_weights)
+        # self.cached_weights = None
+        pass
 
     def test_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
-        """Perform a single test step on a batch of data from the test set.
-
-        Args:
-        batch:
-            A batch of data (a tuple) containing the x tensor of images and target
-            labels.
-        batch_idx:
-            The index of the current batch.
-        """
+        """Perform a single test step on a batch of data from the test set."""
         loss = self.model_step(batch)
 
         # update and log metrics
@@ -273,12 +253,14 @@ class ProteusLitModule(LightningModule):
 
     def on_load_checkpoint(self, checkpoint: Dict[str, Any]):
         """Lightning hook that is called when loading a checkpoint."""
-        ema = checkpoint["ema"]
-        self.ema.load_state_dict(ema)
+        # ema = checkpoint["ema"]
+        # self.ema.load_state_dict(ema)
+        pass
 
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]):
         """Lightning hook that is called when saving a checkpoint."""
-        checkpoint["ema"] = self.ema.state_dict()
+        # checkpoint["ema"] = self.ema.state_dict()
+        pass
 
 
 def reshape_features(batch):

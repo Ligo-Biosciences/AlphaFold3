@@ -23,7 +23,7 @@ class AlphaFoldWrapper(LightningModule):
         self.globals = self.config.globals
         self.model = AlphaFold3(config)
 
-        self.loss = AlphaFold3Loss(config.loss)  # AlphaFold3 loss
+        self.loss = AlphaFold3Loss(config.loss)
 
         self.ema = ExponentialMovingAverage(model=self.model, decay=config.ema_decay)
 
@@ -65,9 +65,6 @@ class AlphaFoldWrapper(LightningModule):
             )
 
     def training_step(self, batch, batch_idx):
-        # Fetch the ema to the device
-        if self.ema.device != batch["aatype"].device:
-            self.ema.to(batch["aatype"].device)
         batch = reshape_features(batch)  # temporary
 
         # Run the model
@@ -106,19 +103,10 @@ class AlphaFoldWrapper(LightningModule):
 
     def on_before_zero_grad(self, *args, **kwargs):
         # Apply EMA to model
-        self.ema.update(self.model)
+        self.ema.update_parameters(self.model)
 
     def validation_step(self, batch, batch_idx):
         batch = reshape_features(batch)  # temporary
-
-        # At the start of validation, load the EMA weights
-        if self.cached_weights is None:
-            # model.state_dict() contains references to model weights rather
-            # than copies. Therefore, we need to clone them before calling
-            # load_state_dict().
-            clone_param = lambda t: t.detach().clone()
-            self.cached_weights = tensor_tree_map(clone_param, self.model.state_dict())
-            self.model.load_state_dict(self.ema.state_dict()["params"])
 
         # Run the model
         outputs = self.forward(batch, training=False)
@@ -128,11 +116,6 @@ class AlphaFoldWrapper(LightningModule):
 
         # Compute and log validation metrics
         self._log(loss_breakdown=None, batch=batch, outputs=outputs, train=False)
-
-    def on_validation_epoch_end(self):
-        # Restore the model weights to normal
-        self.model.load_state_dict(self.cached_weights)
-        self.cached_weights = None
 
     def _compute_validation_metrics(
             self,
@@ -218,14 +201,6 @@ class AlphaFoldWrapper(LightningModule):
     #    """Keeps an eye on gradient norms during training."""
     #    norms = grad_norm(self.model, norm_type=2)
     #    self.log_dict(norms)
-
-    def on_load_checkpoint(self, checkpoint):
-        # Load the EMA model weights
-        ema = checkpoint["ema"]
-        self.ema.load_state_dict(ema)
-
-    def on_save_checkpoint(self, checkpoint):
-        checkpoint["ema"] = self.ema.state_dict()
 
     def resume_last_lr_step(self, lr_step):
         self.last_lr_step = lr_step
