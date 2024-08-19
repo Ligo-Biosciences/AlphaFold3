@@ -113,7 +113,7 @@ class MSAPairWeightedAveraging(nn.Module):
         if msa_mask is not None:
             v = v * msa_mask.unsqueeze(-1).unsqueeze(-1)
         new_v_shape = (v.shape[:-4] + (n_seq, n_res, n_res, self.no_heads, self.c_hidden))
-        v = v.unsqueeze(-3).expand(new_v_shape)  # (*, seq, res, res, heads, c_hidden)
+        v = v.unsqueeze(-4).expand(new_v_shape)  # (*, seq, res, res, heads, c_hidden)
 
         # Weighted average with gating
         weights = self.softmax(b)
