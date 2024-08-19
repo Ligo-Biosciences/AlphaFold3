@@ -2,7 +2,7 @@ defaults:
   - default
 
 accelerator: gpu
-devices: 1
+devices: auto
 
 precision: 'bf16-mixed' # 'bf16-true' # 'transformer-engine', 'transformer-engine-float16', '16-true', '16-mixed', 'bf16-true',
 # 'bf16-mixed', '32-true',
@@ -22,4 +22,4 @@ strategy:
    cpu_checkpointing: False
 
 # Gradient accumulation
-accumulate_grad_batches: 1
+accumulate_grad_batches: 2
