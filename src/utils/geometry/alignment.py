@@ -22,7 +22,8 @@ def weighted_rigid_align(
         x: Vec3Array,  # (bs, n_atoms)
         x_gt: Vec3Array,  # (bs, n_atoms)
         weights: torch.Tensor,  # (bs, n_atoms)
-        mask: torch.Tensor = None  # (bs, n_atoms)
+        mask: torch.Tensor = None,  # (bs, n_atoms)
+        eps: float = 1e-5
 ) -> Vec3Array:
     """Performs a weighted alignment of x to x_gt. Warning: ground truth here only refers to the structure
     not being moved, not to be confused with ground truth during training."""
@@ -32,8 +33,8 @@ def weighted_rigid_align(
         torch.set_float32_matmul_precision("highest")
 
         # Mean-centre positions
-        mu = (x * weights).mean(dim=-1, keepdim=True) / weights.mean(dim=-1, keepdim=True)
-        mu_gt = (x_gt * weights).mean(dim=-1, keepdim=True) / weights.mean(dim=-1, keepdim=True)
+        mu = (x * weights).sum(dim=-1, keepdim=True) / (weights.sum(dim=-1, keepdim=True) + eps)
+        mu_gt = (x_gt * weights).sum(dim=-1, keepdim=True) / (weights.sum(dim=-1, keepdim=True) + eps)
         x -= mu  # Vec3Array of shape (*, n_atoms)
         x_gt -= mu_gt
 

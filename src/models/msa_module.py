@@ -26,7 +26,7 @@ from src.models.pairformer import PairStack
 from src.models.components.outer_product_mean import OuterProductMean
 from src.models.components.transition import Transition
 from src.models.components.dropout import DropoutRowwise
-from src.utils.tensor_utils import add
+from src.utils.tensor_utils import add, flatten_final_dims
 from functools import partial
 from typing import Dict
 from src.utils.checkpointing import checkpoint_blocks, get_checkpoint_fn
@@ -121,9 +121,7 @@ class MSAPairWeightedAveraging(nn.Module):
         o = g * torch.sum(v * weights, dim=-3)  # (*, seq, res, heads, c_hidden)
 
         # Output projection
-        output = self.output_proj(
-            o.reshape((m.shape[:-1] + (self.c_hidden * self.no_heads,)))  # (*, seq, res, c_hidden * heads)
-        )
+        output = self.output_proj(flatten_final_dims(o, 2))  # (*, seq, res, c_hidden * heads)
         return output
 
 
