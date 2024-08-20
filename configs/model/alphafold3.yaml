@@ -1,10 +1,8 @@
 # AlphaFold3 configs
-# _target_: src.models.model_wrapper.AlphaFoldWrapper
-# config:
 optimizer:
-  _target_: torch.optim.Adam  # deepspeed.ops.adam.FusedAdam
+  _target_: deepspeed.ops.adam.FusedAdam  # torch.optim.Adam
   _partial_: true
-  lr: 0.000038
+  lr: 0.00018
   betas:
     - 0.9
     - 0.95
@@ -17,7 +15,7 @@ scheduler:
   last_epoch: -1
   verbose: false
   base_lr: 0.0  # the starting learning rate
-  max_lr: 0.000038
+  max_lr: 0.00018
   warmup_no_steps: 1000
   start_decay_after_n_steps: 50_000
   decay_every_n_steps: 50_000

@@ -15,11 +15,11 @@ import torch
 from src.utils.tensor_utils import permute_final_dims
 
 
-def drmsd(structure_1, structure_2, mask=None):
+def drmsd(structure_1, structure_2, mask=None, eps: float = 1e-5):
     def prep_d(structure):
         d = structure[..., :, None, :] - structure[..., None, :, :]
         d = d ** 2
-        d = torch.sqrt(torch.sum(d, dim=-1))
+        d = torch.sqrt(torch.sum(d, dim=-1) + eps)
         return d
 
     d1 = prep_d(structure_1)
@@ -30,9 +30,10 @@ def drmsd(structure_1, structure_2, mask=None):
     if mask is not None:
         rmsd = rmsd * (mask[..., None] * mask[..., None, :])
     rmsd = torch.sum(rmsd, dim=(-1, -2))
+
     n = d1.shape[-1] if mask is None else torch.min(torch.sum(mask, dim=-1))
-    rmsd = rmsd * (1 / (n * (n - 1))) if n > 1 else (rmsd * 0.)
-    rmsd = torch.sqrt(rmsd)
+    rmsd = rmsd * (1 / (eps + n * (n - 1))) if n > 1 else (rmsd * 0.)
+    rmsd = torch.sqrt(rmsd + eps)
 
     return rmsd
 
