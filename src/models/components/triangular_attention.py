@@ -35,7 +35,7 @@ class TriangleAttention(nn.Module):
             c_in:
                 Input channel dimension
             c_hidden:
-                Overall hidden channel dimension (not per-head)
+                Per-head hidden channel dimension
             no_heads:
                 Number of attention heads
         """
@@ -52,12 +52,16 @@ class TriangleAttention(nn.Module):
         self.linear = LinearNoBias(c_in, self.no_heads, init="normal")
 
         self.mha = Attention(
-            self.c_in, self.c_in, self.c_in, self.c_hidden, self.no_heads
+            c_q=self.c_in,
+            c_k=self.c_in,
+            c_v=self.c_in,
+            c_hidden=self.c_hidden,
+            no_heads=self.no_heads
         )
 
     @torch.jit.ignore
     def _chunk(self,
-               x: torch.Tensor,
+               z: torch.Tensor,
                biases: List[torch.Tensor],
                chunk_size: int,
                use_deepspeed_evo_attention: bool = False,
@@ -65,8 +69,8 @@ class TriangleAttention(nn.Module):
                ) -> torch.Tensor:
         # triangle! triangle!
         mha_inputs = {
-            "q_x": x,
-            "kv_x": x,
+            "q_x": z,
+            "kv_x": z,
             "biases": biases,
         }
 
@@ -77,12 +81,12 @@ class TriangleAttention(nn.Module):
             ),
             mha_inputs,
             chunk_size=chunk_size,
-            no_batch_dims=len(x.shape[:-2]),
-            _out=x if inplace_safe else None,
+            no_batch_dims=len(z.shape[:-2]),
+            _out=z if inplace_safe else None,
         )
 
     def forward(self,
-                x: torch.Tensor,
+                z: torch.Tensor,
                 mask: Optional[torch.Tensor] = None,
                 chunk_size: Optional[int] = None,
                 use_deepspeed_evo_attention: bool = False,
@@ -90,7 +94,7 @@ class TriangleAttention(nn.Module):
                 ) -> torch.Tensor:
         """
         Args:
-            x:
+            z:
                 [*, I, J, C_in] input tensor (e.g. the pair representation)
             mask:
                 [*, I, J] mask tensor
@@ -109,22 +113,22 @@ class TriangleAttention(nn.Module):
         """
         if mask is None:
             # [*, I, J]
-            mask = x.new_ones(
-                x.shape[:-1],
+            mask = z.new_ones(
+                z.shape[:-1],
             )
 
         if not self.starting:
-            x = x.transpose(-2, -3)
+            z = z.transpose(-2, -3)
             mask = mask.transpose(-1, -2)
 
         # [*, I, J, C_in]
-        x = self.layer_norm(x)
+        z = self.layer_norm(z)
 
         # [*, I, 1, 1, J]
         mask_bias = (self.inf * (mask - 1))[..., :, None, None, :]
 
         # [*, H, I, J]
-        triangle_bias = permute_final_dims(self.linear(x), (2, 0, 1))
+        triangle_bias = permute_final_dims(self.linear(z), (2, 0, 1))
 
         # [*, 1, H, I, J]
         triangle_bias = triangle_bias.unsqueeze(-4)
@@ -132,25 +136,25 @@ class TriangleAttention(nn.Module):
         biases = [mask_bias, triangle_bias]
 
         if chunk_size is not None:
-            x = self._chunk(
-                x,
+            z = self._chunk(
+                z,
                 biases,
                 chunk_size,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
                 inplace_safe=inplace_safe,
             )
         else:
-            x = self.mha(
-                q_x=x,
-                kv_x=x,
+            z = self.mha(
+                q_x=z,
+                kv_x=z,
                 biases=biases,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
             )
 
         if not self.starting:
-            x = x.transpose(-2, -3)
+            z = z.transpose(-2, -3)
 
-        return x
+        return z
 
 
 class TriangleAttentionStartingNode(TriangleAttention):

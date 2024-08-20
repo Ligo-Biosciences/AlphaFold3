@@ -24,6 +24,7 @@ from torch.nn import LayerNorm
 from src.models.components.primitives import LinearNoBias
 from src.models.pairformer import PairStack
 from src.models.components.outer_product_mean import OuterProductMean
+from src.models.msa import MSARowAttentionWithPairBias
 from src.models.components.transition import Transition
 from src.models.components.dropout import DropoutRowwise
 from src.utils.tensor_utils import add, flatten_final_dims
@@ -132,15 +133,22 @@ class MSAStack(nn.Module):
             self,
             c_msa: int,
             c_z: int,
-            c_hidden: int = 8,
+            c_hidden: int = 32,
             no_heads: int = 8,
             dropout: float = 0.15,
             inf: float = 1e8
     ):
         super(MSAStack, self).__init__()
 
-        self.msa_pair_avg = MSAPairWeightedAveraging(
-            c_msa=c_msa,
+        # self.msa_pair_avg = MSAPairWeightedAveraging(
+        #    c_msa=c_msa,
+        #    c_z=c_z,
+        #    c_hidden=c_hidden,
+        #    no_heads=no_heads,
+        #    inf=inf
+        # )
+        self.msa_attention_w_bias = MSARowAttentionWithPairBias(
+            c_m=c_msa,
             c_z=c_z,
             c_hidden=c_hidden,
             no_heads=no_heads,
@@ -155,7 +163,8 @@ class MSAStack(nn.Module):
             z: Tensor,
             msa_mask: Optional[Tensor] = None,
             z_mask: Optional[Tensor] = None,
-            inplace_safe: bool = False
+            inplace_safe: bool = False,
+            use_deepspeed_evo_attention: bool = False,
     ) -> Tensor:
         """
         Args:
@@ -169,17 +178,20 @@ class MSAStack(nn.Module):
                 [*, N_res, N_res] pair mask
             inplace_safe:
                 whether to perform ops inplace
+            use_deepspeed_evo_attention:
+                whether to use DeepSpeed evoformer attention
         Returns:
             [*, N_seq, N_res, C_m] updated MSA representation
         """
         m = add(
             m,
             self.dropout_row_layer(
-                self.msa_pair_avg(
+                self.msa_attention_w_bias(  # self.msa_pair_avg(
                     m=m,
                     z=z,
-                    msa_mask=msa_mask,
-                    z_mask=z_mask
+                    mask=msa_mask,  # msa_mask=msa_mask
+                    # z_mask=z_mask,
+                    use_deepspeed_evo_attention=use_deepspeed_evo_attention
                 )
             ),
             inplace=inplace_safe

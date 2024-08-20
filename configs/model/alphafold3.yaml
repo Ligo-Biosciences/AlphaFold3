@@ -70,7 +70,7 @@ model:
 
   # Pair stack parameters (used in Pairformer, MSA module, and Confidence head)
   c_hidden_tri_mul: 128  # the hidden dim for the triangle multiplicative update
-  c_hidden_pair_attn: 32  # the hidden dim for the pair attention ${common.c_hidden_pair_attn}
+  c_hidden_pair_attn: 32  # the per-head hidden dim for the pair attention ${common.c_hidden_pair_attn}
   no_heads_tri_attn: 4
   transition_n: 4
   pair_dropout: 0.25
