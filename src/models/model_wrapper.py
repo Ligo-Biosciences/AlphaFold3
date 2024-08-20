@@ -148,14 +148,14 @@ class AlphaFoldWrapper(LightningModule):
             pred_coords_masked_ca = pred_coords_masked[..., ca_pos, :]
             all_atom_mask_ca = all_atom_mask[..., ca_pos]
 
-            lddt_ca_score = lddt(
-                all_atom_pred_pos=pred_coords_masked_ca,
-                all_atom_positions=gt_coords_masked_ca,
-                all_atom_mask=all_atom_mask_ca,
-                eps=self.config.globals.eps,
-                per_residue=False
-            )
-            metrics["lddt_ca"] = lddt_ca_score
+            # lddt_ca_score = lddt(
+            #    all_atom_pred_pos=pred_coords_masked_ca,
+            #    all_atom_positions=gt_coords_masked_ca,
+            #    all_atom_mask=all_atom_mask_ca,
+            #    eps=self.config.globals.eps,
+            #    per_residue=False
+            # )
+            # metrics["lddt_ca"] = lddt_ca_score
 
             # drmsd
             drmsd_ca_score = drmsd(

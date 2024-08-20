@@ -46,8 +46,8 @@ def drmsd_np(structure_1, structure_2, mask=None):
     return drmsd(structure_1, structure_2, mask)
 
 
-def gdt(p1, p2, mask, cutoffs):
-    n = torch.sum(mask, dim=-1)
+def gdt(p1, p2, mask, cutoffs, eps: float = 1e-5):
+    n = torch.sum(mask, dim=-1) + eps
     
     p1 = p1.float()
     p2 = p2.float()
