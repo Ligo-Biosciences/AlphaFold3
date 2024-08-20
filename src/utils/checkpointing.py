@@ -34,7 +34,7 @@ def get_checkpoint_fn():
     #    checkpoint = deepspeed.checkpointing.checkpoint
     # else:
     #    checkpoint = partial(torch.utils.checkpoint.checkpoint, use_reentrant=False)
-    checkpoint = partial(deepspeed.checkpointing.checkpoint, use_reentrant=False)
+    checkpoint = deepspeed.checkpointing.checkpoint
 
     return checkpoint
 
