@@ -257,7 +257,7 @@ class AtomAttentionPairBias(nn.Module):
         output = rearrange(output, 'b p s q c -> b s (p q) c')  # (bs, S, n_atoms, c_atom)
 
         # Output projection
-        output = F.sigmoid(self.output_proj_linear(output)) * output
+        output = F.sigmoid(self.output_proj_linear(atom_proj)) * output
         return output
 
 
