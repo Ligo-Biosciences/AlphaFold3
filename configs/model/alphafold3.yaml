@@ -179,3 +179,4 @@ globals:
   eps: 0.00000001
   # internal precision of float32 matrix multiplications. "high" or "medium" will utilize Tensor cores
   matmul_precision: "high"
+  compile: true
