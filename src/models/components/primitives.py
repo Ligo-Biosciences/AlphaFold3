@@ -417,7 +417,7 @@ def _attention(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, bias
     return a
 
 
-@torch.jit.ignore
+@torch._dynamo.disable()
 def _deepspeed_evo_attn(
         q: torch.Tensor,
         k: torch.Tensor,

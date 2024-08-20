@@ -26,19 +26,19 @@ BLOCK_ARGS = Tuple[BLOCK_ARG, ...]  # List[BLOCK_ARGS]
 
 
 def get_checkpoint_fn():
-    deepspeed_is_configured = (
-        deepspeed_is_installed and
-        deepspeed.checkpointing.is_configured()
-    )
-    if deepspeed_is_configured:
-        checkpoint = deepspeed.checkpointing.checkpoint
-    else:
-        checkpoint = partial(torch.utils.checkpoint.checkpoint, use_reentrant=False)
+    # deepspeed_is_configured = (
+    #    deepspeed_is_installed and
+    #    deepspeed.checkpointing.is_configured()
+    # )
+    # if deepspeed_is_configured:
+    #    checkpoint = deepspeed.checkpointing.checkpoint
+    # else:
+    #    checkpoint = partial(torch.utils.checkpoint.checkpoint, use_reentrant=False)
+    checkpoint = partial(deepspeed.checkpointing.checkpoint, use_reentrant=False)
 
     return checkpoint
 
 
-@torch.jit.ignore
 def checkpoint_blocks(
     blocks: List[Callable],
     args: BLOCK_ARGS,

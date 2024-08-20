@@ -48,6 +48,7 @@ class DiffusionTransformerBlock(nn.Module):
         )
         self.conditioned_transition_block = ConditionedTransitionBlock(c_token)
 
+    @torch.compile
     def forward(
             self,
             single_repr: Tensor,  # (bs, S, n_tokens, c_token)
@@ -88,8 +89,7 @@ class DiffusionTransformer(nn.Module):
             no_heads: int = 16,
             dropout=0.0,
             blocks_per_ckpt: int = 1,
-            clear_cache_between_blocks: bool = False,
-            compile_module: bool = False,
+            clear_cache_between_blocks: bool = False
     ):
         """Initialize the DiffusionTransformer module.
         Args:
@@ -109,8 +109,6 @@ class DiffusionTransformer(nn.Module):
             clear_cache_between_blocks:
                 Whether to clear CUDA's GPU memory cache between blocks of the
                 stack. Slows down each block but can reduce fragmentation
-            compile_module:
-                Whether to compile the module.
         """
         super().__init__()
         self.c_token = c_token
@@ -120,7 +118,6 @@ class DiffusionTransformer(nn.Module):
         self.dropout = dropout
         self.blocks_per_ckpt = blocks_per_ckpt
         self.clear_cache_between_blocks = clear_cache_between_blocks
-        self.compile_module = compile_module
 
         self.blocks = nn.ModuleList([
             DiffusionTransformerBlock(c_token=c_token,
@@ -142,7 +139,7 @@ class DiffusionTransformer(nn.Module):
         """Prepare the blocks for the forward pass."""
         blocks = [  # TODO: saving the pair_repr and single_proj between blocks is unnecessary
             partial(
-                block if not self.compile_module else torch.compile(block),
+                block,
                 mask=mask,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention
             )

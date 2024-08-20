@@ -298,6 +298,7 @@ class AtomTransformerBlock(nn.Module):
         )
         self.transition = ConditionedTransitionBlock(c_atom)
 
+    @torch.compile
     def forward(
             self,
             atom_single: Tensor,
