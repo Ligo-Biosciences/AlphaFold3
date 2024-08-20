@@ -212,7 +212,7 @@ class MSAModuleBlock(nn.Module):
         self.msa_stack = MSAStack(
             c_msa=c_msa,
             c_z=c_z,
-            c_hidden=c_hidden,
+            # c_hidden=c_hidden,
             no_heads=no_heads,
             inf=inf
         )

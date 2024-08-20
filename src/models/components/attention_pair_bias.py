@@ -165,5 +165,5 @@ class AttentionPairBias(nn.Module):
 
         # Output projection (from adaLN-Zero)
         if self.input_gating:
-            output = F.sigmoid(self.output_proj_linear(output)) * output
+            output = F.sigmoid(self.output_proj_linear(single_proj)) * output
         return output
