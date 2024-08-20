@@ -508,8 +508,8 @@ class DiffusionModule(torch.nn.Module):
             x_denoised = Vec3Array.from_array(x_denoised)
 
             # Update the noisy structure
-            delta = (x_l - x_denoised) / t_hat
-            dt = c_step - t_hat
-            x_l = x_noisy + step_scale * dt * delta
+            pre_delta = (x_l - x_denoised)
+            scaler = (c_step / t_hat - 1.0) * step_scale
+            x_l = x_noisy + scaler * pre_delta
 
         return x_l.to_tensor().to(dtype)  # revert to model dtype
