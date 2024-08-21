@@ -14,6 +14,8 @@
 import torch
 from src.utils.tensor_utils import permute_final_dims
 
+# TODO: these functions are not resilient to batch size > 1. Gotta fix that
+
 
 def drmsd(structure_1, structure_2, mask=None):
     def prep_d(structure):

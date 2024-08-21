@@ -466,14 +466,14 @@ class DiffusionModule(torch.nn.Module):
         batch_size, n_atoms, _ = features["ref_pos"].shape
         dtype, device = s_inputs.dtype, s_inputs.device
 
-        # Sample random noise as the initial structure
-        x_l = Vec3Array.randn((batch_size, samples_per_trunk, n_atoms), device)  # float32
-
         # Create the noise schedule with float64 dtype to prevent numerical issues
         t = torch.linspace(0, 1, n_steps, device=device, dtype=torch.float64).unsqueeze(-1)  # (n_steps, 1)
         s_max_root = 2.0647  # math.pow(self.s_max, 1 / self.p)  s_max==160
         s_min_root = 0.327  # math.pow(self.s_min, 1 / self.p)  s_min==4e-4
         noise_schedule = self.sd_data * (s_max_root + t * (s_min_root - s_max_root)) ** self.p
+
+        # Sample random noise as the initial structure
+        x_l = noise_schedule[0] * Vec3Array.randn((batch_size, samples_per_trunk, n_atoms), device)  # float32
 
         for i in range(1, n_steps):
             # Centre random augmentation
