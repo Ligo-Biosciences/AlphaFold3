@@ -366,3 +366,38 @@ class ProteusLoss(nn.Module):
         else:
             cumulative_loss, losses = self.loss(out, batch, _return_breakdown)
             return cumulative_loss, losses
+
+
+class DistogramOnlyLoss(nn.Module):
+    """Convenience class that just includes the distogram loss."""
+
+    def __init__(self, config):
+        super(DistogramOnlyLoss, self).__init__()
+        self.config = config
+
+    def loss(self, out, batch, _return_breakdown=False):
+        loss_fns = {
+            "diffusion_loss": lambda: diffusion_loss(
+                pred_atoms=out["denoised_atoms"],
+                gt_atoms=out["augmented_gt_atoms"],  # rotated gt atoms from diffusion module
+                timesteps=out["timesteps"],
+                weights=batch["atom_exists"],
+                mask=batch["atom_exists"],
+                **{**self.config.diffusion_loss},
+            )
+        }
+        cumulative_loss = 0.0
+        losses = {}
+        for loss_name, loss_fn in loss_fns.items():
+            weight = self.config[loss_name].weight
+            loss = loss_fn()
+            if torch.isnan(loss) or torch.isinf(loss):
+                logging.warning(f"{loss_name} loss is NaN. Skipping...")
+                loss = loss.new_tensor(0., requires_grad=True)
+            cumulative_loss = cumulative_loss + weight * loss
+            losses[loss_name] = loss.detach().clone()
+        losses["unscaled_loss"] = cumulative_loss.detach().clone()
+        losses["loss"] = cumulative_loss.detach().clone()
+        if not _return_breakdown:
+            return cumulative_loss
+        return cumulative_loss, losses
