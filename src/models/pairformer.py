@@ -191,6 +191,7 @@ class PairformerStackBlock(nn.Module):
             transition_n,
         )
 
+    @torch.compile
     def forward(
             self,
             s: Tensor,  # (bs, 1, n_tokens, c_s)

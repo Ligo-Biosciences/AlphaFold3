@@ -229,6 +229,7 @@ class MSAModuleBlock(nn.Module):
             inf=inf
         )
 
+    @torch.compile
     def forward(
             self,
             m: Tensor,
