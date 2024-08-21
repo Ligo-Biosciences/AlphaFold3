@@ -3,12 +3,12 @@ from src.utils.geometry.vector import Vec3Array
 import torch
 
 
-def compute_rmsd(tensor1, tensor2, eps=1e-6):
+def compute_rmsd(tensor1, tensor2, mask, eps=1e-6):
     """Compute the RMSD between two tensors."""
     diff = tensor1 - tensor2
     squared_diff = diff ** 2
     sum_squared_diff = squared_diff.sum(dim=-1)
-    mean_squared_diff = sum_squared_diff.mean(dim=-1)
+    mean_squared_diff = sum_squared_diff.sum(dim=-1) / mask.sum(dim=-1)
     rmsd = torch.sqrt(mean_squared_diff + eps)
     return rmsd
 
@@ -36,5 +36,5 @@ def superimpose(reference, coords, mask):
     aligned_coords = aligned_coords.to_tensor()
     reference = reference.to_tensor()
     # Compute RMSD
-    rmsds = compute_rmsd(reference, aligned_coords)
+    rmsds = compute_rmsd(reference, aligned_coords, mask)
     return aligned_coords, rmsds

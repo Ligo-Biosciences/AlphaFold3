@@ -35,7 +35,7 @@ class AlphaFoldWrapper(LightningModule):
         torch.set_float32_matmul_precision(self.globals.matmul_precision)
 
     def forward(self, batch, training=True):
-        return self.model(batch, train=training)
+        return self.model(batch, training=training)
 
     def _log(self, batch, outputs, loss_breakdown=None, train=True):
         # Loop over loss values and log it
@@ -49,20 +49,20 @@ class AlphaFoldWrapper(LightningModule):
                     on_step=train, on_epoch=(not train), logger=True, sync_dist=False,
                 )
 
-        # Compute validation metrics
-        other_metrics = self._compute_validation_metrics(
-            batch,
-            outputs,
-            superimposition_metrics=True  # (not train)
-        )
-
-        for k, v in other_metrics.items():
-            self.log(
-                f"{phase}/{k}",
-                torch.mean(v),
-                prog_bar=(k == 'loss'),
-                on_step=train, on_epoch=True, logger=True, sync_dist=True,
+        if not train:
+            # Compute validation metrics
+            other_metrics = self._compute_validation_metrics(
+                batch,
+                outputs,
+                superimposition_metrics=True  # (not train)
             )
+            for k, v in other_metrics.items():
+                self.log(
+                    f"{phase}/{k}",
+                    torch.mean(v),
+                    prog_bar=(k == 'loss'),
+                    on_step=train, on_epoch=True, logger=True, sync_dist=True,
+                )
 
     def training_step(self, batch, batch_idx):
         batch = reshape_features(batch)  # temporary
@@ -109,7 +109,7 @@ class AlphaFoldWrapper(LightningModule):
         batch = reshape_features(batch)  # temporary
 
         # Run the model
-        outputs = self.forward(batch, training=False)
+        outputs = self.ema.forward(batch, training=False)
         batch = tensor_tree_map(lambda t: t[..., -1], batch)  # Remove recycling dimension
 
         # For multimer, multichain permutation align the batch
@@ -117,6 +117,7 @@ class AlphaFoldWrapper(LightningModule):
         # Compute and log validation metrics
         self._log(loss_breakdown=None, batch=batch, outputs=outputs, train=False)
 
+    @torch.no_grad()
     def _compute_validation_metrics(
             self,
             batch,
@@ -124,63 +125,61 @@ class AlphaFoldWrapper(LightningModule):
             superimposition_metrics=False
     ):
         """Compute validation metrics for the model."""
-        with torch.no_grad():
-            batch_size, n_tokens = batch["residue_index"].shape
-            metrics = {}
+        batch_size, n_tokens = batch["residue_index"].shape
+        metrics = {}
 
-            gt_coords = batch["all_atom_positions"]  # (bs, n_atoms, 3) gt_atoms after augmentation
-            pred_coords = outputs["sampled_positions"].squeeze(-3)  # remove S dimension (bs, 1, n_atoms, 3)
-            all_atom_mask = batch["atom_mask"]  # (bs, n_atoms)
+        gt_coords = batch["all_atom_positions"]  # (bs, n_atoms, 3) gt_atoms after augmentation
+        pred_coords = outputs["sampled_positions"].squeeze(-3)  # remove S dimension (bs, 1, n_atoms, 3)
+        all_atom_mask = batch["atom_mask"]  # (bs, n_atoms)
 
-            # Center the gt_coords
-            gt_coords = gt_coords - torch.mean(gt_coords, dim=-2, keepdim=True)
+        # Center the gt_coords
+        gt_coords = gt_coords - torch.mean(gt_coords, dim=-2, keepdim=True)
 
-            gt_coords_masked = gt_coords * all_atom_mask[..., None]
-            pred_coords_masked = pred_coords * all_atom_mask[..., None]
+        gt_coords_masked = gt_coords * all_atom_mask[..., None]
+        pred_coords_masked = pred_coords * all_atom_mask[..., None]
 
-            # Reshape to backbone atom format (temporary, will switch to more general representation)
-            gt_coords_masked = gt_coords_masked.reshape(batch_size, n_tokens, 4, 3)
-            pred_coords_masked = pred_coords_masked.reshape(batch_size, n_tokens, 4, 3)
-            all_atom_mask = all_atom_mask.reshape(batch_size, n_tokens, 4)
+        # Reshape to backbone atom format (temporary, will switch to more general representation)
+        gt_coords_masked = gt_coords_masked.reshape(batch_size, n_tokens, 4, 3)
+        pred_coords_masked = pred_coords_masked.reshape(batch_size, n_tokens, 4, 3)
+        all_atom_mask = all_atom_mask.reshape(batch_size, n_tokens, 4)
 
-            ca_pos = residue_constants.atom_order["CA"]
-            gt_coords_masked_ca = gt_coords_masked[..., ca_pos, :]
-            pred_coords_masked_ca = pred_coords_masked[..., ca_pos, :]
-            all_atom_mask_ca = all_atom_mask[..., ca_pos]
+        ca_pos = residue_constants.atom_order["CA"]
+        gt_coords_masked_ca = gt_coords_masked[..., ca_pos, :]
+        pred_coords_masked_ca = pred_coords_masked[..., ca_pos, :]
+        all_atom_mask_ca = all_atom_mask[..., ca_pos]
 
-            # lddt_ca_score = lddt(
-            #    all_atom_pred_pos=pred_coords_masked_ca,
-            #    all_atom_positions=gt_coords_masked_ca,
-            #    all_atom_mask=all_atom_mask_ca,
-            #    eps=self.config.globals.eps,
-            #    per_residue=False
-            # )
-            # metrics["lddt_ca"] = lddt_ca_score
+        # lddt_ca_score = lddt(
+        #    all_atom_pred_pos=pred_coords_masked_ca,
+        #    all_atom_positions=gt_coords_masked_ca,
+        #    all_atom_mask=all_atom_mask_ca,
+        #    eps=self.config.globals.eps,
+        #    per_residue=False
+        # )
+        # metrics["lddt_ca"] = lddt_ca_score
 
-            # drmsd
-            drmsd_ca_score = drmsd(
-                pred_coords_masked_ca,
-                gt_coords_masked_ca,
-                mask=all_atom_mask_ca,  # still required here to compute n
+        # drmsd
+        drmsd_ca_score = drmsd(
+            pred_coords_masked_ca,
+            gt_coords_masked_ca,
+            mask=all_atom_mask_ca,  # still required here to compute n
+        )
+        metrics["drmsd_ca"] = drmsd_ca_score
+
+        if superimposition_metrics:
+            superimposed_pred, alignment_rmsd = superimpose(
+                gt_coords_masked_ca, pred_coords_masked_ca, all_atom_mask_ca,
             )
-            metrics["drmsd_ca"] = drmsd_ca_score
+            gdt_ts_score = gdt_ts(
+                superimposed_pred, gt_coords_masked_ca, all_atom_mask_ca
+            )
+            gdt_ha_score = gdt_ha(
+                superimposed_pred, gt_coords_masked_ca, all_atom_mask_ca
+            )
+            metrics["alignment_rmsd"] = alignment_rmsd
+            metrics["gdt_ts"] = gdt_ts_score
+            metrics["gdt_ha"] = gdt_ha_score
 
-            if superimposition_metrics:
-                superimposed_pred, alignment_rmsd = superimpose(
-                    gt_coords_masked_ca, pred_coords_masked_ca, all_atom_mask_ca,
-                )
-                gdt_ts_score = gdt_ts(
-                    superimposed_pred, gt_coords_masked_ca, all_atom_mask_ca
-                )
-                gdt_ha_score = gdt_ha(
-                    superimposed_pred, gt_coords_masked_ca, all_atom_mask_ca
-                )
-
-                metrics["alignment_rmsd"] = alignment_rmsd
-                metrics["gdt_ts"] = gdt_ts_score
-                metrics["gdt_ha"] = gdt_ha_score
-
-            return metrics
+        return metrics
 
     def configure_optimizers(self):
         partial_optimizer = hydra.utils.instantiate(self.config.optimizer)

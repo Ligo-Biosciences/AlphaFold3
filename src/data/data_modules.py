@@ -1014,7 +1014,9 @@ class OpenFoldDataModule(pl.LightningDataModule):
                     mode="eval",
                 )
             else:
-                self.eval_dataset = None
+                # TODO: make this unnecessary! Temporary solution to monitor learning, not robust performance
+                #  metric
+                self.eval_dataset = self.train_dataset  # None
         else:
             self.predict_dataset = dataset_gen(
                 data_dir=self.predict_data_dir,

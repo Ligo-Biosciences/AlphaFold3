@@ -22,4 +22,16 @@ strategy:
    cpu_checkpointing: False
 
 # Gradient accumulation
-accumulate_grad_batches: 2
+accumulate_grad_batches: 1
+
+# Clip gradients by the global norm
+gradient_clip_val: 10.0
+
+# frequency of logging
+log_every_n_steps: 20
+
+# How often to check the validation set. float in the range [0.0, 1.0] to check after a fraction of the training epoch.
+val_check_interval: 0.25  # checks 4 times every epoch
+
+limit_train_batches: 1.0  # use the entire training set
+limit_val_batches: 10  # 10 batches of validation

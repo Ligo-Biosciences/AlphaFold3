@@ -207,7 +207,7 @@ class AlphaFold3(nn.Module):
         )
         return confidences
 
-    def forward(self, batch, train: bool = True) -> Dict[str, Tensor]:
+    def forward(self, batch, training: bool = True) -> Dict[str, Tensor]:
         """
         Args:
             batch:
@@ -285,7 +285,7 @@ class AlphaFold3(nn.Module):
                     Mask indicating which atom slots are used in the ground truth structure.
                 "atom_exists" ([*, N_atoms, 3]):
                     Mask indicating which atom slots exist in the ground truth structure.
-            train:
+            training:
                 Whether the model is in training mode.
         """
 
@@ -294,7 +294,7 @@ class AlphaFold3(nn.Module):
 
         # Controls whether the model uses in-place operations throughout
         # The dual condition accounts for activation checkpoints
-        inplace_safe = not (train or torch.is_grad_enabled())
+        inplace_safe = not (training or torch.is_grad_enabled())
 
         # Extract features without the recycling dimension
         feats = tensor_tree_map(lambda t: t[..., -1], batch)
@@ -350,7 +350,7 @@ class AlphaFold3(nn.Module):
 
         # Run the diffusion module
         n_steps = 200
-        if train:
+        if training:
             n_steps = 20  # Mini roll-out for training
 
             # Run the diffusion module once for denoising during training
