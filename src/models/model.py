@@ -58,10 +58,7 @@ class AlphaFold3(nn.Module):
             LayerNorm(self.c_z),
             LinearNoBias(self.c_z, self.c_z)
         )
-        if self.globals.compile:
-            self.pairformer = torch.compile(self.pairformer)
 
-    # @torch.compile  # (mode="max-autotune")
     def run_trunk(
             self,
             feats: Dict[str, Tensor],
