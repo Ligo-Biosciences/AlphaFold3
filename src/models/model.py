@@ -366,12 +366,12 @@ class AlphaFold3(nn.Module):
             # Add the denoised atoms, timesteps, and augmented gt atoms for loss calculation
             outputs.update(diff_output)
 
-        # Diffusion roll-out
+        # Diffusion roll-out without gradients
         sampled_positions = self.diffusion_module.sample(
             features=batch,
-            s_inputs=s_inputs,
-            s_trunk=s,
-            z_trunk=z,
+            s_inputs=s_inputs.detach(),
+            s_trunk=s.detach(),
+            z_trunk=z.detach(),
             n_steps=n_steps,
             samples_per_trunk=1,  # only a single sample during rollout
             use_deepspeed_evo_attention=self.globals.use_deepspeed_evo_attention
