@@ -48,7 +48,6 @@ class DiffusionTransformerBlock(nn.Module):
         )
         self.conditioned_transition_block = ConditionedTransitionBlock(c_token)
 
-    @torch.compile
     def forward(
             self,
             single_repr: Tensor,  # (bs, S, n_tokens, c_token)
