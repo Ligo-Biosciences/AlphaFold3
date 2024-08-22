@@ -232,6 +232,7 @@ class Attention(nn.Module):
             no_heads: int,
             gating: bool = True,
             residual: bool = True,
+            proj_q_w_bias: bool = False,
     ):
         """
         Args:
@@ -250,7 +251,8 @@ class Attention(nn.Module):
             residual:
                 If the output is residual, then the final linear layer is initialized to
                 zeros so that the residual layer acts as the identity at initialization.
-        TODO: generalize this function to use the triton kernels
+            proj_q_w_bias:
+                Whether to project the Q vectors with a Linear layer that uses a bias
         """
         super(Attention, self).__init__()
 
@@ -261,10 +263,11 @@ class Attention(nn.Module):
         self.no_heads = no_heads
         self.gating = gating
 
-        # The qkv linear layers project no_heads * c_hidden and then split the dimensions
         split_heads = nn.Unflatten(dim=-1, unflattened_size=(self.no_heads, self.c_hidden))
+        # The qkv linear layers project no_heads * c_hidden and then split the dimensions
+        linear_q_class = Linear if proj_q_w_bias else LinearNoBias
         self.linear_q = nn.Sequential(
-            LinearNoBias(self.c_q, self.c_hidden * self.no_heads, init="glorot"),
+            linear_q_class(self.c_q, self.c_hidden * self.no_heads, init="glorot"),
             split_heads
         )
 

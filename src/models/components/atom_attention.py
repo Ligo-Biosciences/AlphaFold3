@@ -137,7 +137,8 @@ class AtomAttentionPairBias(nn.Module):
             c_hidden=c_atom // no_heads,
             no_heads=no_heads,
             gating=True,
-            residual=False  # AtomTransformer attention does not act as a residual connection
+            residual=False,  # AtomTransformer attention does not act as a residual connection
+            proj_q_w_bias=True
         )
 
         # Pair bias
