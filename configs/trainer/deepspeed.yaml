@@ -34,4 +34,4 @@ log_every_n_steps: 20
 val_check_interval: 0.25  # checks 4 times every epoch
 
 limit_train_batches: 1.0  # use the entire training set
-limit_val_batches: 10  # 10 batches of validation
+limit_val_batches: 0.0  # no validation
