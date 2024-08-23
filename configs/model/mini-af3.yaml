@@ -25,17 +25,12 @@ scheduler:
 
 # Loss configs
 loss:
-  diffusion_loss:
-      # mse:
-      #    weight_dna: 5.0
-      #    weight_rna: 5.0
-      #    weight_ligand: 10.0
-      #    weight_protein: 1.0
-      # smooth_lddt:
-      #    weight: 1.0
-      use_smooth_lddt: false
-      sd_data: 16.0
-      weight: 1.0
+  mse_loss:
+    sd_data: 16.0
+    weight: 4.0
+  smooth_lddt_loss:
+    weight: 4.0
+    epsilon: 1e-5
 
   distogram:
       min_bin: 2.3125

@@ -39,7 +39,6 @@ class TestDiffusionModule(unittest.TestCase):
             atom_decoder_heads=self.atom_decoder_heads,
             token_transformer_blocks=self.token_transformer_blocks,
             token_transformer_heads=self.token_transformer_heads,
-            compile_model=False
         )  # values above are default values
 
         self.optimizer = torch.optim.Adam(self.module.parameters(), lr=1e-3)

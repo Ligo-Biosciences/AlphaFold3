@@ -1,6 +1,6 @@
 import unittest
 import torch
-from src.utils.loss import mean_squared_error, smooth_lddt_loss, diffusion_loss
+from src.utils.loss import mean_squared_error, smooth_lddt_loss, mse_loss
 from src.diffusion.sample import sample_noise_level, noise_positions
 from src.utils.geometry.vector import Vec3Array
 
@@ -102,14 +102,14 @@ class TestDiffusionLoss(unittest.TestCase):
         weights = torch.ones((bs, n_atoms))
         mask = None
 
-        loss_when_identical = diffusion_loss(pred_atoms, gt_atoms, timesteps, atom_is_rna, atom_is_dna, weights, mask)
+        loss_when_identical = mse_loss(pred_atoms, gt_atoms, timesteps, atom_is_rna, atom_is_dna, weights, mask)
 
         # Add noise and compare
         noisy_pred_atoms = noise_positions(pred_atoms, timesteps)
         noisier_pred_atoms = noise_positions(noisy_pred_atoms, timesteps)
 
-        loss_when_noisy = diffusion_loss(noisy_pred_atoms, gt_atoms, timesteps, atom_is_rna, atom_is_dna, weights, mask)
-        loss_when_noisier = diffusion_loss(noisier_pred_atoms, gt_atoms, timesteps, atom_is_rna, atom_is_dna, weights, mask)
+        loss_when_noisy = mse_loss(noisy_pred_atoms, gt_atoms, timesteps, atom_is_rna, atom_is_dna, weights, mask)
+        loss_when_noisier = mse_loss(noisier_pred_atoms, gt_atoms, timesteps, atom_is_rna, atom_is_dna, weights, mask)
 
         self.assertTrue(isinstance(loss_when_identical, torch.Tensor))
         self.assertTrue(torch.all((loss_when_identical < loss_when_noisy) & (loss_when_noisy < loss_when_noisier)))

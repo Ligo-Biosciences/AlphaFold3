@@ -104,7 +104,7 @@ def bond_loss(
     raise NotImplementedError("the implementation of this function will depend on the input pipeline")
 
 
-def diffusion_loss(
+def mse_loss(
         pred_atoms: Tensor,  # (bs * samples_per_trunk, n_atoms, 3)
         gt_atoms: Tensor,  # (bs * samples_per_trunk, n_atoms, 3)
         timesteps: Tensor,  # (bs * samples_per_trunk, 1)
@@ -128,23 +128,18 @@ def diffusion_loss(
     pred_atoms = Vec3Array.from_array(pred_atoms)
     gt_atoms = Vec3Array.from_array(gt_atoms)
 
-    # Align the gt_atoms to pred_atoms, TODO: put the alignment back in
-    aligned_gt_atoms = gt_atoms  # weighted_rigid_align(x=gt_atoms, x_gt=pred_atoms, weights=weights, mask=mask)
+    # Align the gt_atoms to pred_atoms
+    aligned_gt_atoms = weighted_rigid_align(x=gt_atoms, x_gt=pred_atoms, weights=weights, mask=mask)
 
     # MSE loss
     mse = mean_squared_error(pred_atoms, aligned_gt_atoms, weights, mask)
 
     # Scale by (t**2 + σ**2) / (t + σ)**2
     scaling_factor = torch.add(timesteps ** 2, sd_data ** 2) / (torch.mul(timesteps, sd_data) ** 2 + epsilon)
-    loss_diffusion = scaling_factor.squeeze(-1) * mse  # (bs)
-
-    # Smooth LDDT Loss
-    # if use_smooth_lddt:
-    #    lddt_loss = smooth_lddt_loss(pred_atoms, gt_atoms, atom_is_rna, atom_is_dna, mask)
-    #    loss_diffusion = loss_diffusion + lddt_loss
+    scaled_mse = scaling_factor.squeeze(-1) * mse  # (bs,)
 
     # Average over batch dimension
-    return torch.mean(loss_diffusion)
+    return torch.mean(scaled_mse)
 
 
 def softmax_cross_entropy(logits, labels):
@@ -285,13 +280,13 @@ class AlphaFold3Loss(nn.Module):
             #    logits=out["plddt_logits"],
             #    **{**batch, **self.config.plddt_loss},
             # ),
-            "diffusion_loss": lambda: diffusion_loss(
+            "mse_loss": lambda: mse_loss(
                 pred_atoms=out["denoised_atoms"],
                 gt_atoms=out["augmented_gt_atoms"],  # rotated gt atoms from diffusion module
                 timesteps=out["timesteps"],
                 weights=batch["atom_exists"],
                 mask=batch["atom_exists"],
-                **{**self.config.diffusion_loss},
+                **{**self.config.mse_loss},
             )
         }
         cumulative_loss = 0.0
@@ -335,13 +330,13 @@ class ProteusLoss(nn.Module):
                 atom_is_dna=batch["ref_mask"].new_zeros(batch["ref_mask"].shape),  # (bs, n_atoms)
                 mask=batch["atom_exists"],
             ),
-            "diffusion_loss": lambda: diffusion_loss(
+            "diffusion_loss": lambda: mse_loss(
                 pred_atoms=out["denoised_atoms"],
                 gt_atoms=out["augmented_gt_atoms"],  # rotated gt atoms from diffusion module
                 timesteps=out["timesteps"],
                 weights=batch["atom_exists"],
                 mask=batch["atom_exists"],
-                **{**self.config.diffusion_loss},
+                **{**self.config.mse_loss},
             )
         }
         cumulative_loss = 0.0
