@@ -134,7 +134,7 @@ def diffusion_loss(
     mse = mean_squared_error(pred_atoms, aligned_gt_atoms, weights, mask)
 
     # Scale by (t**2 + σ**2) / (t + σ)**2
-    scaling_factor = torch.add(timesteps ** 2, sd_data ** 2) / (torch.add(timesteps, sd_data) ** 2)
+    scaling_factor = torch.add(timesteps ** 2, sd_data ** 2) / (torch.mul(timesteps, sd_data) ** 2)
     loss_diffusion = scaling_factor * mse
 
     # Smooth LDDT Loss
