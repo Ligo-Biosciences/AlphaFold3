@@ -22,4 +22,4 @@ strategy:
    cpu_checkpointing: False
 
 # Gradient accumulation
-accumulate_grad_batches: 2
+accumulate_grad_batches: 1

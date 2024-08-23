@@ -136,7 +136,7 @@ def diffusion_loss(
 
     # Scale by (t**2 + σ**2) / (t + σ)**2
     scaling_factor = torch.add(timesteps ** 2, sd_data ** 2) / (torch.mul(timesteps, sd_data) ** 2 + epsilon)
-    loss_diffusion = scaling_factor * mse
+    loss_diffusion = scaling_factor.squeeze(-1) * mse  # (bs)
 
     # Smooth LDDT Loss
     # if use_smooth_lddt:
