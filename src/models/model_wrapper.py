@@ -49,20 +49,19 @@ class AlphaFoldWrapper(LightningModule):
                     on_step=train, on_epoch=(not train), logger=True, sync_dist=False,
                 )
 
-        if not train:
-            # Compute validation metrics
-            other_metrics = self._compute_validation_metrics(
-                batch,
-                outputs,
-                superimposition_metrics=True  # (not train)
+        # Compute validation metrics
+        other_metrics = self._compute_validation_metrics(
+            batch,
+            outputs,
+            superimposition_metrics=True  # (not train)
+        )
+        for k, v in other_metrics.items():
+            self.log(
+                f"{phase}/{k}",
+                torch.mean(v),
+                prog_bar=(k == 'loss'),
+                on_step=train, on_epoch=True, logger=True, sync_dist=True,
             )
-            for k, v in other_metrics.items():
-                self.log(
-                    f"{phase}/{k}",
-                    torch.mean(v),
-                    prog_bar=(k == 'loss'),
-                    on_step=train, on_epoch=True, logger=True, sync_dist=True,
-                )
 
     def training_step(self, batch, batch_idx):
         batch = reshape_features(batch)  # temporary
