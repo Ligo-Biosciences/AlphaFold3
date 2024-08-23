@@ -111,6 +111,7 @@ def diffusion_loss(
         weights: Tensor,  # (bs, n_atoms)
         mask: Optional[Tensor] = None,  # (bs, n_atoms)
         sd_data: float = 16.0,  # Standard deviation of the data
+        epsilon: Optional[float] = 1e-5,
         **kwargs
 ) -> Tensor:  # (bs,)
     """Diffusion loss that scales the MSE and LDDT losses by the noise level (timestep)."""
@@ -134,7 +135,7 @@ def diffusion_loss(
     mse = mean_squared_error(pred_atoms, aligned_gt_atoms, weights, mask)
 
     # Scale by (t**2 + σ**2) / (t + σ)**2
-    scaling_factor = torch.add(timesteps ** 2, sd_data ** 2) / (torch.mul(timesteps, sd_data) ** 2)
+    scaling_factor = torch.add(timesteps ** 2, sd_data ** 2) / (torch.mul(timesteps, sd_data) ** 2 + epsilon)
     loss_diffusion = scaling_factor * mse
 
     # Smooth LDDT Loss
