@@ -59,6 +59,7 @@ class AlphaFold3(nn.Module):
             LinearNoBias(self.c_z, self.c_z)
         )
 
+    @torch.compile
     def run_trunk(
             self,
             feats: Dict[str, Tensor],
