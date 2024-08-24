@@ -56,7 +56,7 @@ loss:
 
 # TODO: fix the model.model notation in interpolation
 model:
-  c_token: 384  # the token representation dim
+  c_token: 128  # the token representation dim  original=384
   c_pair: 128  # the pair representation dim
   c_atom: 128  # the atom representation dim
   c_atompair: 16  # the atom pair representation dim
@@ -109,7 +109,7 @@ model:
   pairformer_stack:
     c_s: ${model.model.c_token}
     c_z: ${model.model.c_pair}
-    no_blocks: 48
+    no_blocks: 12
     c_hidden_mul: ${model.model.c_hidden_tri_mul}
     c_hidden_pair_attn: ${model.model.c_hidden_pair_attn}
     no_heads_tri_attn: ${model.model.no_heads_tri_attn}
@@ -130,11 +130,11 @@ model:
     atom_encoder_blocks: 3
     atom_encoder_heads: 16
     dropout: 0.0
-    atom_attention_n_queries: 32  # TODO: with sliding window attention this is not used.
+    atom_attention_n_queries: 32
     atom_attention_n_keys: 128
     atom_decoder_blocks: 3
     atom_decoder_heads: 16
-    token_transformer_blocks: 24
+    token_transformer_blocks: 6
     token_transformer_heads: 16
     sd_data: 16.0
     s_max: 160.0
@@ -144,7 +144,7 @@ model:
     blocks_per_ckpt: ${model.model.blocks_per_ckpt}
 
   confidence_head:
-    c_s: 384 # ${model.c_token}
+    c_s: ${model.model.c_token}
     c_z: ${model.model.c_pair}
     no_blocks: 4
     no_bins_pde: 64

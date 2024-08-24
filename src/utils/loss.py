@@ -330,7 +330,7 @@ class ProteusLoss(nn.Module):
                 atom_is_dna=batch["ref_mask"].new_zeros(batch["ref_mask"].shape),  # (bs, n_atoms)
                 mask=batch["atom_exists"],
             ),
-            "diffusion_loss": lambda: mse_loss(
+            "mse_loss": lambda: mse_loss(
                 pred_atoms=out["denoised_atoms"],
                 gt_atoms=out["augmented_gt_atoms"],  # rotated gt atoms from diffusion module
                 timesteps=out["timesteps"],
