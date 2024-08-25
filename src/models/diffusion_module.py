@@ -158,7 +158,6 @@ class DiffusionModule(torch.nn.Module):
         r_update_scale = torch.sqrt(noisy_pos_scale) * timesteps.unsqueeze(-1)
         return noisy_atoms * noisy_pos_scale + r_updates * r_update_scale
 
-    @torch.compile
     def forward(
             self,
             noisy_atoms: Tensor,  # (bs, S, n_atoms, 3)
