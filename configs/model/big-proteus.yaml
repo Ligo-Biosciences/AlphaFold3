@@ -1,35 +1,9 @@
 _target_: src.models.proteus_module.ProteusLitModule
 
-optimizer:
-  _target_: deepspeed.ops.adam.FusedAdam  # torch.optim.Adam  #
-  _partial_: true
-  lr: 0.0018
-  betas:
-    - 0.9
-    - 0.95
-  eps: 1e-08
-  weight_decay: 0.0
-
-scheduler:
-  _target_: src.utils.lr_schedulers.AlphaFoldLRScheduler
-  _partial_: true
-  last_epoch: -1
-  verbose: false
-  base_lr: 0.0  # the starting learning rate
-  max_lr: 0.0018
-  warmup_no_steps: 1000
-  start_decay_after_n_steps: 50_000
-  decay_every_n_steps: 50_000
-  decay_factor: 0.95
-
-# Loss configs
-loss:
-  mse_loss:
-    sd_data: 16.0
-    weight: 4.0
-  smooth_lddt_loss:
-    weight: 4.0
-    epsilon: 1e-5
+defaults:
+  - /optimizer/fused_adam
+  - /scheduler/alphafold3_lr
+  - /loss/alphafold3_loss
 
 model:
   _target_: src.models.proteus_module.Proteus

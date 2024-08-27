@@ -60,7 +60,7 @@ class DiffusionTransformerBlock(nn.Module):
         TODO: the single_proj and pair_repr do not actually change as a result of this function.
             Returning them here is a bit misleading. Also, saving them between blocks is unnecessary.
         """
-        b = self.attention_block(
+        single_repr = single_repr + self.attention_block(
             single_repr=single_repr,
             single_proj=single_proj,
             pair_repr=pair_repr,
@@ -69,7 +69,7 @@ class DiffusionTransformerBlock(nn.Module):
         )
 
         single_repr = add(
-            b,
+            single_repr,
             self.conditioned_transition_block(single_repr, single_proj),
             inplace=False
         )
