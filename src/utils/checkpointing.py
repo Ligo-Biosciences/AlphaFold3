@@ -10,49 +10,63 @@ try:
 except ImportError:
     deepspeed_is_installed = False
 
+BLOCK_ARG = Any
+BLOCK_ARGS = Tuple[BLOCK_ARG, ...]  # List[BLOCK_ARGS]
 
 def get_checkpoint_fn():
-    return deepspeed.checkpointing.checkpoint
-
+    return deepspeed.checkpointing.checkpoint  # torch.utils.checkpoint.checkpoint
 
 def checkpoint_blocks(
-    blocks: List[torch.nn.Module],
-    args: Tuple[Any, ...],
+    blocks: List[Callable],
+    args: BLOCK_ARGS,
     blocks_per_ckpt: Optional[int],
-) -> Tuple[Any, ...]:
+) -> BLOCK_ARGS:
     """
-    Chunk a list of blocks and run each chunk with activation checkpointing.
-    Each block is a torch.nn.Module whose inputs are the outputs of the previous block.
-    Checkpointing is only performed if training.
+    Chunk a list of blocks and run each chunk with activation
+    checkpointing. We define a "block" as a callable whose only inputs are
+    the outputs of the previous block.
+
+    Implements Subsection 1.11.8
 
     Args:
-        blocks: List of torch.nn.Module blocks.
-        args: Tuple of arguments for the first block.
-        blocks_per_ckpt: Number of blocks per checkpoint. If None, no checkpointing is performed.
-
+        blocks:
+            List of blocks
+        args:
+            Tuple of arguments for the first block.
+        blocks_per_ckpt:
+            Size of each chunk. A higher value corresponds to fewer
+            checkpoints, and trades memory for speed. If None, no checkpointing
+            is performed.
     Returns:
-        The output of the final block.
+        The output of the final block
     """
-    def execute_blocks(block_slice, inputs):
-        for block in block_slice:
-            inputs = block(*inputs)
-            inputs = inputs if isinstance(inputs, tuple) else (inputs,)
-        return inputs
+    def wrap(a):
+        return (a,) if type(a) is not tuple else a
+
+    def exec(b, a):
+        for block in b:
+            a = wrap(block(*a))
+        return a
+
+    def chunker(s, e):
+        def exec_sliced(*a):
+            return exec(blocks[s:e], a)
+
+        return exec_sliced
+
+    # Avoids mishaps when the blocks take just one argument
+    args = wrap(args)
 
     if blocks_per_ckpt is None or not torch.is_grad_enabled():
-        return execute_blocks(blocks, args)
-
-    if blocks_per_ckpt < 1 or blocks_per_ckpt > len(blocks):
+        return exec(blocks, args)
+    elif blocks_per_ckpt < 1 or blocks_per_ckpt > len(blocks):
         raise ValueError("blocks_per_ckpt must be between 1 and len(blocks)")
 
     checkpoint = get_checkpoint_fn()
-    
-    for start in range(0, len(blocks), blocks_per_ckpt):
-        end = start + blocks_per_ckpt
-        args = checkpoint(
-            lambda *inputs: execute_blocks(blocks[start:end], inputs),
-            *args
-        )
-        args = args if isinstance(args, tuple) else (args,)
+
+    for s in range(0, len(blocks), blocks_per_ckpt):
+        e = s + blocks_per_ckpt
+        args = checkpoint(chunker(s, e), *args)
+        args = wrap(args)
 
     return args

@@ -121,6 +121,7 @@ class AttentionPairBias(nn.Module):
             single_proj: Optional[torch.Tensor] = None,  # (*, N, c_s)
             pair_repr: torch.Tensor = None,  # (*, N, N, c_z)
             mask: Optional[torch.Tensor] = None,  # (*, N)
+            betas: Optional[torch.Tensor] = None,  # (*, N, N)
             use_deepspeed_evo_attention: bool = False,
     ) -> torch.Tensor:
         """Full self-attention at the token-level with pair bias.
@@ -140,9 +141,11 @@ class AttentionPairBias(nn.Module):
             single_proj:
                 [*, S, N, c_s] or [*, 1, N, c_s] single projection
             pair_repr:
-                [*, N, c_z] pair representation
+                [*, N, N, c_z] pair representation
             mask:
                 [*, N] attention mask where 1.0 indicates valid token, 0.0 indicates invalid token.
+            betas:
+                [*, N, N] betas to add to the pair bias.
             use_deepspeed_evo_attention:
                 Whether to use deepspeed attention or not.
         """
@@ -156,6 +159,11 @@ class AttentionPairBias(nn.Module):
         # Compute the biases
         mask_bias, pair_bias = self._prep_biases(single_repr, pair_repr, mask)
 
+        # Add betas to pair bias (used in naive AtomTransformer)
+        if betas is not None:
+            betas = betas[..., None, None, :, :]  # (bs, 1, 1, n_tokens, n_tokens)
+            pair_bias = pair_bias + betas
+
         # Attention
         output = self.attention(
             q_x=a,
@@ -163,6 +171,10 @@ class AttentionPairBias(nn.Module):
             biases=[mask_bias, pair_bias],
             use_deepspeed_evo_attention=use_deepspeed_evo_attention
         )  # (bs, S, n_tokens, c_atom)
+
+        # Mask the output
+        if mask is not None:
+            output = output * mask.unsqueeze(-2).unsqueeze(-1)
 
         # Output projection (from adaLN-Zero)
         if self.input_gating:
