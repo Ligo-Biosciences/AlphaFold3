@@ -363,7 +363,7 @@ class MSAModule(nn.Module):
 
         # MSA featurization
         self.linear_msa_feat = LinearNoBias(49, c_msa)
-        self.proj_s_inputs = LinearNoBias(c_token, c_msa, init='final')
+        self.proj_s_inputs = LinearNoBias(c_token, c_msa, init='default')
         self.blocks_per_ckpt = blocks_per_ckpt
         self.clear_cache_between_blocks = clear_cache_between_blocks
 
