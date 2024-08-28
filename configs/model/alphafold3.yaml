@@ -1,8 +1,8 @@
 # AlphaFold3 configs
 defaults:
-  - /optimizer/fused_adam  # The leading slash indicates that the path is relative to the config root directory.
-  - /scheduler/alphafold_lr
-  - /loss/alphafold3_loss
+  - optimizer: fused_adam
+  - scheduler: alphafold_lr
+  - loss: alphafold3_loss
 
 
 c_token: 384  # the token representation dim

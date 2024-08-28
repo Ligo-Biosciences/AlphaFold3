@@ -10,9 +10,8 @@ from src.models.components.primitives import LinearNoBias, Linear
 from src.models.components.relative_position_encoding import RelativePositionEncoding
 from src.models.template import TemplatePairStack
 from src.utils.tensor_utils import add
-from src.utils.checkpointing import get_checkpoint_fn
+from src.utils.checkpointing import checkpoint_wrapper
 from src.utils.geometry.vector import Vec3Array
-checkpoint = get_checkpoint_fn()
 
 
 class InputFeatureEmbedder(nn.Module):
@@ -459,7 +458,8 @@ class ProteusFeatureEmbedder(nn.Module):
         self.linear_z_row = LinearNoBias(c_token, c_trunk_pair)
         self.relative_pos_encoder = RelativePositionEncoding(c_trunk_pair)
 
-    def _forward(
+    @checkpoint_wrapper
+    def forward(
             self,
             features: Dict[str, torch.Tensor],
             atom_mask: torch.Tensor = None,
@@ -496,22 +496,3 @@ class ProteusFeatureEmbedder(nn.Module):
         z_trunk = z_trunk + self.relative_pos_encoder(features, token_mask)
 
         return per_token_features, s_trunk, z_trunk
-
-    def forward(
-            self,
-            features: Dict[str, torch.Tensor],
-            atom_mask: torch.Tensor = None,
-            token_mask: torch.Tensor = None,
-    ) -> Tuple[Tensor, Tensor, Tensor]:
-        """Forward pass of the Proteus feature embedder.
-            Args:
-                features:
-                    Dictionary containing the input features
-                atom_mask:
-                    [*, N_atoms] mask indicating which atoms are valid (non-padding).
-                token_mask:
-                    [*, N_tokens] mask indicating which tokens are valid (non-padding).
-            Returns:
-                [*, N_tokens, c_token] Embedding of the input features.
-        """
-        return self._forward(features, atom_mask, token_mask)  # checkpoint()

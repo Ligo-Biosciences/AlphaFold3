@@ -1,0 +1,5 @@
+# FusedAdam optimizer
+defaults:
+  - adam
+
+_target_: deepspeed.ops.adam.FusedAdam

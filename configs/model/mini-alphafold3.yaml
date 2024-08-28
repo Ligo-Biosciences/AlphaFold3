@@ -1,8 +1,8 @@
 # Mini AlphaFold3 configs
 defaults:
-  - /model/alphafold3
-  - /loss/alphafold3_loss
-  - /scheduler/alphafold3_lr
+  - model: alphafold3
+  - loss: alphafold3_loss
+  - scheduler: alphafold3_lr
 
 model:
   c_token: 128  # Reduced from 384
