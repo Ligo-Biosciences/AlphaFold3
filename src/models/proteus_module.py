@@ -55,9 +55,7 @@ class Proteus(nn.Module):
         token_mask = features["token_mask"]
 
         # Initial Features
-        s_inputs, s_trunk, z_trunk = self.feature_embedder(
-            features, atom_mask=atom_mask, token_mask=token_mask  # use_deepspeed=use_flash
-        )
+        s_inputs, s_trunk, z_trunk = self.feature_embedder(features, atom_mask, token_mask)
 
         # Diffusion module
         outputs = self.diffusion_module.train_step(

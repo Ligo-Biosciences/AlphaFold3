@@ -234,12 +234,7 @@ class DiffusionModule(torch.nn.Module):
 
         # Conditioning
         token_repr, pair_repr = self.diffusion_conditioning(
-            timesteps=timesteps,
-            features=features,
-            s_inputs=s_inputs,
-            s_trunk=s_trunk,
-            z_trunk=z_trunk,
-            mask=token_mask
+            timesteps, features, s_inputs, s_trunk, z_trunk, token_mask
         )
 
         # Scale positions to dimensionless vectors with approximately unit variance

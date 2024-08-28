@@ -111,7 +111,7 @@ class AttentionPairBias(nn.Module):
 
         # Project pair biases per head from pair representation
         pair_bias = self.proj_pair_bias(pair_repr)  # (bs, n_tokens, n_tokens, n_heads)
-        pair_bias = rearrange(pair_bias, 'b n1 n2 h -> b h n1 n2')  # # (bs, h, n, n)
+        pair_bias = rearrange(pair_bias, 'b i j h -> b h i j')  # # (bs, h, n, n)
         pair_bias = pair_bias.unsqueeze(-4)
         return mask_bias, pair_bias
 

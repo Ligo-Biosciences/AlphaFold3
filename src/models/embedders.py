@@ -10,8 +10,10 @@ from src.models.components.primitives import LinearNoBias, Linear
 from src.models.components.relative_position_encoding import RelativePositionEncoding
 from src.models.template import TemplatePairStack
 from src.utils.tensor_utils import add
-from src.utils.checkpointing import checkpoint_wrapper
 from src.utils.geometry.vector import Vec3Array
+from src.utils.checkpointing import get_checkpoint_fn
+checkpoint = get_checkpoint_fn()
+
 
 
 class InputFeatureEmbedder(nn.Module):
@@ -458,8 +460,7 @@ class ProteusFeatureEmbedder(nn.Module):
         self.linear_z_row = LinearNoBias(c_token, c_trunk_pair)
         self.relative_pos_encoder = RelativePositionEncoding(c_trunk_pair)
 
-    @checkpoint_wrapper
-    def forward(
+    def _forward(
             self,
             features: Dict[str, torch.Tensor],
             atom_mask: torch.Tensor = None,
@@ -496,3 +497,11 @@ class ProteusFeatureEmbedder(nn.Module):
         z_trunk = z_trunk + self.relative_pos_encoder(features, token_mask)
 
         return per_token_features, s_trunk, z_trunk
+
+    def forward(
+            self,
+            features: Dict[str, torch.Tensor],
+            atom_mask: torch.Tensor = None,
+            token_mask: torch.Tensor = None,
+    ) -> Tuple[Tensor, Tensor, Tensor]:
+        return checkpoint(self._forward, features, atom_mask, token_mask)

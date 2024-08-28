@@ -12,28 +12,7 @@ except ImportError:
 
 
 def get_checkpoint_fn():
-    if deepspeed_is_installed and deepspeed.checkpointing.is_configured():
-        return deepspeed.checkpointing.checkpoint
-    return functools.partial(torch.utils.checkpoint.checkpoint, use_reentrant=False)
-
-
-def checkpoint_wrapper(func: Callable) -> Callable:
-    """
-    A decorator that wraps a function with checkpointing during training.
-    If not in training mode, it acts as an identity function.
-    """
-    checkpoint = get_checkpoint_fn()
-
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        if torch.is_grad_enabled():
-            def wrapped_func(*inner_args, **inner_kwargs):
-                return func(*inner_args, **inner_kwargs)
-            return checkpoint(wrapped_func, *args, **kwargs)
-        else:
-            return func(*args, **kwargs)
-
-    return wrapper
+    return deepspeed.checkpointing.checkpoint
 
 
 def checkpoint_blocks(

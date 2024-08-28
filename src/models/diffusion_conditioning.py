@@ -7,8 +7,9 @@ from torch.nn import LayerNorm
 from src.models.components.primitives import LinearNoBias
 from src.models.components.relative_position_encoding import RelativePositionEncoding
 from src.models.components.transition import Transition
-from typing import Dict, Tuple
-from src.utils.checkpointing import checkpoint_wrapper
+from typing import Dict, Tuple, Optional
+from src.utils.checkpointing import get_checkpoint_fn
+checkpoint = get_checkpoint_fn()
 
 
 class FourierEmbedding(nn.Module):
@@ -67,8 +68,7 @@ class DiffusionConditioning(nn.Module):
         )
         self.single_transitions = nn.ModuleList([Transition(input_dim=c_token, n=2) for _ in range(2)])
 
-    @checkpoint_wrapper
-    def forward(
+    def _forward(
             self,
             timesteps: Tensor,  # timestep (bs, S, 1)
             features: Dict[str, Tensor],  # input feature dict
@@ -130,4 +130,20 @@ class DiffusionConditioning(nn.Module):
             pair_repr = pair_repr * pair_mask
 
         return token_repr, pair_repr
+    
+
+    def forward_with_checkpointing(
+            self,
+            timesteps: torch.Tensor,
+            features: Dict[str, torch.Tensor],
+            s_inputs: torch.Tensor,
+            s_trunk: torch.Tensor,
+            z_trunk: torch.Tensor,
+            mask: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Forward pass with gradient checkpointing.
+        """
+        # TODO: inelegant solution
+        return checkpoint(self._forward, timesteps, features, s_inputs, s_trunk, z_trunk, mask)
 
