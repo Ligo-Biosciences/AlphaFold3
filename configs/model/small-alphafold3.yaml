@@ -1,7 +1,7 @@
 # AlphaFold3 configs
 defaults:
   - optimizer: fused_adam
-  - scheduler: alphafold_lr
+  - scheduler: alphafold3_lr
   - loss: alphafold3_loss
 
 
