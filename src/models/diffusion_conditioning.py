@@ -132,7 +132,7 @@ class DiffusionConditioning(nn.Module):
         return token_repr, pair_repr
     
 
-    def forward_with_checkpointing(
+    def forward(
             self,
             timesteps: torch.Tensor,
             features: Dict[str, torch.Tensor],
