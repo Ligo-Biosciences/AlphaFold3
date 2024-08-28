@@ -821,7 +821,7 @@ def make_atom_features(protein):
             # Generate random rotations for each residue
             random_rotations = Rot3Array.uniform_random(shape=(num_res, 1), device=per_res_atom_feat.device)
             # Generate random translations for each residue
-            random_translations = torch.randn(num_res, 3, device=per_res_atom_feat.device)
+            random_translations = 16.0 * torch.randn(num_res, 3, device=per_res_atom_feat.device)
             # Apply rotations and translations
             per_res_atom_feat = random_rotations.apply_to_point(Vec3Array.from_array(per_res_atom_feat))
             per_res_atom_feat = per_res_atom_feat.to_tensor() + random_translations.unsqueeze(1)
