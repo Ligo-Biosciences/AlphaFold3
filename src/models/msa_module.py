@@ -29,7 +29,8 @@ from src.models.components.dropout import DropoutRowwise
 from src.utils.tensor_utils import add, flatten_final_dims
 from functools import partial
 from typing import Dict
-from src.utils.checkpointing import checkpoint_blocks, checkpoint_wrapper
+from src.utils.checkpointing import checkpoint_blocks, get_checkpoint_fn
+checkpoint = get_checkpoint_fn()
 
 
 class MSAPairWeightedAveraging(nn.Module):
@@ -396,7 +397,6 @@ class MSAModule(nn.Module):
 
         return blocks
 
-    @checkpoint_wrapper
     def init_msa_repr(
             self,
             feats: Dict[str, Tensor],
@@ -466,7 +466,7 @@ class MSAModule(nn.Module):
             blocks_per_ckpt = None
 
         # Initialize the MSA embedding
-        m = self.init_msa_repr(feats, s_inputs, msa_mask, inplace_safe)
+        m = checkpoint(self.init_msa_repr, feats, s_inputs, msa_mask, inplace_safe)
 
         # Run with grad checkpointing
         m, z = checkpoint_blocks(
