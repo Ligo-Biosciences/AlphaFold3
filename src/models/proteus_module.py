@@ -1,5 +1,4 @@
-from typing import Any, Dict
-
+from typing import Any, Dict, Optional
 import torch
 from torch import nn
 import hydra
@@ -56,9 +55,7 @@ class Proteus(nn.Module):
         token_mask = features["token_mask"]
 
         # Initial Features
-        s_inputs, s_trunk, z_trunk = self.feature_embedder(
-            features, atom_mask=atom_mask, token_mask=token_mask  # use_deepspeed=use_flash
-        )
+        s_inputs, s_trunk, z_trunk = self.feature_embedder(features, atom_mask, token_mask)
 
         # Diffusion module
         outputs = self.diffusion_module.train_step(
@@ -88,8 +85,10 @@ class ProteusLitModule(LightningModule):
         self.ema = ExponentialMovingAverage(
             model=self.model, decay=config.ema_decay
         )
-        self.last_lr_step = -1
+        self.cached_weights = None
 
+
+        self.last_lr_step = -1
         # Save hyperparameters
         self.save_hyperparameters(logger=False)
 
@@ -110,6 +109,9 @@ class ProteusLitModule(LightningModule):
         # by default lightning executes validation step sanity checks before training starts,
         # so it's worth to make sure validation metrics don't store results from these checks
         self.val_loss.reset()
+
+        # Log gradients, parameter histograms, and model topology
+        self.logger.watch(self.model, log="all")
 
     def model_step(
             self, batch: Dict[str, Any]
@@ -173,44 +175,14 @@ class ProteusLitModule(LightningModule):
         """Lightning hook that is called when a training epoch ends."""
         pass
 
-    def on_before_zero_grad(self, optimizer: torch.optim.Optimizer) -> None:
-        """
-        1. Updates the EMA of the model parameters.
-        2. Keeps an eye on weight norms during training.
-        """
-        self.ema.update_parameters(self.model)
-
-        # Log weight norms
-        weight_norms = {}
-        for name, param in self.named_parameters():
-            weight_norms[f"{name}_abs_mean"] = param.abs().mean().item()
-        self.log_dict(weight_norms)
-
-    def on_before_optimizer_step(self, optimizer):
-        """Keeps an eye on gradient norms during training."""
-        norms = grad_norm(self.model, norm_type=2)
-        self.log_dict(norms)
-
     def validation_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
-        """Perform a single validation step on a batch of data from the validation set.
-        Args:
-            batch: A batch of data (a tuple) containing the x tensor of images and target
-                   labels.
-            batch_idx:
-                The index of the current batch.
-        """
+        """Perform a single validation step on a batch of data from the validation set."""
 
         loss = self.model_step(batch)
 
         # update and log metrics
         self.val_loss(loss)
         self.log("val/loss", self.val_loss, on_step=False, on_epoch=True, prog_bar=True)
-
-    def on_validation_epoch_end(self):
-        # Restore the model weights to normal
-        # self.model.load_state_dict(self.cached_weights)
-        # self.cached_weights = None
-        pass
 
     def test_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> None:
         """Perform a single test step on a batch of data from the test set."""
@@ -219,10 +191,6 @@ class ProteusLitModule(LightningModule):
         # update and log metrics
         self.test_loss(loss)
         self.log("test/loss", self.test_loss, on_step=False, on_epoch=True, prog_bar=True)
-
-    def on_test_epoch_end(self) -> None:
-        """Lightning hook that is called when a test epoch ends."""
-        pass
 
     def setup(self, stage: str) -> None:
         """Lightning hook that is called at the beginning of fit (train + validate), validate,
@@ -250,17 +218,55 @@ class ProteusLitModule(LightningModule):
                 # "frequency": 1,
             },
         }
+    
+    def on_before_zero_grad(self, optimizer: torch.optim.Optimizer) -> None:
+        """
+        Keeps an eye on weight norms during training.
+        """
+        # Log weight norms
+        weight_norms = {}
+        for name, param in self.named_parameters():
+            weight_norms[f"{name}_abs_mean"] = param.abs().mean().item()
+        self.log_dict(weight_norms)
+
+    def on_before_optimizer_step(self, optimizer):
+        """Keeps an eye on gradient norms during training."""
+        norms = grad_norm(self.model, norm_type=2)
+        self.log_dict(norms)
+
+    def on_train_batch_end(self, outputs, batch, batch_idx):
+        # Update EMA after each training batch
+        self.ema.update(self.model)
+    
+    def on_train_batch_start(self, batch: Any, batch_idx: int):
+        # Fetch the EMA weights to the device
+        if self.ema.device != batch["residue_index"].device:
+            self.ema.to(batch["residue_index"].device)
+
+    def on_validation_epoch_start(self):
+        # At the start of validation, load the EMA weights
+        if self.cached_weights is None:
+            # model.state_dict() contains references to model weights rather
+            # than copies. Therefore, we need to clone them before calling 
+            # load_state_dict().
+            clone_param = lambda t: t.detach().clone()
+            self.cached_weights = tensor_tree_map(clone_param, self.model.state_dict())
+            self.model.load_state_dict(self.ema.params)
+
+    def on_validation_epoch_end(self):
+        # Restore original model weights
+        if self.cached_weights is not None:
+            self.model.load_state_dict(self.cached_weights)
+            self.cached_weights = None
 
     def on_load_checkpoint(self, checkpoint: Dict[str, Any]):
         """Lightning hook that is called when loading a checkpoint."""
-        # ema = checkpoint["ema"]
-        # self.ema.load_state_dict(ema)
-        pass
+        ema = checkpoint["ema"]
+        self.ema.load_state_dict(ema)
 
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]):
         """Lightning hook that is called when saving a checkpoint."""
-        # checkpoint["ema"] = self.ema.state_dict()
-        pass
+        checkpoint["ema"] = self.ema.state_dict()
 
 
 def reshape_features(batch):

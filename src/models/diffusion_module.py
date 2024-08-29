@@ -15,7 +15,7 @@ from torch.nn import LayerNorm
 from typing import Dict, Tuple
 from src.models.diffusion_conditioning import DiffusionConditioning
 from src.models.diffusion_transformer import DiffusionTransformer
-from src.models.components.atom_attention import AtomAttentionEncoder, AtomAttentionDecoder
+from src.models.components.atom_attention_naive import AtomAttentionEncoder, AtomAttentionDecoder
 from src.models.components.primitives import LinearNoBias
 from src.utils.geometry.vector import Vec3Array
 from src.diffusion.augmentation import centre_random_augmentation
@@ -234,12 +234,7 @@ class DiffusionModule(torch.nn.Module):
 
         # Conditioning
         token_repr, pair_repr = self.diffusion_conditioning(
-            timesteps=timesteps,
-            features=features,
-            s_inputs=s_inputs,
-            s_trunk=s_trunk,
-            z_trunk=z_trunk,
-            mask=token_mask
+            timesteps, features, s_inputs, s_trunk, z_trunk, token_mask
         )
 
         # Scale positions to dimensionless vectors with approximately unit variance
@@ -253,6 +248,7 @@ class DiffusionModule(torch.nn.Module):
             z_trunk=z_trunk,
             noisy_pos=r_noisy,
             mask=atom_mask,
+            use_deepspeed_evo_attention=use_deepspeed_evo_attention
         )
 
         # Full self-attention on token level
@@ -275,6 +271,7 @@ class DiffusionModule(torch.nn.Module):
             atom_pair_skip_repr=atom_encoder_output.atom_pair_skip_repr,  # (bs, n_atoms, n_atoms, c_atom)
             tok_idx=features["atom_to_token"],  # (bs, n_atoms)
             mask=atom_mask,  # (bs, n_atoms)
+            use_deepspeed_evo_attention=use_deepspeed_evo_attention
         )  # (bs, S, n_atoms, 3)
 
         # Rescale updates to positions and combine with input positions

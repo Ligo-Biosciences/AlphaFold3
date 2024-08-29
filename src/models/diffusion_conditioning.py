@@ -7,7 +7,7 @@ from torch.nn import LayerNorm
 from src.models.components.primitives import LinearNoBias
 from src.models.components.relative_position_encoding import RelativePositionEncoding
 from src.models.components.transition import Transition
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional
 from src.utils.checkpointing import get_checkpoint_fn
 checkpoint = get_checkpoint_fn()
 
@@ -130,15 +130,20 @@ class DiffusionConditioning(nn.Module):
             pair_repr = pair_repr * pair_mask
 
         return token_repr, pair_repr
+    
 
     def forward(
             self,
-            timesteps: Tensor,  # timestep (bs, S, 1)
-            features: Dict[str, Tensor],  # input feature dict
-            s_inputs: Tensor,  # (bs, n_tokens, c_token)
-            s_trunk: Tensor,  # (bs, n_tokens, c_token)
-            z_trunk: Tensor,  # (bs, n_tokens, n_tokens, c_pair)
-            mask: Tensor = None,  # (bs, n_tokens)
-    ) -> Tuple[Tensor, Tensor]:
+            timesteps: torch.Tensor,
+            features: Dict[str, torch.Tensor],
+            s_inputs: torch.Tensor,
+            s_trunk: torch.Tensor,
+            z_trunk: torch.Tensor,
+            mask: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Forward pass with gradient checkpointing.
+        """
+        # TODO: inelegant solution
         return checkpoint(self._forward, timesteps, features, s_inputs, s_trunk, z_trunk, mask)
 

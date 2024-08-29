@@ -815,6 +815,17 @@ def make_atom_features(protein):
             repeats=num_res,
             dim=0
         )  # (1, 4, ...) -> (num_res, 4, ...)
+        # Randomly rotate and translate the reference positions for each residue
+        if feat_name == "ref_pos":
+            # Generate random rotations for each residue
+            # Generate random rotations for each residue
+            random_rotations = Rot3Array.uniform_random(shape=(num_res, 1), device=per_res_atom_feat.device)
+            # Generate random translations for each residue
+            random_translations = 16.0 * torch.randn(num_res, 3, device=per_res_atom_feat.device)
+            # Apply rotations and translations
+            per_res_atom_feat = random_rotations.apply_to_point(Vec3Array.from_array(per_res_atom_feat))
+            per_res_atom_feat = per_res_atom_feat.to_tensor() + random_translations.unsqueeze(1)
+        
         # Reshape to (num_res, 4, ...) -> (num_res * 4, ...)
         atom_feats[feat_name] = per_res_atom_feat  # per_res_atom_feat.reshape(  skip the reshape for now.
         # -1, *per_res_atom_feat.shape[2:]

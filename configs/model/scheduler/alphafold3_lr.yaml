@@ -1,0 +1,12 @@
+# AlphaFold3 LR scheduler
+
+_target_: src.utils.lr_schedulers.AlphaFoldLRScheduler
+_partial_: true
+last_epoch: -1
+verbose: false
+base_lr: 0.0  # the starting learning rate
+max_lr: 0.0018
+warmup_no_steps: 1000
+start_decay_after_n_steps: 50_000
+decay_every_n_steps: 50_000
+decay_factor: 0.95

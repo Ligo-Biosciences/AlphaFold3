@@ -11,9 +11,9 @@ class TestAtomFeatures(unittest.TestCase):
 
     def test_forward(self):
         atom_features = make_atom_features(self.protein)
-        self.assertEqual(atom_features["ref_pos"].shape, (100 * 4, 3))
-        self.assertEqual(atom_features["ref_mask"].shape, (100 * 4,))
-        self.assertEqual(atom_features["ref_element"].shape, (100 * 4, 4))
-        self.assertEqual(atom_features["ref_charge"].shape, (100 * 4, ))
-        self.assertEqual(atom_features["ref_atom_name_chars"].shape, (100 * 4, 3))
-        self.assertEqual(atom_features["ref_space_uid"].shape, (100 * 4, 4))
+        self.assertEqual(atom_features["ref_pos"].shape, (100, 4, 3))
+        self.assertEqual(atom_features["ref_mask"].shape, (100, 4,))
+        self.assertEqual(atom_features["ref_element"].shape, (100, 4, 4))
+        self.assertEqual(atom_features["ref_charge"].shape, (100, 4, ))
+        self.assertEqual(atom_features["ref_atom_name_chars"].shape, (100, 4, 4))
+        self.assertEqual(atom_features["ref_space_uid"].shape, (100, 4))

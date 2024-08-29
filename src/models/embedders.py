@@ -4,15 +4,16 @@ from torch import Tensor
 from torch import nn
 from torch.nn import functional as F
 from torch.nn import LayerNorm
-from src.models.components.atom_attention import AtomAttentionEncoder
+from src.models.components.atom_attention_naive import AtomAttentionEncoder
 from typing import Dict, NamedTuple, Tuple, Optional
 from src.models.components.primitives import LinearNoBias, Linear
 from src.models.components.relative_position_encoding import RelativePositionEncoding
 from src.models.template import TemplatePairStack
 from src.utils.tensor_utils import add
-from src.utils.checkpointing import get_checkpoint_fn
 from src.utils.geometry.vector import Vec3Array
+from src.utils.checkpointing import get_checkpoint_fn
 checkpoint = get_checkpoint_fn()
+
 
 
 class InputFeatureEmbedder(nn.Module):
@@ -21,6 +22,9 @@ class InputFeatureEmbedder(nn.Module):
     representing all the tokens.
     - Embed per-atom features
     - Concatenate the per-token features
+    TODO: during model training, this module is completely dead! 
+        - encoder's output projection is learning
+        - output_ln is learning
     """
 
     def __init__(
@@ -503,15 +507,4 @@ class ProteusFeatureEmbedder(nn.Module):
             atom_mask: torch.Tensor = None,
             token_mask: torch.Tensor = None,
     ) -> Tuple[Tensor, Tensor, Tensor]:
-        """Forward pass of the Proteus feature embedder.
-            Args:
-                features:
-                    Dictionary containing the input features
-                atom_mask:
-                    [*, N_atoms] mask indicating which atoms are valid (non-padding).
-                token_mask:
-                    [*, N_tokens] mask indicating which tokens are valid (non-padding).
-            Returns:
-                [*, N_tokens, c_token] Embedding of the input features.
-        """
-        return self._forward(features, atom_mask, token_mask)  # checkpoint()
+        return checkpoint(self._forward, features, atom_mask, token_mask)

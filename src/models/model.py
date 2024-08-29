@@ -17,7 +17,7 @@ class AlphaFold3(nn.Module):
     def __init__(self, config):
         super(AlphaFold3, self).__init__()
         self.globals = config.globals
-        self.config = config.model
+        self.config = config
 
         self.input_embedder = InputEmbedder(
             **self.config["input_embedder"]

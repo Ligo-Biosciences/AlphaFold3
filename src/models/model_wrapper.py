@@ -5,6 +5,7 @@ import torch
 from lightning import LightningModule
 from lightning.pytorch.utilities import grad_norm
 from src.utils.tensor_utils import tensor_tree_map
+from typing import Any, Dict, Optional
 from src.models.model import AlphaFold3
 from src.utils.loss import AlphaFold3Loss
 from src.utils.exponential_moving_average import ExponentialMovingAverage
@@ -25,7 +26,10 @@ class AlphaFoldWrapper(LightningModule):
 
         self.loss = AlphaFold3Loss(config.loss)
 
-        self.ema = ExponentialMovingAverage(model=self.model, decay=config.ema_decay)
+        self.ema = ExponentialMovingAverage(
+            model=self.model, decay=config.ema_decay
+        )
+        self.cached_weights = None
 
         self.cached_weights = None
         self.last_lr_step = -1
@@ -100,10 +104,6 @@ class AlphaFoldWrapper(LightningModule):
             train=True
         )
         return loss
-
-    def on_before_zero_grad(self, *args, **kwargs):
-        # Apply EMA to model
-        self.ema.update_parameters(self.model)
 
     def validation_step(self, batch, batch_idx):
         batch = reshape_features(batch)  # temporary
@@ -201,6 +201,55 @@ class AlphaFoldWrapper(LightningModule):
     #    """Keeps an eye on gradient norms during training."""
     #    norms = grad_norm(self.model, norm_type=2)
     #    self.log_dict(norms)
+
+    def on_before_zero_grad(self, optimizer: torch.optim.Optimizer) -> None:
+        """
+        Keeps an eye on weight norms during training.
+        """
+        # Log weight norms
+        weight_norms = {}
+        for name, param in self.named_parameters():
+            weight_norms[f"{name}_abs_mean"] = param.abs().mean().item()
+        self.log_dict(weight_norms)
+
+    def on_before_optimizer_step(self, optimizer):
+        """Keeps an eye on gradient norms during training."""
+        norms = grad_norm(self.model, norm_type=2)
+        self.log_dict(norms)
+
+    def on_train_batch_end(self, outputs, batch, batch_idx):
+        # Update EMA after each training batch
+        self.ema.update(self.model)
+    
+    def on_train_batch_start(self, batch: Any, batch_idx: int):
+        # Fetch the EMA weights to the device
+        if self.ema.device != batch["residue_index"].device:
+            self.ema.to(batch["residue_index"].device)
+
+    def on_validation_epoch_start(self):
+        # At the start of validation, load the EMA weights
+        if self.cached_weights is None:
+            # model.state_dict() contains references to model weights rather
+            # than copies. Therefore, we need to clone them before calling 
+            # load_state_dict().
+            clone_param = lambda t: t.detach().clone()
+            self.cached_weights = tensor_tree_map(clone_param, self.model.state_dict())
+            self.model.load_state_dict(self.ema.params)
+
+    def on_validation_epoch_end(self):
+        # Restore original model weights
+        if self.cached_weights is not None:
+            self.model.load_state_dict(self.cached_weights)
+            self.cached_weights = None
+
+    def on_load_checkpoint(self, checkpoint: Dict[str, Any]):
+        """Lightning hook that is called when loading a checkpoint."""
+        ema = checkpoint["ema"]
+        self.ema.load_state_dict(ema)
+
+    def on_save_checkpoint(self, checkpoint: Dict[str, Any]):
+        """Lightning hook that is called when saving a checkpoint."""
+        checkpoint["ema"] = self.ema.state_dict()
 
     def resume_last_lr_step(self, lr_step):
         self.last_lr_step = lr_step

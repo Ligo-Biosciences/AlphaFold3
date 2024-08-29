@@ -1,44 +1,21 @@
-# Copyright 2021 AlQuraishi Laboratory
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import importlib
 from typing import Any, Tuple, List, Callable, Optional
 import torch
 import torch.utils.checkpoint
-from functools import partial
+import functools
 
-deepspeed_is_installed = importlib.util.find_spec("deepspeed") is not None
-if deepspeed_is_installed:
+try:
     import deepspeed
+    deepspeed_is_installed = True
+except ImportError:
+    deepspeed_is_installed = False
 
 BLOCK_ARG = Any
 BLOCK_ARGS = Tuple[BLOCK_ARG, ...]  # List[BLOCK_ARGS]
 
-
 def get_checkpoint_fn():
-    deepspeed_is_configured = (
-        deepspeed_is_installed and
-        deepspeed.checkpointing.is_configured()
-    )
-    if deepspeed_is_configured:
-        checkpoint = deepspeed.checkpointing.checkpoint
-    else:
-        checkpoint = partial(torch.utils.checkpoint.checkpoint, use_reentrant=False)
+    return deepspeed.checkpointing.checkpoint  # torch.utils.checkpoint.checkpoint
 
-    return checkpoint
-
-
-@torch.jit.ignore
 def checkpoint_blocks(
     blocks: List[Callable],
     args: BLOCK_ARGS,
