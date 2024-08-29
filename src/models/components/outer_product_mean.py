@@ -50,7 +50,7 @@ class OuterProductMean(nn.Module):
         self.layer_norm = nn.LayerNorm(c_m)
         self.linear_1 = Linear(c_m, c_hidden)
         self.linear_2 = Linear(c_m, c_hidden)
-        self.linear_out = Linear(c_hidden ** 2, c_z, init="default")
+        self.linear_out = Linear(c_hidden ** 2, c_z, init="final")
 
     def _opm(self, a, b):
         # [*, N_res, N_res, C, C]

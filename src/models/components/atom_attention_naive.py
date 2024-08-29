@@ -2,14 +2,10 @@
  We did early experiments with a PyTorch-native implementation that is supposed to use memory more efficiently, 
  but they did not show much benefit since attention implementations in PyTorch were much slower despite 
  adding considerable clutter and complexity. We fall back to the Deepspeed4Science optimized attention kernel, which reduce 
- the memory consumption to linear anyway. 
+ the memory consumption to linear anyway. In practice, we only observe about a 20% increase in runtime and comparable memory usage.
 
-However, this is not recommended for large scale training. 
-The smart move here will be to migrate to FlexAttention once there is bias gradient support.
-
-AtomTransformer
-AtomAttentionEncoder
-AtomAttentionDecoder
+This is not recommended for large scale training. 
+The smart move here will be to migrate to FlexAttention once there is bias gradient support or to ScaleFold's kernels if they become available.
 """
 import torch
 from torch import Tensor
@@ -101,12 +97,12 @@ class AtomTransformerBlock(nn.Module):
         betas = self._prep_betas(n_atoms, atom_single.device)  # (1, n_atoms, n_atoms)
 
         # AttentionPairBias
-        b = self.attention(
+        atom_single = atom_single + self.attention(
             atom_single, atom_proj, atom_pair, mask, betas, 
             use_deepspeed_evo_attention=use_deepspeed_evo_attention
         )
         # ConditionedTransitionBlock
-        atom_single = b + self.transition(atom_single, atom_proj)
+        atom_single = atom_single + self.transition(atom_single, atom_proj)
         return atom_single, atom_proj, atom_pair
     
 
