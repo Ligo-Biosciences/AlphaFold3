@@ -34,7 +34,6 @@ class AtomTransformerBlock(nn.Module):
             dropout=0.0,
             n_queries: int = 32,
             n_keys: int = 128,
-            trunk_conditioning: bool = False,
             inf: float = 1e8
     ):
         """Initialize a block within AtomTransformer module.
@@ -125,7 +124,6 @@ class AtomTransformer(nn.Module):
             n_keys: int = 128,
             blocks_per_ckpt: int = 1,
             clear_cache_between_blocks: bool = False,
-            trunk_conditioning: bool = False
     ):
         """
         Initialize the AtomTransformer module.
@@ -159,7 +157,6 @@ class AtomTransformer(nn.Module):
         self.n_keys = n_keys
         self.blocks_per_ckpt = blocks_per_ckpt
         self.clear_cache_between_blocks = clear_cache_between_blocks
-        self.trunk_conditioning = trunk_conditioning
 
         self.blocks = nn.ModuleList(
             [AtomTransformerBlock(c_atom=c_atom,
@@ -167,8 +164,7 @@ class AtomTransformer(nn.Module):
                                   dropout=dropout,
                                   n_queries=n_queries,
                                   n_keys=n_keys,
-                                  c_atompair=c_atompair,
-                                  trunk_conditioning=trunk_conditioning)
+                                  c_atompair=c_atompair)
              for _ in range(no_blocks)]
         )
 
@@ -176,7 +172,7 @@ class AtomTransformer(nn.Module):
             self,
             atom_single: Tensor,
             atom_proj: Tensor,
-            atom_pair_local: Tensor,
+            atom_pair: Tensor,
             mask: Optional[Tensor] = None,
             use_deepspeed_evo_attention: bool = True
     ):
@@ -205,7 +201,7 @@ class AtomTransformer(nn.Module):
             self,
             atom_single: Tensor,
             atom_proj: Tensor,
-            atom_pair_local: Tensor,
+            atom_pair: Tensor,
             mask: Optional[Tensor] = None,
             use_deepspeed_evo_attention: bool = True
     ):
@@ -217,9 +213,7 @@ class AtomTransformer(nn.Module):
             atom_proj:
                 [bs, n_atoms, c_atom] atom projection representation.
             atom_pair_local:
-                [bs, n_atoms // n_queries, n_queries, n_keys, c_atompair] local atom pair representation tensor.
-                The pair representation is partitioned into n_atoms // n_queries for memory efficiency instead of
-                the full N_atoms x N_atoms
+                [bs, n_atoms, n_atoms, c_atompair] atom pair representation tensor.
             mask:
                 [bs, n_atoms] atom mask tensor where 1.0 indicates atom to be attended and
                 0.0 indicates atom not to be attended. The mask is shared across the S dimension.
@@ -230,7 +224,7 @@ class AtomTransformer(nn.Module):
         blocks = self._prep_blocks(
             atom_single=atom_single,
             atom_proj=atom_proj,
-            atom_pair_local=atom_pair_local,
+            atom_pair=atom_pair,
             mask=mask,
             use_deepspeed_evo_attention=use_deepspeed_evo_attention
         )
@@ -238,9 +232,9 @@ class AtomTransformer(nn.Module):
         if not torch.is_grad_enabled():
             blocks_per_ckpt = None
 
-        atom_single, atom_proj, atom_pair_local = checkpoint_blocks(
+        atom_single, atom_proj, atom_pair = checkpoint_blocks(
             blocks,
-            args=(atom_single, atom_proj, atom_pair_local),
+            args=(atom_single, atom_proj, atom_pair),
             blocks_per_ckpt=blocks_per_ckpt,
         )
         return atom_single
@@ -459,8 +453,7 @@ class AtomAttentionEncoder(nn.Module):
             dropout=dropout,
             n_queries=n_queries,
             n_keys=n_keys,
-            clear_cache_between_blocks=clear_cache_between_blocks,
-            trunk_conditioning=trunk_conditioning
+            clear_cache_between_blocks=clear_cache_between_blocks
         )
 
         # Final linear
@@ -522,7 +515,6 @@ class AtomAttentionEncoder(nn.Module):
             noisy_pos: Optional[Tensor],
     ) -> Tuple[Tensor, Tensor]:
         """Compute the single representation for the atom transformer.
-        This is done in a separate function for checkpointing.
         Args:
             features:
                 Dictionary of input features.
@@ -623,11 +615,11 @@ class AtomAttentionEncoder(nn.Module):
                 atom_single_skip_proj:
                     [*, N_atoms, c_atom] atom single projection (denoted c_l in AF3 Supplement)
                 atom_pair_skip_repr:
-                    [*, N_atoms // n_queries, n_queries, n_keys, c_atompair] atom pair representation
+                    [*, N_atoms, n_atoms, c_atompair] atom pair representation
                     (denoted p_lm in AF3 Supplement)
         """
         # Initialize representations
-        atom_single, atom_single_conditioning = checkpoint(self.init_single_repr, features, s_trunk, noisy_pos)
+        atom_single, atom_single_conditioning = self.init_single_repr(features, s_trunk, noisy_pos)
         atom_pair = checkpoint(self.init_pair_repr, features, atom_single_conditioning, z_trunk)
 
         # Cross attention transformer

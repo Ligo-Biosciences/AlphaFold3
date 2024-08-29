@@ -1,7 +1,7 @@
 _target_: src.models.proteus_module.ProteusLitModule
 
 defaults:
-  - optimizer: fused_adam
+  - optimizer: fused_adamw
   - scheduler: alphafold3_lr
   - loss: proteus_loss
 

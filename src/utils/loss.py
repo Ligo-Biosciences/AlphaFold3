@@ -128,13 +128,13 @@ def mse_loss(
     pred_atoms = Vec3Array.from_array(pred_atoms)
     gt_atoms = Vec3Array.from_array(gt_atoms)
 
-    # Align the gt_atoms to pred_atoms
-    aligned_gt_atoms = weighted_rigid_align(x=gt_atoms, x_gt=pred_atoms, weights=weights, mask=mask)
+    # Align the gt_atoms to pred_atoms,  # TODO: add the alignment back in
+    aligned_gt_atoms = gt_atoms  #weighted_rigid_align(x=gt_atoms, x_gt=pred_atoms, weights=weights, mask=mask)
 
     # MSE loss
     mse = mean_squared_error(pred_atoms, aligned_gt_atoms, weights, mask)
 
-    # Scale by (t**2 + σ**2) / (t + σ)**2
+    # Scale by (t**2 + σ**2) / (t * σ)**2
     scaling_factor = torch.add(timesteps ** 2, sd_data ** 2) / (torch.mul(timesteps, sd_data) ** 2 + epsilon)
     scaled_mse = scaling_factor.squeeze(-1) * mse  # (bs,)
 
