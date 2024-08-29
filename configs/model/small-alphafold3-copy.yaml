@@ -1,29 +1,4 @@
 # AlphaFold3 configs
-# _target_: src.models.model_wrapper.AlphaFoldWrapper
-# config:
-optimizer:
-  _target_: torch.optim.Adam  # deepspeed.ops.adam.FusedAdam
-  _partial_: true
-  lr: 0.00018
-  betas:
-    - 0.9
-    - 0.95
-  eps: 1e-08
-  weight_decay: 0.0
-
-scheduler:
-  _target_: src.utils.lr_schedulers.AlphaFoldLRScheduler
-  _partial_: true
-  last_epoch: -1
-  verbose: false
-  base_lr: 0.0  # the starting learning rate
-  max_lr: 0.00018
-  warmup_no_steps: 1000
-  start_decay_after_n_steps: 50_000
-  decay_every_n_steps: 50_000
-  decay_factor: 0.95
-
-# Loss configs
 loss:
   mse_loss:
     sd_data: 16.0
@@ -53,114 +28,135 @@ loss:
       eps: 0.0000000001  # 1e-10,
       weight: 0.0004
 
+optimizer:
+  # FusedAdam optimizer
+  _target_: deepspeed.ops.adam.FusedAdam
+  adam_w_mode: true
+  weight_decay: 1e-5
+  lr: 0.0018
+  betas:
+    - 0.9
+    - 0.95
+  eps: 1e-08
 
-# TODO: fix the model.model notation in interpolation
-model:
-  c_token: 384  # the token representation dim
-  c_pair: 128  # the pair representation dim
-  c_atom: 128  # the atom representation dim
-  c_atompair: 16  # the atom pair representation dim
+scheduler:
+  _target_: src.utils.lr_schedulers.AlphaFoldLRScheduler
+  _partial_: true
+  last_epoch: -1
+  verbose: false
+  base_lr: 0.0  # the starting learning rate
+  max_lr: 0.0018
+  warmup_no_steps: 1000
+  start_decay_after_n_steps: 50_000
+  decay_every_n_steps: 50_000
+  decay_factor: 0.95
 
-  # Pair stack parameters (used in Pairformer, MSA module, and Confidence head)
-  c_hidden_tri_mul: 128  # the hidden dim for the triangle multiplicative update
-  c_hidden_pair_attn: 32  # the hidden dim for the pair attention ${common.c_hidden_pair_attn}
-  no_heads_tri_attn: 4
-  transition_n: 4
-  pair_dropout: 0.25
-  fuse_projection_weights: false
-  blocks_per_ckpt: 1  # number of blocks per checkpoint, if none, no checkpointing
-  clear_cache_between_blocks: false  # whether to clear GPU memory cache between blocks
-  # Pairformer attention pair bias
-  no_heads_single_attn: 16
 
-  # Input Embedder
-  input_embedder:
-    c_token: ${model.c_token}
-    c_trunk_pair: ${model.c_pair}
-    c_atom: ${model.c_atom}
-    c_atompair: ${model.c_atompair}
+c_token: 384  # the token representation dim
+c_pair: 128  # the pair representation dim
+c_atom: 128  # the atom representation dim
+c_atompair: 16  # the atom pair representation dim
 
-  # MSA module
-  msa_module:
-    no_blocks: 4
-    c_msa: 64
-    c_token: ${model.c_token}
-    c_z: ${model.c_pair}
-    c_hidden: 32
-    no_heads: 8
-    c_hidden_tri_mul: ${model.c_hidden_tri_mul}
-    c_hidden_pair_attn: ${model.c_hidden_pair_attn}
-    no_heads_tri_attn: ${model.no_heads_tri_attn}
-    transition_n: ${model.transition_n}
-    pair_dropout: ${model.pair_dropout}
-    fuse_projection_weights: ${model.fuse_projection_weights}
-    clear_cache_between_blocks: ${model.clear_cache_between_blocks}
-    blocks_per_ckpt: ${model.blocks_per_ckpt}
-    inf: 1e8
+# Pair stack parameters (used in Pairformer, MSA module, and Confidence head)
+c_hidden_tri_mul: 128  # the hidden dim for the triangle multiplicative update
+c_hidden_pair_attn: 32  # the hidden dim for the pair attention ${common.c_hidden_pair_attn}
+no_heads_tri_attn: 4
+transition_n: 4
+pair_dropout: 0.25
+fuse_projection_weights: false
+blocks_per_ckpt: 1  # number of blocks per checkpoint, if none, no checkpointing
+clear_cache_between_blocks: false  # whether to clear GPU memory cache between blocks
+# Pairformer attention pair bias
+no_heads_single_attn: 16
 
-  # Template Embedder
-  template_embedder:
-    no_blocks: 2
-    c_template: 64
-    c_z: ${model.c_pair}
-    clear_cache_between_blocks: ${model.clear_cache_between_blocks}
+# Input Embedder
+input_embedder:
+  c_token: ${c_token}
+  c_trunk_pair: ${c_pair}
+  c_atom: ${c_atom}
+  c_atompair: ${c_atompair}
 
-  # PairformerStack
-  pairformer_stack:
-    c_s: ${model.c_token}
-    c_z: ${model.c_pair}
-    no_blocks: 24
-    c_hidden_mul: ${model.c_hidden_tri_mul}
-    c_hidden_pair_attn: ${model.c_hidden_pair_attn}
-    no_heads_tri_attn: ${model.no_heads_tri_attn}
-    no_heads_single_attn: ${model.no_heads_single_attn}
-    transition_n: ${model.transition_n}
-    pair_dropout: ${model.pair_dropout}
-    fuse_projection_weights: ${model.fuse_projection_weights}
-    blocks_per_ckpt: ${model.blocks_per_ckpt}
-    clear_cache_between_blocks: false
-    inf: 1e8
+# MSA module
+msa_module:
+  no_blocks: 4
+  c_msa: 64
+  c_token: ${c_token}
+  c_z: ${c_pair}
+  c_hidden: 32
+  no_heads: 8
+  c_hidden_tri_mul: ${c_hidden_tri_mul}
+  c_hidden_pair_attn: ${c_hidden_pair_attn}
+  no_heads_tri_attn: ${no_heads_tri_attn}
+  transition_n: ${transition_n}
+  pair_dropout: ${pair_dropout}
+  fuse_projection_weights: ${fuse_projection_weights}
+  clear_cache_between_blocks: ${clear_cache_between_blocks}
+  blocks_per_ckpt: ${blocks_per_ckpt}
+  inf: 1e8
 
-  # Diffusion module
-  diffusion_module:
-    c_atom: ${model.c_atom}
-    c_atompair: ${model.c_atompair}
-    c_token: ${model.c_token}
-    c_tokenpair: ${model.c_pair}
-    atom_encoder_blocks: 3
-    atom_encoder_heads: 16
-    dropout: 0.0
-    atom_attention_n_queries: 32  # TODO: with sliding window attention this is not used.
-    atom_attention_n_keys: 128
-    atom_decoder_blocks: 3
-    atom_decoder_heads: 16
-    token_transformer_blocks: 12
-    token_transformer_heads: 16
-    sd_data: 16.0
-    s_max: 160.0
-    s_min: 0.0004
-    p: 7.0
-    clear_cache_between_blocks: ${model.clear_cache_between_blocks}
-    blocks_per_ckpt: ${model.blocks_per_ckpt}
+# Template Embedder
+template_embedder:
+  no_blocks: 2
+  c_template: 64
+  c_z: ${c_pair}
+  clear_cache_between_blocks: ${clear_cache_between_blocks}
 
-  confidence_head:
-    c_s: 384 # ${model.c_token}
-    c_z: ${model.c_pair}
-    no_blocks: 4
-    no_bins_pde: 64
-    no_bins_plddt: 64
-    no_bins_pae: 64
-    c_hidden_mul: ${model.c_hidden_tri_mul}
-    c_hidden_pair_attn: ${model.c_hidden_pair_attn}
-    no_heads_tri_attn: ${model.no_heads_tri_attn}
-    no_heads_single_attn: ${model.no_heads_single_attn}
-    transition_n: ${model.transition_n}
-    pair_dropout: ${model.pair_dropout}
-    fuse_projection_weights: ${model.fuse_projection_weights}
+# PairformerStack
+pairformer_stack:
+  c_s: ${c_token}
+  c_z: ${c_pair}
+  no_blocks: 24
+  c_hidden_mul: ${c_hidden_tri_mul}
+  c_hidden_pair_attn: ${c_hidden_pair_attn}
+  no_heads_tri_attn: ${no_heads_tri_attn}
+  no_heads_single_attn: ${no_heads_single_attn}
+  transition_n: ${transition_n}
+  pair_dropout: ${pair_dropout}
+  fuse_projection_weights: ${fuse_projection_weights}
+  blocks_per_ckpt: ${blocks_per_ckpt}
+  clear_cache_between_blocks: false
+  inf: 1e8
 
-  distogram_head:
-    c_z: ${model.c_pair}
-    no_bins: 64
+# Diffusion module
+diffusion_module:
+  c_atom: ${c_atom}
+  c_atompair: ${c_atompair}
+  c_token: ${c_token}
+  c_tokenpair: ${c_pair}
+  atom_encoder_blocks: 3
+  atom_encoder_heads: 16
+  dropout: 0.0
+  atom_attention_n_queries: 32  # TODO: with sliding window attention this is not used.
+  atom_attention_n_keys: 128
+  atom_decoder_blocks: 3
+  atom_decoder_heads: 16
+  token_transformer_blocks: 12
+  token_transformer_heads: 16
+  sd_data: 16.0
+  s_max: 160.0
+  s_min: 0.0004
+  p: 7.0
+  clear_cache_between_blocks: ${clear_cache_between_blocks}
+  blocks_per_ckpt: ${blocks_per_ckpt}
+
+confidence_head:
+  c_s: 384 # ${c_token}
+  c_z: ${c_pair}
+  no_blocks: 4
+  no_bins_pde: 64
+  no_bins_plddt: 64
+  no_bins_pae: 64
+  c_hidden_mul: ${c_hidden_tri_mul}
+  c_hidden_pair_attn: ${c_hidden_pair_attn}
+  no_heads_tri_attn: ${no_heads_tri_attn}
+  no_heads_single_attn: ${no_heads_single_attn}
+  transition_n: ${transition_n}
+  pair_dropout: ${pair_dropout}
+  fuse_projection_weights: ${fuse_projection_weights}
+
+distogram_head:
+  c_z: ${c_pair}
+  no_bins: 64
 
 # Exponential moving average decay rate
 ema_decay: 0.999

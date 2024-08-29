@@ -34,6 +34,7 @@ class AtomTransformerBlock(nn.Module):
             dropout=0.0,
             n_queries: int = 32,
             n_keys: int = 128,
+            trunk_conditioning: bool = False,
             inf: float = 1e8
     ):
         """Initialize a block within AtomTransformer module.
@@ -101,12 +102,12 @@ class AtomTransformerBlock(nn.Module):
         betas = self._prep_betas(n_atoms, atom_single.device)  # (1, n_atoms, n_atoms)
 
         # AttentionPairBias
-        atom_single = atom_single + self.attention(
+        b = self.attention(
             atom_single, atom_proj, atom_pair, mask, betas, 
             use_deepspeed_evo_attention=use_deepspeed_evo_attention
         )
         # ConditionedTransitionBlock
-        atom_single = atom_single + self.transition(atom_single, atom_proj)
+        atom_single = b + self.transition(atom_single, atom_proj)
         return atom_single, atom_proj, atom_pair
     
 
@@ -124,6 +125,7 @@ class AtomTransformer(nn.Module):
             n_keys: int = 128,
             blocks_per_ckpt: int = 1,
             clear_cache_between_blocks: bool = False,
+            trunk_conditioning: bool = False
     ):
         """
         Initialize the AtomTransformer module.
@@ -157,6 +159,7 @@ class AtomTransformer(nn.Module):
         self.n_keys = n_keys
         self.blocks_per_ckpt = blocks_per_ckpt
         self.clear_cache_between_blocks = clear_cache_between_blocks
+        self.trunk_conditioning = trunk_conditioning
 
         self.blocks = nn.ModuleList(
             [AtomTransformerBlock(c_atom=c_atom,
@@ -164,7 +167,8 @@ class AtomTransformer(nn.Module):
                                   dropout=dropout,
                                   n_queries=n_queries,
                                   n_keys=n_keys,
-                                  c_atompair=c_atompair)
+                                  c_atompair=c_atompair,
+                                  trunk_conditioning=trunk_conditioning)
              for _ in range(no_blocks)]
         )
 
@@ -455,7 +459,8 @@ class AtomAttentionEncoder(nn.Module):
             dropout=dropout,
             n_queries=n_queries,
             n_keys=n_keys,
-            clear_cache_between_blocks=clear_cache_between_blocks
+            clear_cache_between_blocks=clear_cache_between_blocks,
+            trunk_conditioning=trunk_conditioning
         )
 
         # Final linear
@@ -507,7 +512,7 @@ class AtomAttentionEncoder(nn.Module):
                     self.linear_single_to_pair_col(F.relu(atom_cond[:, :, None, :])) + atom_pair
         
         # Run a small MLP on the pair activations
-        atom_pair = self.pair_mlp(atom_pair)
+        atom_pair = atom_pair + self.pair_mlp(atom_pair)
         return atom_pair
     
     def init_single_repr(
@@ -542,7 +547,7 @@ class AtomAttentionEncoder(nn.Module):
                  features['ref_mask'].unsqueeze(-1),
                  features['ref_element'],
                  features['ref_atom_name_chars'].reshape(batch_size, n_atoms, 4)],  # * 64
-                dim=2
+                dim=-1
             )
         )
         # Initialize the atom single representation as the single conditioning

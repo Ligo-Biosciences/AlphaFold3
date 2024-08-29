@@ -69,7 +69,7 @@ class MSAPairWeightedAveraging(nn.Module):
         )
 
         # Output projection
-        self.output_proj = LinearNoBias(no_heads * c_hidden, c_msa, init='final')
+        self.output_proj = LinearNoBias(no_heads * c_hidden, c_msa, init='default')  # final
 
         self.softmax = nn.Softmax(dim=-2)
 
@@ -92,7 +92,6 @@ class MSAPairWeightedAveraging(nn.Module):
                 [*, N_res, N_res] pair mask
         Returns:
             [*, N_seq, N_res, C_m] updated MSA representation
-        TODo: use the optimized triton kernel from FastFold here!
         """
         *_, n_seq, n_res, _ = m.shape
 
@@ -343,6 +342,10 @@ class MSAModule(nn.Module):
             clear_cache_between_blocks:
                 Whether to clear CUDA's GPU memory cache between blocks of the
                 stack. Slows down each block but can reduce fragmentation
+        
+        TODO: MSAModule blocks 3 mysteriously dies (no parameter updates)
+        - msa_module msa stack dies
+        - outer product mean is still learning
         """
         super(MSAModule, self).__init__()
         self.blocks = nn.ModuleList([

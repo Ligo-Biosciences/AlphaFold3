@@ -22,6 +22,9 @@ class InputFeatureEmbedder(nn.Module):
     representing all the tokens.
     - Embed per-atom features
     - Concatenate the per-token features
+    TODO: during model training, this module is completely dead! 
+        - encoder's output projection is learning
+        - output_ln is learning
     """
 
     def __init__(
