@@ -2,7 +2,8 @@
  We did early experiments with a PyTorch-native implementation that is supposed to use memory more efficiently, 
  but they did not show much benefit since attention implementations in PyTorch were much slower despite 
  adding considerable clutter and complexity. We fall back to the Deepspeed4Science optimized attention kernel, which reduce 
- the memory consumption to linear anyway. In practice, we only observe about a 20% increase in runtime and comparable memory usage.
+ the memory consumption to linear anyway. In practice, we only observe about a 20% increase in runtime. 
+ The memory usage is approximately the same. 
 
 This is not recommended for large scale training. 
 The smart move here will be to migrate to FlexAttention once there is bias gradient support or to ScaleFold's kernels if they become available.
@@ -12,7 +13,7 @@ from torch import Tensor
 from torch import nn
 from torch.nn import functional as F
 from typing import Dict, NamedTuple, Optional, Tuple
-from src.models.components.primitives import AdaLN, Linear, LinearNoBias, Attention
+from src.models.components.primitives import Linear, LinearNoBias
 from src.models.components.attention_pair_bias import AttentionPairBias
 from torch.nn import LayerNorm
 from src.models.components.transition import ConditionedTransitionBlock

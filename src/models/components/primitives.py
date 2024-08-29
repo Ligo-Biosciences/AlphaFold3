@@ -386,8 +386,6 @@ def safe_softmax(x, axis=-1):
     a = torch.nan_to_num(a, nan=0.0)
     return a
 
-
-# @torch.compile(mode="max-autotune")
 def _attention(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, biases: List[torch.Tensor]) -> torch.Tensor:
     """A stock PyTorch implementation of the attention mechanism.
     Args:
@@ -419,8 +417,6 @@ def _attention(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, bias
 
     return a
 
-
-@torch.jit.ignore
 def _deepspeed_evo_attn(
         q: torch.Tensor,
         k: torch.Tensor,
