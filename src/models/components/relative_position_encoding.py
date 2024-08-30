@@ -66,7 +66,7 @@ class RelativePositionEncoding(nn.Module):
             [*, n_tokens, n_tokens, c_pair] relative position encoding tensor
         """
         device = features["residue_index"].device
-        dtype = features["residue_index"].dtype
+        dtype = self.linear_proj.weight.dtype
 
         # Compute masks
         b_same_chain = torch.isclose(features["asym_id"][..., :, None], features["asym_id"][..., None, :])
