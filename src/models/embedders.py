@@ -388,53 +388,6 @@ class TemplateEmbedder(nn.Module):
         return u
 
 
-class TemplatePairEmbedder(nn.Module):
-    def __init__(
-            self,
-            c_in: int,
-            c_out: int,
-            c_dgram: int,
-            c_aatype: int
-    ):
-        super(TemplatePairEmbedder, self).__init__()
-
-        self.dgram_linear = Linear(c_dgram, c_out, init='relu')
-
-    def forward(
-            self,
-            template_dgram: Tensor,
-            aatype_one_hot: Tensor,
-            query_embedding: Tensor,
-            pseudo_beta_mask: Tensor,
-            backbone_mask: Tensor,
-            multichain_mask_2d: Tensor,
-            unit_vector: Vec3Array,
-    ) -> Tensor:
-        # TODO: implement pair embedder
-        pass
-
-
-class TemplateEmbedderMultimer(nn.Module):
-    """Template embedder used in AF3-Multimer, will replace the TemplateEmbedder above."""
-
-    def __init__(self, config):
-        super(TemplateEmbedderMultimer, self).__init__()
-        self.config = config
-        # pair embedder
-        # template pair stack
-
-    def forward(self):
-        # TODO: integrate pair embedder with the template pair stack
-        pass
-
-
-class ProteusFeatures(NamedTuple):
-    """Structured output class for Proteus features."""
-    s_inputs: Tensor  # (bs, n_tokens, c_token)
-    s_trunk: Tensor  # (bs, n_tokens, c_token)
-    z_trunk: Tensor  # (bs, n_tokens, n_tokens, c_token)
-
-
 class ProteusFeatureEmbedder(nn.Module):
     """Convenience class for the Proteus experiment."""
 

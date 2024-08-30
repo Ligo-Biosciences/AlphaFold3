@@ -234,7 +234,7 @@ class AlphaFold3(nn.Module):
 
                 # Token-wise features
                 "residue_index" ([*, N_token]):
-                    Residue number in the token’s original input chain.
+                    Residue number in the token's original input chain.
                 "token_index" ([*, N_token]):
                     Token number. Increases monotonically; does not restart at 1 for
                     new chains.
@@ -271,7 +271,7 @@ class AlphaFold3(nn.Module):
                     Charge for each atom in the reference conformer.
                 "ref_atom_name_chars" ([*, N_atom, 4, 64]):
                     One-hot encoding of the unique atom names in the reference conformer.
-                    Each character is encoded as ord(c) − 32, and names are padded to length 4.
+                    Each character is encoded as ord(c) - 32, and names are padded to length 4.
                 "ref_space_uid" ([*, N_atom]):
                     Numerical encoding of the chain id and residue index associated with this
                     reference conformer. Each (chain id, residue index) tuple is assigned an
@@ -394,7 +394,7 @@ class AlphaFold3(nn.Module):
         # Run heads
         outputs["distogram_logits"] = self.distogram_head.forward(z)
 
-        # Run confidence head with stop-gradient  # TODO: there is a bug in the confidence head
+        # Run confidence head with stop-gradient 
         # confidences = self.run_confidence_head(
         #    batch=batch,
         #    atom_positions=sampled_positions,

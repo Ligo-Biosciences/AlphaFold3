@@ -22,6 +22,7 @@ but with several modifications to make it more amenable to the task. The main ch
  - Standard transformer tricks (e.g. SwiGLU) and methods used in AlphaFold2 (gating)
  - A two-level architecture, working first on atoms, then tokens, then atoms again.
 """
+import math
 import torch
 from torch import nn
 from torch import Tensor
@@ -33,7 +34,7 @@ from src.models.components.atom_attention_naive import AtomAttentionEncoder, Ato
 from src.models.components.primitives import LinearNoBias
 from src.utils.geometry.vector import Vec3Array
 from src.diffusion.augmentation import centre_random_augmentation
-from src.diffusion.sample import sample_noise_level, noise_positions
+from src.diffusion.noise import sample_noise_level, noise_positions
 
 
 class DiffusionModule(torch.nn.Module):
@@ -213,7 +214,7 @@ class DiffusionModule(torch.nn.Module):
                     "atom_to_token" ([*, N_atoms]):
                         Token index for each atom in the flat atom representation.
                     "residue_index" ([*, N_tokens]):
-                        Residue number in the token’s original input chain.
+                        Residue number in the token's original input chain.
                     "token_index" ([*, N_tokens]):
                         Token number. Increases monotonically; does not restart at 1
                         for new chains.
@@ -330,7 +331,7 @@ class DiffusionModule(torch.nn.Module):
                     "atom_to_token" ([*, N_atoms]):
                         Token index for each atom in the flat atom representation.
                     "residue_index" ([*, N_tokens]):
-                        Residue number in the token’s original input chain.
+                        Residue number in the token's original input chain.
                     "token_index" ([*, N_tokens]):
                         Token number. Increases monotonically; does not restart at 1
                         for new chains.
@@ -432,7 +433,7 @@ class DiffusionModule(torch.nn.Module):
                     "atom_to_token" ([*, N_atoms]):
                         Token index for each atom in the flat atom representation.
                     "residue_index" ([*, N_tokens]):
-                        Residue number in the token’s original input chain.
+                        Residue number in the token's original input chain.
                     "token_index" ([*, N_tokens]):
                         Token number. Increases monotonically; does not restart at 1
                         for new chains.
@@ -479,8 +480,8 @@ class DiffusionModule(torch.nn.Module):
 
         # Create the noise schedule with float64 dtype to prevent numerical issues
         t = torch.linspace(0, 1, n_steps, device=device, dtype=torch.float64).unsqueeze(-1)  # (n_steps, 1)
-        s_max_root = 2.0647  # math.pow(self.s_max, 1 / self.p)  s_max==160
-        s_min_root = 0.327  # math.pow(self.s_min, 1 / self.p)  s_min==4e-4
+        s_max_root = math.pow(self.s_max, 1 / self.p)  #s_max==160
+        s_min_root = math.pow(self.s_min, 1 / self.p)  #s_min==4e-4
         noise_schedule = self.sd_data * (s_max_root + t * (s_min_root - s_max_root)) ** self.p
 
         # Sample random noise as the initial structure

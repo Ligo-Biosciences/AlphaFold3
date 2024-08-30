@@ -1,6 +1,7 @@
 import unittest
 import torch
 from torch import nn
+from torch.nn import functional as F
 from src.models.components.transition import ConditionedTransitionBlock, Transition
 from src.models.components.primitives import AdaLN
 

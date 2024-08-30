@@ -83,6 +83,51 @@ We welcome contributions from the community! There are likely numerous bugs and 
 
 ## Citations
 
+If you use this code in your research, please cite the following papers:
+```bibtex
+@article{Abramson2024-fj,
+  title    = "Accurate structure prediction of biomolecular interactions with
+              {AlphaFold} 3",
+  author   = "Abramson, Josh and Adler, Jonas and Dunger, Jack and Evans,
+              Richard and Green, Tim and Pritzel, Alexander and Ronneberger,
+              Olaf and Willmore, Lindsay and Ballard, Andrew J and Bambrick,
+              Joshua and Bodenstein, Sebastian W and Evans, David A and Hung,
+              Chia-Chun and O'Neill, Michael and Reiman, David and
+              Tunyasuvunakool, Kathryn and Wu, Zachary and {\v Z}emgulyt{\.e},
+              Akvil{\.e} and Arvaniti, Eirini and Beattie, Charles and
+              Bertolli, Ottavia and Bridgland, Alex and Cherepanov, Alexey and
+              Congreve, Miles and Cowen-Rivers, Alexander I and Cowie, Andrew
+              and Figurnov, Michael and Fuchs, Fabian B and Gladman, Hannah and
+              Jain, Rishub and Khan, Yousuf A and Low, Caroline M R and Perlin,
+              Kuba and Potapenko, Anna and Savy, Pascal and Singh, Sukhdeep and
+              Stecula, Adrian and Thillaisundaram, Ashok and Tong, Catherine
+              and Yakneen, Sergei and Zhong, Ellen D and Zielinski, Michal and
+              {\v Z}{\'\i}dek, Augustin and Bapst, Victor and Kohli, Pushmeet
+              and Jaderberg, Max and Hassabis, Demis and Jumper, John M",
+  journal  = "Nature",
+  month    = "May",
+  year     =  2024
+}
+```
+
+```bibtex
+@article{Peebles2022DiT,
+  title={Scalable Diffusion Models with Transformers},
+  author={William Peebles and Saining Xie},
+  year={2022},
+  journal={arXiv preprint arXiv:2212.09748},
+}
+```
+
+```bibtex
+@inproceedings{Karras2022edm,
+  author    = {Tero Karras and Miika Aittala and Timo Aila and Samuli Laine},
+  title     = {Elucidating the Design Space of Diffusion-Based Generative Models},
+  booktitle = {Proc. NeurIPS},
+  year      = {2022}
+}
+```
+
 
 
 ## License

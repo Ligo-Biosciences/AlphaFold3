@@ -208,13 +208,7 @@ class ProteusLitModule(LightningModule):
 
     def setup(self, stage: str) -> None:
         """Lightning hook that is called at the beginning of fit (train + validate), validate,
-        test, or predict.
-
-        This is a good hook when you need to build models dynamically or adjust something about
-        them. This hook is called on every process when using DDP.
-
-        :param stage: Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
-        """
+        test, or predict."""
         if self.config.compile and stage == "fit":
             self.model = torch.compile(self.model)
 

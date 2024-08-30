@@ -52,10 +52,9 @@ class DiffusionConditioning(nn.Module):
     ):
         """Initializes the diffusion conditioning module.
         Args:
-            c_token:
-                dimensions of the token representation
-            c_pair:
-                dimensions of the token pair representation
+            c_token: Dimensions of the token representation
+            c_pair: Dimensions of the token pair representation
+            sd_data: Standard deviation of the data. Defaults to 16.0.
         """
         super(DiffusionConditioning, self).__init__()
         self.c_token = c_token
@@ -98,7 +97,7 @@ class DiffusionConditioning(nn.Module):
             features:
                 input feature dictionary for the RelativePositionEncoding containing:
                     "residue_index":
-                        [*, n_tokens] Residue number in the token's original x chain.
+                        [*, n_tokens] Residue number in the token's original input chain.
                     "token_index":
                         [*, n_tokens] Token number. Increases monotonically; does not restart at 1 for new chains
                     "asym_id":

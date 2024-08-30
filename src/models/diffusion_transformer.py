@@ -20,9 +20,9 @@ from src.models.components.transition import ConditionedTransitionBlock
 from src.models.components.attention_pair_bias import AttentionPairBias
 from typing import Optional
 from functools import partial
-from src.utils.checkpointing import checkpoint_blocks
 from typing import Tuple
 from src.utils.tensor_utils import add
+from src.utils.checkpointing import checkpoint_blocks
 
 
 class DiffusionTransformerBlock(nn.Module):
@@ -74,6 +74,7 @@ class DiffusionTransformerBlock(nn.Module):
         TODO: the single_proj and pair_repr do not actually change as a result of this function.
             Returning them here is a bit misleading. Also, saving them between blocks is unnecessary.
         """
+        # DISCREPANCY: the residual connection does not exist in the original AlphaFold3 supplementary information. 
         single_repr = single_repr + self.attention_block(
             single_repr=single_repr,
             single_proj=single_proj,
@@ -103,7 +104,6 @@ class DiffusionTransformer(nn.Module):
             dropout=0.0,
             blocks_per_ckpt: int = 1,
             clear_cache_between_blocks: bool = False,
-            compile_module: bool = False,
     ):
         """Initialize the DiffusionTransformer module.
         Args:
@@ -134,7 +134,6 @@ class DiffusionTransformer(nn.Module):
         self.dropout = dropout
         self.blocks_per_ckpt = blocks_per_ckpt
         self.clear_cache_between_blocks = clear_cache_between_blocks
-        self.compile_module = compile_module
 
         self.blocks = nn.ModuleList([
             DiffusionTransformerBlock(c_token=c_token,
@@ -154,9 +153,9 @@ class DiffusionTransformer(nn.Module):
             use_deepspeed_evo_attention: bool = True
     ):
         """Prepare the blocks for the forward pass."""
-        blocks = [  # TODO: saving the pair_repr and single_proj between blocks is unnecessary
+        blocks = [
             partial(
-                block if not self.compile_module else torch.compile(block),
+                block,
                 mask=mask,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention
             )
