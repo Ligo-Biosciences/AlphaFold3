@@ -1,3 +1,28 @@
+# Copyright 2024 Ligo Biosciences Corp.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""
+This module includes PyTorch-native implementation of the atom attention components. 
+
+We make optimizations to reduce memory usage from quadratic to linear by partitioning the atom pair representation
+into local windows, never materializing the full N_atoms x N_atoms matrix. However, our experiments showed that 
+this resulted in a small memory efficiency gain despite adding considerable clutter and complexity. We fall back 
+to the Deepspeed4Science optimized attention kernel; the relevant classes are implemented in the atom_attention_naive.py
+module.
+
+This is not recommended for large scale training. 
+"""
 import torch
 from torch import Tensor
 from torch import nn
@@ -8,9 +33,9 @@ from torch.nn import LayerNorm
 from src.models.components.transition import ConditionedTransitionBlock
 from einops import rearrange
 from functools import partial
+from src.utils.tensor_utils import add
 from src.utils.checkpointing import checkpoint_blocks, get_checkpoint_fn
 checkpoint = get_checkpoint_fn()
-from src.utils.tensor_utils import add
 
 
 def partition_tensor(

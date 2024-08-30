@@ -1,6 +1,21 @@
+
+# Copyright 2024 Ligo Biosciences Corp.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """The MSA Module in AlphaFold3 fulfills a similar role to the Extra MSA Stack in AlphaFold2 and hence a fairly
 similar architecture to AlphaFold-Multimer in the block. It samples a new i.i.d. random subset of the MSA for each
-recycling iteration, the MSA sequences and x features then get embedded into representation m_si for each token n
+recycling iteration, the MSA sequences and input features then get embedded into representation m_si for each token n
 each sequence in the MSA.
 
 The overall structure of the block is very similar to the Pairformer Stack, where the MSA representation fulfills a
