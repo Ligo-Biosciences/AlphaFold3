@@ -274,6 +274,20 @@ class MSAModuleBlock(nn.Module):
                 [*, N_seq, N_res, C_m] updated MSA representation,
                 [*, N_res, N_res, C_z] updated pair representation
         """
+        # DISCREPANCY:
+        # In the Supplementary Info, the communication step is done first, followed by the MSA and the pair stack.
+        # However, since only z_ij is returned, this leaves the last block of the MSA stack idle, with no gradient updates.
+        # We swap the order to the one in the ExtraMSAStack of AlphaFold2 to ensure all blocks contribute to the structure prediction.
+
+        # MSA stack
+        m = self.msa_stack(
+            m=m,
+            z=z,
+            msa_mask=msa_mask,
+            z_mask=z_mask,
+            inplace_safe=inplace_safe
+        )
+
         # Communication
         z = add(
             z,
@@ -284,15 +298,6 @@ class MSAModuleBlock(nn.Module):
                 inplace_safe=inplace_safe,
             ),
             inplace=inplace_safe
-        )
-
-        # MSA stack
-        m = self.msa_stack(
-            m=m,
-            z=z,
-            msa_mask=msa_mask,
-            z_mask=z_mask,
-            inplace_safe=inplace_safe
         )
 
         # Pair stack
