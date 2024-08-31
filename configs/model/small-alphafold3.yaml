@@ -2,7 +2,7 @@
 defaults:
   - optimizer: fused_adamw
   - scheduler: alphafold3_lr
-  - loss: alphafold3_loss
+  - loss: no_smooth_lddt
 
 
 c_token: 384  # the token representation dim

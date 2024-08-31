@@ -1,0 +1,14 @@
+# AlphaFold3 loss configs
+mse_loss:
+  sd_data: 16.0
+  weight: 4.0
+smooth_lddt_loss:
+  weight: 0.0
+  epsilon: 1e-5
+
+distogram:
+    min_bin: 0.0
+    max_bin: 32.0
+    no_bins: 64
+    eps: 0.000006  # 1e-6
+    weight: 0.03
