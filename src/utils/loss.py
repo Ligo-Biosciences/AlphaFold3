@@ -31,7 +31,9 @@ def smooth_lddt_loss(
         gt_atoms: Tensor,  # (bs, n_atoms, 3)
         atom_is_rna: Tensor,  # (bs, n_atoms)
         atom_is_dna: Tensor,  # (bs, n_atoms)
+        timesteps: Tensor,  # (bs, 1)
         mask: Tensor = None,  # (bs, n_atoms)
+        sd_data: float = 16.0,  # Standard deviation of the data
         epsilon: float = 1e-5,
         **kwargs
 ) -> Tensor:  # (bs,)
@@ -80,7 +82,11 @@ def smooth_lddt_loss(
     denom = torch.sum(c_lm, dim=(1, 2)) + epsilon  # for numerical stability
     lddt = torch.sum(epsilon_lm * c_lm, dim=(1, 2)) / denom
     per_batch_loss = torch.add(torch.neg(lddt), 1.0)  # (1 - lddt)
-    return torch.mean(per_batch_loss)  # average over batch dim
+
+    # Scaling factor  DISCREPANCY
+    scaling_factor = (timesteps ** 2 + sd_data ** 2) / ((timesteps * sd_data) ** 2 + epsilon)
+    scaled_lddt = scaling_factor.squeeze(-1) * per_batch_loss  # (bs,)
+    return torch.mean(scaled_lddt)  # average over batch dim
 
 
 def mean_squared_error(
@@ -279,6 +285,7 @@ class AlphaFold3Loss(nn.Module):
             "smooth_lddt_loss": lambda: smooth_lddt_loss(
                 pred_atoms=out["denoised_atoms"],
                 gt_atoms=out["augmented_gt_atoms"],
+                timesteps=out["timesteps"],
                 atom_is_rna=batch["ref_mask"].new_zeros(batch["ref_mask"].shape),  # (bs, n_atoms)
                 atom_is_dna=batch["ref_mask"].new_zeros(batch["ref_mask"].shape),  # (bs, n_atoms)
                 mask=batch["atom_exists"],
