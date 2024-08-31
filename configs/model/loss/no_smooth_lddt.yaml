@@ -3,7 +3,7 @@ mse_loss:
   sd_data: 16.0
   weight: 4.0
 smooth_lddt_loss:
-  weight: 0.0
+  weight: 0.08
   epsilon: 1e-5
 
 distogram:
