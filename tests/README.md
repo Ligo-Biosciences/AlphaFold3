@@ -26,11 +26,11 @@ We are accepting a small number of beta testers to help us test the implementati
 While working on this project, we discovered a few properties of the algorithms described in the AlphaFold3 supplementary information that did not match our expectations. 
 These are listed below:
 
-- **MSA Module Order**: In the Supplementary Information, the MSA module communication step takes place before the MSA stack. This results in the last block of the MSA stack not contributing to the structure prediction, since all information flows out through the pair representation and the MSA stack in the last block does not have an opportunity to update the pair representation. We swap the OuterProductMean operation and the MSA stack to ensure all blocks contribute to the structure prediction. Note: this is the same order of operations in the ExtraMSAStack of AlphaFold2.
+- **MSA Module Order**: In the Supplementary Information, the MSA module communication step takes place before the MSA stack. This results in the MSA stack of the last block not contributing to the structure prediction, since all information flows out through the pair representation and the MSA stack in the last block does not have an opportunity to update the pair representation. We swap the OuterProductMean operation and the MSA stack to ensure all blocks contribute to the structure prediction. Note: this is the same order of operations in the ExtraMSAStack of AlphaFold2.
 
-- **Loss scaling**: The loss scaling factor described in the Supplementary Information does not give unit-loss at initialization. Unit-loss at initialization is one of the properties that Karras et al. (2022) set as a desirable property of the loss function when training diffusion models, and Max Jaderberg mentions this as one of the properties for why they chose the framework of Karras et al. in this talk [here](https://youtu.be/AE35XCN5NuU?si=S_9-i3hupk3i9GDR). We think this is a simple typo in the Supplementary info that is due to a multiplication being typed as addition, and we use the loss scaling factor of Karras et al. (2022) in our implementation. Our measurements show that this gives unit MSE loss at initialization, while the one in the Supplementary Information is two to three orders of magnitude larger at initialization. This has the effect of overwhelming the distogram and smooth LDDT losses, which are much smaller. 
+- **Loss scaling**: The loss scaling factor described in the Supplementary Information does not give unit-loss at initialization. Unit-loss at initialization is one of the properties that Karras et al. (2022) set as a desirable property of the loss function when training diffusion models, and Max Jaderberg mentions this as one of the properties for why they chose the framework of Karras et al. in this talk [here](https://youtu.be/AE35XCN5NuU?si=S_9-i3hupk3i9GDR). We think this is a simple typo in the Supplementary info that is due to a multiplication being typed as addition, and we use the loss scaling factor of Karras et al. (2022) in our implementation. Our measurements show that this gives unit MSE loss at initialization, while the one in the Supplementary Information is two to three orders of magnitude larger at initialization. In addition, the loss scaling factor in the paper has a local minimum at t = 16.0, but then it increases with increasing noise level. We think this is not in line with the properties of the loss function that Karras et al. (2022) proposed, especially at high noise levels when the network output approaches the dataset average. We add a Jupyter notebook to the repository showing our experiments. 
 
-- **DiT block design**: The design of the AttentionPairBias and the DiffusionTransformer blocks seem to closely follow the DiT block design introduced by Peebles & Xie (2022) [here](https://arxiv.org/abs/2212.09748). However, the residual connections are missing. It is unclear in the paper why DeepMind chose to omit them. We experiment with both and find that (at least within the range of steps we trained our models on) the DiT block with residual connections gives faster convergence and better gradient flow through the network. Note that this is the discrepancy we are the least sure about, and it can be changed in a couple lines in our code if the original implementation does not use the residual connections.
+- **DiT block design**: The design of the AttentionPairBias and the DiffusionTransformer blocks seem to closely follow the DiT block design introduced by Peebles & Xie (2022) [here](https://arxiv.org/abs/2212.09748). However, the residual connections are missing. It is not explained in the paper why DeepMind chose to omit them. We experiment with both and find that (at least within the range of steps we trained our models on) the DiT block with residual connections gives faster convergence and better gradient flow through the network. Note that this is the discrepancy we are the least sure about, and it can be changed in a couple lines in our code if the original implementation does not use the residual connections.
 
 These are noted here for transparency and to invite community input on the best approaches to resolve them.
 
@@ -46,7 +46,7 @@ Despite these optimizations, our profiling experiments show that over 60% of the
 
 ## Getting Started
 
-We do not yet provide sampling code since the ligand-protein and nucleic acid prediction capabilities are still under development. The checkpoint weights can be loaded with the PyTorch Lightning's checkpoint loading for experimentation and model surgery. The current model only predicts single-chain proteins, which is the same functionality as the original AlphaFold2. The model components are written to be reusable and modular so that researchers can easily incorporate them into their own projects.
+We do not yet provide sampling code since the ligand-protein and nucleic acid prediction capabilities are still under development. The checkpoint weights can be loaded with PyTorch Lightning's checkpoint loading for experimentation and model surgery. The current model only predicts single-chain proteins, which is the same functionality as the original AlphaFold2. The model components are written to be reusable and modular so that researchers can easily incorporate them into their own projects.
 For beta testing of ligand-protein and nucleic acid prediction: [Join our Waitlist](https://foil-barometer-dc9.notion.site/Ligo-Biosciences-Technical-Waitlist-63a62e2b0f4a4b8dbaa31ce51b572d09)
 
 
@@ -110,6 +110,29 @@ If you use this code in your research, please cite the following papers:
 }
 ```
 
+```bibtex
+@article {Ahdritz2022.11.20.517210,
+	author = {Ahdritz, Gustaf and Bouatta, Nazim and Floristean, Christina and Kadyan, Sachin and Xia, Qinghui and Gerecke, William and O{\textquoteright}Donnell, Timothy J and Berenberg, Daniel and Fisk, Ian and Zanichelli, Niccolò and Zhang, Bo and Nowaczynski, Arkadiusz and Wang, Bei and Stepniewska-Dziubinska, Marta M and Zhang, Shang and Ojewole, Adegoke and Guney, Murat Efe and Biderman, Stella and Watkins, Andrew M and Ra, Stephen and Lorenzo, Pablo Ribalta and Nivon, Lucas and Weitzner, Brian and Ban, Yih-En Andrew and Sorger, Peter K and Mostaque, Emad and Zhang, Zhao and Bonneau, Richard and AlQuraishi, Mohammed},
+	title = {{O}pen{F}old: {R}etraining {A}lpha{F}old2 yields new insights into its learning mechanisms and capacity for generalization},
+	elocation-id = {2022.11.20.517210},
+	year = {2022},
+	doi = {10.1101/2022.11.20.517210},
+	publisher = {Cold Spring Harbor Laboratory},
+	URL = {https://www.biorxiv.org/content/10.1101/2022.11.20.517210},
+	eprint = {https://www.biorxiv.org/content/early/2022/11/22/2022.11.20.517210.full.pdf},
+	journal = {bioRxiv}
+}
+```
+```bibtex
+@misc{ahdritz2023openproteinset,
+      title={{O}pen{P}rotein{S}et: {T}raining data for structural biology at scale}, 
+      author={Gustaf Ahdritz and Nazim Bouatta and Sachin Kadyan and Lukas Jarosch and Daniel Berenberg and Ian Fisk and Andrew M. Watkins and Stephen Ra and Richard Bonneau and Mohammed AlQuraishi},
+      year={2023},
+      eprint={2308.05326},
+      archivePrefix={arXiv},
+      primaryClass={q-bio.BM}
+}
+```
 ```bibtex
 @article{Peebles2022DiT,
   title={Scalable Diffusion Models with Transformers},

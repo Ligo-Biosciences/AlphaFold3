@@ -80,6 +80,10 @@ class DiffusionConditioning(nn.Module):
             LinearNoBias(256, c_token)
         )
         self.single_transitions = nn.ModuleList([Transition(input_dim=c_token, n=2) for _ in range(2)])
+    
+    def c_noise(self, timesteps: Tensor) -> Tensor:
+        """Computes the noise scaling factor from Karras et al. (2022)."""
+        return torch.log(timesteps / self.sd_data) / 4.0
 
     def _forward(
             self,
@@ -125,12 +129,7 @@ class DiffusionConditioning(nn.Module):
         # Single conditioning
         token_repr = torch.cat([s_trunk, s_inputs], dim=-1)
         token_repr = self.proj_single(token_repr)
-        fourier_repr = self.fourier_embedding(
-            torch.div(
-                torch.log(torch.div(timesteps, self.sd_data)),
-                4.0
-            )
-        )
+        fourier_repr = self.fourier_embedding(self.c_noise(timesteps))
         fourier_repr = self.proj_fourier(fourier_repr)
         token_repr = token_repr.unsqueeze(-3) + fourier_repr.unsqueeze(-2)
         for transition in self.single_transitions:
