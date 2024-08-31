@@ -38,14 +38,6 @@ def smooth_lddt_loss(
     """Smooth local distance difference test (LDDT) auxiliary loss."""
     bs, n_atoms = atom_is_rna.shape
 
-    # Shape wrangling
-    samples_per_trunk = pred_atoms.shape[0] // bs
-    expand_batch = lambda tensor: tensor.repeat_interleave(samples_per_trunk, dim=0)
-    atom_is_rna = expand_batch(atom_is_rna)
-    atom_is_dna = expand_batch(atom_is_dna)
-    if mask is not None:
-        mask = expand_batch(mask)
-
     # Cast to Vec3Array
     pred_atoms = Vec3Array.from_array(pred_atoms)
     gt_atoms = Vec3Array.from_array(gt_atoms)
@@ -65,7 +57,7 @@ def smooth_lddt_loss(
 
     # Restrict to bespoke inclusion radius
     atom_is_nucleotide = (atom_is_dna + atom_is_rna).unsqueeze(-1).expand_as(delta_x_gt_lm)
-    atom_not_nucleotide = torch.add(torch.neg(atom_is_nucleotide), 1.0)  # (1 - atom_is_nucleotide)
+    atom_not_nucleotide = (1.0 - atom_is_nucleotide)
     c_lm = (delta_x_gt_lm < 30.0).float() * atom_is_nucleotide + (delta_x_gt_lm < 15.0).float() * atom_not_nucleotide
 
     # Mask positions
@@ -75,11 +67,11 @@ def smooth_lddt_loss(
     # Compute mean, avoiding self-term
     self_mask = torch.eye(n_atoms, dtype=torch.float32, device=c_lm.device)  # eye not implemented for bfloat16
     self_mask = self_mask.unsqueeze(0).expand_as(c_lm).to(c_lm.dtype)  # (bs, n_atoms, n_atoms)
-    self_mask = torch.add(torch.neg(self_mask), 1.0)
+    self_mask = (1.0 - self_mask)
     c_lm = c_lm * self_mask
     denom = torch.sum(c_lm, dim=(1, 2)) + epsilon  # for numerical stability
     lddt = torch.sum(epsilon_lm * c_lm, dim=(1, 2)) / denom
-    per_batch_loss = torch.add(torch.neg(lddt), 1.0)  # (1 - lddt)
+    per_batch_loss = (1.0 - lddt)
     return torch.mean(per_batch_loss)  # average over batch dim
 
 
@@ -91,6 +83,8 @@ def mean_squared_error(
         epsilon: Optional[float] = 1e-5
 ) -> Tensor:  # (bs,)
     """Weighted MSE loss as the main training objective for diffusion."""
+    if mask is None:
+        mask = torch.ones_like(weights)
 
     # Compute atom-wise MSE
     atom_mse = square_euclidean_distance(pred_atoms, gt_atoms, epsilon=epsilon)  # (bs, n_atoms)
@@ -127,14 +121,6 @@ def mse_loss(
         **kwargs
 ) -> Tensor:  # (bs,)
     """Diffusion loss that scales the MSE and LDDT losses by the noise level (timestep)."""
-    bs, n_atoms = weights.shape
-
-    # Shape wrangling
-    samples_per_trunk = pred_atoms.shape[0] // bs
-    expand_batch = lambda tensor: tensor.repeat_interleave(samples_per_trunk, dim=0)
-    weights = expand_batch(weights)
-    if mask is not None:
-        mask = expand_batch(mask)
 
     # Convert to Vec3Array
     pred_atoms = Vec3Array.from_array(pred_atoms)
@@ -232,10 +218,7 @@ def experimentally_resolved_loss(
 def plddt_loss(
         logits: Tensor
 ) -> Tensor:
-    # TODO: tricky to compute this
-    # Compute d_lm
-    # d_lm  (bs, n_tokens, n_tokens, N_max_atoms_per_token)
-    pass
+    raise NotImplementedError
 
 
 def predicted_distance_error_loss(
@@ -260,7 +243,7 @@ def predicted_distance_error_loss(
 
 
 def predicted_aligned_error_loss():
-    pass
+    raise NotImplementedError
 
 
 class AlphaFold3Loss(nn.Module):
@@ -270,107 +253,115 @@ class AlphaFold3Loss(nn.Module):
         super(AlphaFold3Loss, self).__init__()
         self.config = config
 
-    def loss(self, out, batch, _return_breakdown=False):
-        loss_fns = {
-            "distogram": lambda: distogram_loss(
-                logits=out["distogram_logits"],
-                **{**batch, **self.config.distogram}
-            ),
-            "smooth_lddt_loss": lambda: smooth_lddt_loss(
-                pred_atoms=out["denoised_atoms"],
-                gt_atoms=out["augmented_gt_atoms"],
-                atom_is_rna=batch["ref_mask"].new_zeros(batch["ref_mask"].shape),  # (bs, n_atoms)
-                atom_is_dna=batch["ref_mask"].new_zeros(batch["ref_mask"].shape),  # (bs, n_atoms)
-                mask=batch["atom_exists"],
-            ),
-            # TODO: no confidence losses for now
-            # "experimentally_resolved": lambda: experimentally_resolved_loss(
-            #    logits=out["experimentally_resolved_logits"],
-            #    **{**batch, **self.config.experimentally_resolved},
-            # ),
-            # "plddt_loss": lambda: plddt_loss(
-            #    logits=out["plddt_logits"],
-            #    **{**batch, **self.config.plddt_loss},
-            # ),
-            "mse_loss": lambda: mse_loss(
-                pred_atoms=out["denoised_atoms"],
-                gt_atoms=out["augmented_gt_atoms"],  # rotated gt atoms from diffusion module
-                timesteps=out["timesteps"],
-                weights=batch["atom_exists"],
-                mask=batch["atom_exists"],
-                **{**self.config.mse_loss},
-            )
-        }
-        cumulative_loss = 0.0
+    def _compute_losses(self, out, batch):
         losses = {}
-        for loss_name, loss_fn in loss_fns.items():
+        
+        # Distogram loss
+        losses["distogram"] = distogram_loss(
+            logits=out["distogram_logits"],
+            **{**batch, **self.config.distogram}
+        )
+        
+        # Smooth LDDT loss
+        losses["smooth_lddt_loss"] = smooth_lddt_loss(
+            pred_atoms=out["denoised_atoms"],
+            gt_atoms=out["augmented_gt_atoms"],
+            atom_is_rna=torch.zeros_like(batch["atom_exists"]),
+            atom_is_dna=torch.zeros_like(batch["atom_exists"]),
+            mask=batch["atom_exists"],
+        )
+        
+        # MSE loss
+        losses["mse_loss"] = mse_loss(
+            pred_atoms=out["denoised_atoms"],
+            gt_atoms=out["augmented_gt_atoms"],
+            timesteps=out["timesteps"],
+            weights=batch["atom_exists"],
+            mask=batch["atom_exists"],
+            **self.config.mse_loss,
+        )
+        return losses
+
+    def _aggregate_losses(self, losses):
+        """Aggregate the losses with their respective weights."""
+        cumulative_loss = 0.0
+        for loss_name, loss in losses.items():
             weight = self.config[loss_name].weight
-            loss = loss_fn()
-            if torch.isnan(loss) or torch.isinf(loss):
+            if torch.isnan(loss):
                 logging.warning(f"{loss_name} loss is NaN. Skipping...")
+                loss = loss.new_tensor(0., requires_grad=True)
+            elif torch.isinf(loss):
+                logging.warning(f"{loss_name} loss is inf. Skipping...")
                 loss = loss.new_tensor(0., requires_grad=True)
             cumulative_loss = cumulative_loss + weight * loss
             losses[loss_name] = loss.detach().clone()
+        
         losses["unscaled_loss"] = cumulative_loss.detach().clone()
         losses["loss"] = cumulative_loss.detach().clone()
-        if not _return_breakdown:
-            return cumulative_loss
         return cumulative_loss, losses
 
     def forward(self, out, batch, _return_breakdown=False):
-        if not _return_breakdown:
-            cumulative_loss = self.loss(out, batch, _return_breakdown)
-            return cumulative_loss
-        else:
-            cumulative_loss, losses = self.loss(out, batch, _return_breakdown)
+        losses = self._compute_losses(out, batch)
+        cumulative_loss, losses = self._aggregate_losses(losses)
+        
+        if _return_breakdown:
             return cumulative_loss, losses
+        return cumulative_loss
 
 
 class ProteusLoss(nn.Module):
-    """Convenience class that just includes the diffusion loss for training the Proteus Module."""
+    """Convenience class that includes the diffusion loss for training the Proteus Module."""
 
     def __init__(self, config):
         super(ProteusLoss, self).__init__()
         self.config = config
 
-    def loss(self, out, batch, _return_breakdown=False):
-        loss_fns = {
-            "smooth_lddt_loss": lambda: smooth_lddt_loss(
-                pred_atoms=out["denoised_atoms"],
-                gt_atoms=out["augmented_gt_atoms"],
-                atom_is_rna=batch["ref_mask"].new_zeros(batch["ref_mask"].shape),  # (bs, n_atoms)
-                atom_is_dna=batch["ref_mask"].new_zeros(batch["ref_mask"].shape),  # (bs, n_atoms)
-                mask=batch["atom_exists"],
-            ),
-            "mse_loss": lambda: mse_loss(
-                pred_atoms=out["denoised_atoms"],
-                gt_atoms=out["augmented_gt_atoms"],  # rotated gt atoms from diffusion module
-                timesteps=out["timesteps"],
-                weights=batch["atom_exists"],
-                mask=batch["atom_exists"],
-                **{**self.config.mse_loss},
-            )
-        }
-        cumulative_loss = 0.0
+    def _compute_losses(self, out, batch):
+        """Compute individual loss components."""
         losses = {}
-        for loss_name, loss_fn in loss_fns.items():
+
+        # Smooth LDDT loss
+        losses["smooth_lddt_loss"] = smooth_lddt_loss(
+            pred_atoms=out["denoised_atoms"],
+            gt_atoms=out["augmented_gt_atoms"],
+            atom_is_rna=torch.zeros_like(batch["atom_exists"]),
+            atom_is_dna=torch.zeros_like(batch["atom_exists"]),
+            mask=batch["atom_exists"],
+        )
+
+        # MSE loss
+        losses["mse_loss"] = mse_loss(
+            pred_atoms=out["denoised_atoms"],
+            gt_atoms=out["augmented_gt_atoms"],
+            timesteps=out["timesteps"],
+            weights=batch["atom_exists"],
+            mask=batch["atom_exists"],
+            **self.config.mse_loss,
+        )
+        return losses
+
+    def _aggregate_losses(self, losses):
+        """Aggregate the losses with their respective weights."""
+        cumulative_loss = 0.0
+        for loss_name, loss in losses.items():
             weight = self.config[loss_name].weight
-            loss = loss_fn()
-            if torch.isnan(loss) or torch.isinf(loss):
+            if torch.isnan(loss):
                 logging.warning(f"{loss_name} loss is NaN. Skipping...")
+                loss = loss.new_tensor(0., requires_grad=True)
+            elif torch.isinf(loss):
+                logging.warning(f"{loss_name} loss is inf. Skipping...")
                 loss = loss.new_tensor(0., requires_grad=True)
             cumulative_loss = cumulative_loss + weight * loss
             losses[loss_name] = loss.detach().clone()
+        
         losses["unscaled_loss"] = cumulative_loss.detach().clone()
         losses["loss"] = cumulative_loss.detach().clone()
-        if not _return_breakdown:
-            return cumulative_loss
         return cumulative_loss, losses
 
     def forward(self, out, batch, _return_breakdown=False):
-        if not _return_breakdown:
-            cumulative_loss = self.loss(out, batch, _return_breakdown)
-            return cumulative_loss
-        else:
-            cumulative_loss, losses = self.loss(out, batch, _return_breakdown)
+        losses = self._compute_losses(out, batch)
+        cumulative_loss, losses = self._aggregate_losses(losses)
+        
+        if _return_breakdown:
             return cumulative_loss, losses
+        return cumulative_loss

@@ -2,13 +2,14 @@ import torch
 
 
 class AlphaFoldLRScheduler(torch.optim.lr_scheduler._LRScheduler):
-    """ Implements the learning rate schedule defined in the AlphaFold3
-        supplement. A linear warmup is followed by a plateau at the maximum
-        learning rate and then exponential decay.
-         
-        Note that the initial learning rate of the optimizer in question is 
-        ignored; use this class' base_lr parameter to specify the starting 
-        point of the warmup.
+    """ 
+    Implements the learning rate schedule defined in the AlphaFold3
+    supplement. A linear warmup is followed by a plateau at the maximum
+    learning rate and then exponential decay.
+        
+    Note that the initial learning rate of the optimizer in question is 
+    ignored; use this class' base_lr parameter to specify the starting 
+    point of the warmup.
     """
 
     def __init__(self,

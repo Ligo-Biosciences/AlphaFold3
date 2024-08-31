@@ -106,7 +106,7 @@ class ProteusLitModule(LightningModule):
         # Save hyperparameters
         self.save_hyperparameters(logger=False)
 
-        # for averaging loss across batches  TODO: remove these to reduce clutter
+        # for averaging loss across batches
         self.train_loss = MeanMetric()
         self.val_loss = MeanMetric()
         self.test_loss = MeanMetric()
@@ -125,7 +125,7 @@ class ProteusLitModule(LightningModule):
         self.val_loss.reset()
 
         # Log gradients, parameter histograms, and model topology
-        self.logger.watch(self.model, log="all")
+        # self.logger.watch(self.model, log="all")
 
     def model_step(
             self, batch: Dict[str, Any]
@@ -159,6 +159,11 @@ class ProteusLitModule(LightningModule):
         outputs["timesteps"] = rearrange(
             outputs["timesteps"], 'b s o -> (b s) o'
         )
+        # Expand atom_exists to be of shape (bs * samples_per_trunk, n_atoms)
+        samples_per_trunk = outputs["timesteps"].shape[0] // batch["atom_exists"].shape[0]
+        expand_batch = lambda tensor: tensor.repeat_interleave(samples_per_trunk, dim=0)
+        batch["atom_exists"] = expand_batch(batch["atom_exists"])
+
         # Compute loss
         loss = self.loss_fn(outputs, batch, _return_breakdown=False)
         return loss
@@ -279,16 +284,30 @@ class ProteusLitModule(LightningModule):
 
 def reshape_features(batch):
     """Temporary function that converts the features in the
-    batch to the correct shapes for the model. Assumes only 4 backbone atoms per residue."""
+    batch to the correct shapes for the model. Assumes only 4 backbone atoms per residue.
+    This will be deleted once the data pipeline is more mature.
+    """
     bs, n_res, _, n_cycle = batch["ref_mask"].shape
-    batch["all_atom_positions"] = batch["all_atom_positions"].reshape(-1, n_res * 4, 3, n_cycle)
-    batch["ref_pos"] = batch["ref_pos"].reshape(-1, n_res * 4, 3, n_cycle)
-    batch["ref_mask"] = batch["ref_mask"].reshape(-1, n_res * 4, n_cycle)
-    batch["ref_element"] = batch["ref_element"].reshape(-1, n_res * 4, 4, n_cycle)
-    batch["ref_charge"] = batch["ref_charge"].reshape(-1, n_res * 4, n_cycle)
-    batch["ref_atom_name_chars"] = batch["ref_atom_name_chars"].reshape(-1, n_res * 4, 4, n_cycle)
-    batch["ref_space_uid"] = batch["ref_space_uid"].reshape(-1, n_res * 4, n_cycle)
-    batch["atom_to_token"] = batch["atom_to_token"].reshape(-1, n_res * 4, n_cycle)
-    batch["atom_exists"] = batch["atom_exists"].reshape(-1, n_res * 4, n_cycle)
-    batch["atom_mask"] = batch["atom_mask"].reshape(-1, n_res * 4, n_cycle)
+    n_atoms = n_res * 4
+
+    def reshape_feature(feature, *dims):
+        return batch[feature].reshape(bs, *dims, n_cycle)
+
+    # Reshape atom-wise features
+    batch.update({
+        "all_atom_positions": reshape_feature("all_atom_positions", n_atoms, 3),
+        "ref_pos": reshape_feature("ref_pos", n_atoms, 3),
+        "ref_mask": reshape_feature("ref_mask", n_atoms),
+        "ref_element": reshape_feature("ref_element", n_atoms, 4),
+        "ref_charge": reshape_feature("ref_charge", n_atoms),
+        "ref_atom_name_chars": reshape_feature("ref_atom_name_chars", n_atoms, 4),
+        "ref_space_uid": reshape_feature("ref_space_uid", n_atoms),
+        "atom_exists": reshape_feature("atom_exists", n_atoms),
+        "atom_mask": reshape_feature("atom_mask", n_atoms),
+    })
+
+    # Compute and add atom_to_token
+    atom_to_token = torch.arange(n_res).unsqueeze(-1).expand(n_res, 4)
+    batch["atom_to_token"] = atom_to_token[None, ..., None].expand(bs, n_res, 4, n_cycle).reshape(bs, n_atoms, n_cycle).to(batch["ref_mask"].device)
+
     return batch

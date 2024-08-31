@@ -4,5 +4,5 @@ mse_loss:
   sd_data: 16.0
   weight: 4.0
 smooth_lddt_loss:
-  weight: 4.0
+  weight: 0.0
   epsilon: 1e-5
