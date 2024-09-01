@@ -138,8 +138,8 @@ def mse_loss(
     scaling_factor = (timesteps ** 2 + sd_data ** 2) / ((timesteps * sd_data) ** 2 + epsilon)
     scaled_mse = scaling_factor.squeeze(-1) * mse  # (bs,)
 
-    # Clamp the loss at 2.0
-    scaled_mse = torch.clamp(scaled_mse, max=2.0)
+    # Clamp the loss at 1.0
+    scaled_mse = torch.clamp(scaled_mse, max=1.0)
 
     # Average over batch dimension
     return torch.mean(scaled_mse)
