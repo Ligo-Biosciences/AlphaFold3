@@ -125,7 +125,7 @@ class ProteusLitModule(LightningModule):
         self.val_loss.reset()
 
         # Log gradients, parameter histograms, and model topology
-        # self.logger.watch(self.model, log="all")
+        self.logger.watch(self.model, log="all")
 
     def model_step(
             self, batch: Dict[str, Any]
@@ -232,6 +232,12 @@ class ProteusLitModule(LightningModule):
             },
         }
     
+    def on_after_backward(self) -> None:
+        """Lightning hook called after loss.backward() and before optimizers do anything."""
+        if self.trainer.global_step % self.config.log_every_n_steps == 0:
+            grad_norms = grad_norm(self.model, norm_type=2)
+            self.log_dict({f"grad_norm/{k}": v for k, v in grad_norms.items()})
+    
     def on_before_zero_grad(self, optimizer: torch.optim.Optimizer) -> None:
         """
         Keeps an eye on weight norms during training.
@@ -241,11 +247,6 @@ class ProteusLitModule(LightningModule):
         for name, param in self.named_parameters():
             weight_norms[f"{name}_abs_mean"] = param.abs().mean().item()
         self.log_dict(weight_norms)
-
-    def on_before_optimizer_step(self, optimizer):
-        """Keeps an eye on gradient norms during training."""
-        norms = grad_norm(self.model, norm_type=2)
-        self.log_dict(norms)
 
     def on_train_batch_end(self, outputs, batch, batch_idx):
         # Update EMA after each training batch

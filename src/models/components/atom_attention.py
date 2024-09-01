@@ -864,7 +864,7 @@ class AtomAttentionEncoder(nn.Module):
                     (denoted p_lm in AF3 Supplement)
         """
         # Initialize representations
-        atom_single, atom_single_conditioning = checkpoint(self.init_single_repr, features, s_trunk, noisy_pos)
+        atom_single, atom_single_conditioning = self.init_single_repr(features, s_trunk, noisy_pos)
         local_atom_pair = checkpoint(self.init_pair_repr, features, atom_single_conditioning, z_trunk)
 
         # Cross attention transformer
