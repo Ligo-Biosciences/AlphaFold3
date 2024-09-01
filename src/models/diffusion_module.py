@@ -30,7 +30,7 @@ from torch.nn import LayerNorm
 from typing import Dict, Tuple
 from src.models.diffusion_conditioning import DiffusionConditioning
 from src.models.diffusion_transformer import DiffusionTransformer
-from src.models.components.atom_attention_naive import AtomAttentionEncoder, AtomAttentionDecoder
+from src.models.components.atom_attention import AtomAttentionEncoder, AtomAttentionDecoder
 from src.models.components.primitives import LinearNoBias
 from src.utils.geometry.vector import Vec3Array
 from src.diffusion.augmentation import centre_random_augmentation

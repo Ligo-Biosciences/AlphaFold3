@@ -18,7 +18,7 @@ from torch import Tensor
 from torch import nn
 from torch.nn import functional as F
 from torch.nn import LayerNorm
-from src.models.components.atom_attention_naive import AtomAttentionEncoder
+from src.models.components.atom_attention import AtomAttentionEncoder
 from typing import Dict, NamedTuple, Tuple, Optional
 from src.models.components.primitives import LinearNoBias, Linear
 from src.models.components.relative_position_encoding import RelativePositionEncoding
