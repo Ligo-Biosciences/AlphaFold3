@@ -234,9 +234,8 @@ class ProteusLitModule(LightningModule):
     
     def on_after_backward(self) -> None:
         """Lightning hook called after loss.backward() and before optimizers do anything."""
-        if self.trainer.global_step % self.config.log_every_n_steps == 0:
-            grad_norms = grad_norm(self.model, norm_type=2)
-            self.log_dict({f"grad_norm/{k}": v for k, v in grad_norms.items()})
+        grad_norms = grad_norm(self.model, norm_type=2)
+        self.log_dict({f"grad_norm/{k}": v for k, v in grad_norms.items()})
     
     def on_before_zero_grad(self, optimizer: torch.optim.Optimizer) -> None:
         """
