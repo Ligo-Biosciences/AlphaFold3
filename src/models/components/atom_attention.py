@@ -814,6 +814,7 @@ class AtomAttentionEncoder(nn.Module):
             z_trunk: Optional[Tensor] = None,  # (bs, n_tokens, c_trunk_pair)
             noisy_pos: Optional[Tensor] = None,  # (bs, S, n_atoms, 3)
             mask: Optional[Tensor] = None,  # (bs, n_atoms)
+            use_deepspeed_evo_attention: bool = False,
     ) -> AtomAttentionEncoderOutput:
         """Forward pass for the AtomAttentionEncoder module.
         Args:
@@ -960,6 +961,7 @@ class AtomAttentionDecoder(nn.Module):
             atom_pair_skip_repr: Tensor,  # (bs, n_atoms // n_queries, n_queries, n_keys, c_atom)
             tok_idx: Tensor,  # (bs, n_atoms)
             mask: Optional[Tensor] = None,  # (bs, n_atoms)
+            use_deepspeed_evo_attention: bool = False,
     ) -> Tensor:
         """AtomAttentionDecoder. Algorithm 6 in AlphaFold3 supplement.
         Args:
