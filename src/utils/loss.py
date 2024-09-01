@@ -97,7 +97,9 @@ def mean_squared_error(
     sum_error = torch.sum(weighted_mse, dim=-1)
     denom = epsilon + torch.sum(mask, dim=-1)
     mse = sum_error / denom
-    return torch.div(mse, 3.0)
+
+    per_dim_mse = torch.div(mse, 3.0)
+    return per_dim_mse
 
 
 def bond_loss(
@@ -135,6 +137,9 @@ def mse_loss(
     # Scale by (t**2 + σ**2) / (t + σ)**2
     scaling_factor = (timesteps ** 2 + sd_data ** 2) / ((timesteps * sd_data) ** 2 + epsilon)
     scaled_mse = scaling_factor.squeeze(-1) * mse  # (bs,)
+
+    # Clamp the loss at 2.0
+    scaled_mse = torch.clamp(scaled_mse, max=2.0)
 
     # Average over batch dimension
     return torch.mean(scaled_mse)
