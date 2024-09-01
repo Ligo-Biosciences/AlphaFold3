@@ -187,6 +187,9 @@ class ProteusLitModule(LightningModule):
         self.train_loss(loss)
         self.log("train/loss", self.train_loss, on_step=True, on_epoch=False, prog_bar=True)
 
+        # Log the learning rate
+        self.log("train/lr", self.optimizer.param_groups[0]['lr'], on_step=True, on_epoch=False)
+
         # return loss or backpropagation will fail
         return loss
 

@@ -267,7 +267,7 @@ def reshape_features(batch):
     n_atoms = n_res * 4
 
     def reshape_feature(feature, *dims):
-        return feature.reshape(bs, *dims, n_cycle)
+        return batch[feature].reshape(bs, *dims, n_cycle)
 
     # Reshape atom-wise features
     batch.update({
