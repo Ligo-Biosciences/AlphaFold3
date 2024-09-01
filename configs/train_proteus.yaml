@@ -6,7 +6,7 @@ defaults:
   - _self_
   - callbacks: default
   - data: protein
-  - model: proteus  # alphafold3
+  - model: proteus
   - logger: wandb  # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
   - trainer: gpu
   - paths: default
@@ -33,7 +33,7 @@ task_name: "train"
 # tags to help you identify your experiments
 # you can overwrite this in experiment configs
 # overwrite from command line with `python train.py tags="[first_tag, second_tag]"`
-tags: ["dev"]
+tags: ["dev", "proteus"]
 
 # set False to skip model training
 train: True

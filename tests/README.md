@@ -2,7 +2,7 @@
 # AlphaFold3 Open-Source Implementation
 
 ## Introduction
-Welcome to the open-source implementation of AlphaFold3, an ongoing research project aimed at advancing open-source biomolecular structure prediction. This repository is in its early stages and is intended to accelerate progress towards a faithful, fully open-source implementation of AlphaFold3. 
+This is Ligo's open-source implementation of AlphaFold3, an ongoing research project aimed at advancing open-source biomolecular structure prediction. This repository is in its early stages and is intended to accelerate progress towards a faithful, fully open-source implementation of AlphaFold3. 
 
 
 ## Acknowledgments

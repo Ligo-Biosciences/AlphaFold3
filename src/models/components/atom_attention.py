@@ -332,7 +332,7 @@ class AtomTransformerBlock(nn.Module):
             mask: Optional[Tensor] = None
     ) -> Tuple[Tensor, Tensor, Tensor]:
         atom_single = atom_single + self.atom_attention(atom_single, atom_proj, atom_pair_local, mask)
-        atom_single = add(atom_single, self.transition(atom_single, atom_proj), inplace=False)
+        atom_single = atom_single + self.transition(atom_single, atom_proj)
         return atom_single, atom_proj, atom_pair_local
 
 
@@ -583,7 +583,7 @@ class AtomAttentionEncoderOutput(NamedTuple):
     token_single: torch.Tensor  # (bs, n_tokens, c_token)
     atom_single_skip_repr: torch.Tensor  # (bs, n_atoms, c_atom)
     atom_single_skip_proj: torch.Tensor  # (bs, n_atoms, c_atom)
-    atom_pair_skip_repr: torch.Tensor  # (bs, n_atoms // n_queries, n_queries, n_keys, c_atompair)  TODO: local biases
+    atom_pair_skip_repr: torch.Tensor  # (bs, n_atoms // n_queries, n_queries, n_keys, c_atompair)
 
 
 class AtomAttentionEncoder(nn.Module):
