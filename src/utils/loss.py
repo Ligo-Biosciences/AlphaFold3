@@ -135,14 +135,11 @@ def mse_loss(
     mse = mean_squared_error(pred_atoms, aligned_gt_atoms, weights, mask)
 
     # Scale by (t**2 + σ**2) / (t + σ)**2
-    scaling_factor = (timesteps ** 2 + sd_data ** 2) / ((timesteps * sd_data) ** 2 + epsilon)
-    scaled_mse = scaling_factor.squeeze(-1) * mse  # (bs,)
-
-    # Clamp the loss at 1.0
-    scaled_mse = torch.clamp(scaled_mse, max=1.0)
+    # scaling_factor = (timesteps ** 2 + sd_data ** 2) / ((timesteps * sd_data) ** 2 + epsilon)
+    # scaled_mse = scaling_factor.squeeze(-1) * mse  # (bs,)
 
     # Average over batch dimension
-    return torch.mean(scaled_mse)
+    return torch.mean(mse)  # scaled_mse
 
 
 def softmax_cross_entropy(logits, labels):
