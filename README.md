@@ -31,7 +31,7 @@ We trained a version of AlphaFold3 on single-chain proteins to test the implemen
 We are accepting a small number of beta testers to help us test the implementation and provide feedback. If you are interested in beta testing, please [join our waitlist](https://form.fillout.com/t/ct1BWM5QWqus).
 
 
-## Discrepancies from AlphaFold3 Pseudocode
+## Discrepancies from AlphaFold3's Pseudocode
 While working on this project, we discovered a few properties of the algorithms described in the AlphaFold3 supplementary information that did not match our expectations. 
 These are listed below:
 
