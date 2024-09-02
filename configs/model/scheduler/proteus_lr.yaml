@@ -6,6 +6,6 @@ verbose: false
 base_lr: 0.0  # the starting learning rate
 max_lr: 1e-4
 warmup_no_steps: 1000
-start_decay_after_n_steps: 4_000
-decay_every_n_steps: 2000
+start_decay_after_n_steps: 10_000
+decay_every_n_steps: 10_000
 decay_factor: 0.95
