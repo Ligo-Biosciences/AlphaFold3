@@ -20,7 +20,7 @@
  The memory usage is approximately the same. 
 
 This is not recommended for large scale training. 
-The smart move here will be to migrate to FlexAttention once there is bias gradient support or to ScaleFold's kernels if they become available.
+The smart move here will be to migrate to FlexAttention once there is bias gradient support.
 """
 import torch
 from torch import Tensor

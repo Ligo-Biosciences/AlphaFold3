@@ -159,26 +159,6 @@ class AlphaFold3(nn.Module):
         )
         return s, z
 
-    def _disable_activation_checkpointing(self):
-        # self.template_embedder.template_pair_stack.blocks_per_ckpt = None
-        self.pairformer.blocks_per_ckpt = None
-        self.msa_module.blocks_per_ckpt = None
-        self.diffusion_module.blocks_per_ckpt = None
-
-    def _enable_activation_checkpointing(self):
-        # self.template_embedder.template_pair_stack.blocks_per_ckpt = (
-        #    self.config.template.template_pair_stack.blocks_per_ckpt
-        # )
-        self.pairformer.blocks_per_ckpt = (
-            self.config.pairformer_stack.blocks_per_ckpt
-        )
-        self.msa_module.blocks_per_ckpt = (
-            self.config.msa_module.blocks_per_ckpt
-        )
-        self.diffusion_module.blocks_per_ckpt = (
-            self.config.diffusion_module.blocks_per_ckpt
-        )
-
     def run_confidence_head(
             self,
             batch: Dict[str, Tensor],

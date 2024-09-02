@@ -22,7 +22,7 @@ class Transition(nn.Module):
         self.layer_norm = LayerNorm(input_dim)
         self.linear_1 = LinearNoBias(input_dim, n * input_dim, init='relu')
         self.linear_2 = LinearNoBias(input_dim, n * input_dim, init='default')
-        self.output_linear = LinearNoBias(input_dim * n, input_dim, init='default')
+        self.output_linear = LinearNoBias(input_dim * n, input_dim, init='final')
 
     def forward(self, x):
         x = self.layer_norm(x)
