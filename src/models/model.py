@@ -387,9 +387,16 @@ class AlphaFold3(nn.Module):
             z_trunk=z,
             n_steps=n_steps,
             samples_per_trunk=1,  # only a single sample during rollout
-            use_deepspeed_evo_attention=self.globals.use_deepspeed_evo_attention
+            use_deepspeed_evo_attention=self.globals.use_deepspeed_evo_attention,
+            return_trajectory=not train
         )
-        outputs["sampled_positions"] = sampled_positions
+        if train:
+            outputs["sampled_positions"] = sampled_positions
+        else:
+            # Add the sampled positions and the trajectory separately
+            final_coords, trajectory = sampled_positions
+            outputs["sampled_positions"] = final_coords
+            outputs["sampled_trajectory"] = trajectory
 
         # Run heads
         outputs["distogram_logits"] = self.distogram_head.forward(z)

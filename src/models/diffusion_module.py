@@ -27,7 +27,7 @@ import torch
 from torch import nn
 from torch import Tensor
 from torch.nn import LayerNorm
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Union, List
 from src.models.diffusion_conditioning import DiffusionConditioning
 from src.models.diffusion_transformer import DiffusionTransformer
 from src.models.components.atom_attention_naive import AtomAttentionEncoder, AtomAttentionDecoder
@@ -369,6 +369,7 @@ class DiffusionModule(torch.nn.Module):
         # Grab data about the inputs
         batch_size, n_atoms, _ = ground_truth_atoms.shape
         device, dtype = s_inputs.device, s_inputs.dtype
+        atom_mask = features["atom_mask"]
 
         # Create samples_per_trunk noisy versions of the ground truth atoms
         timesteps = sample_noise_level((batch_size, samples_per_trunk, 1), device=device, dtype=dtype)
@@ -377,7 +378,7 @@ class DiffusionModule(torch.nn.Module):
         )
 
         # Randomly rotate each replica of the ground truth atoms
-        aug_gt_atoms = centre_random_augmentation(ground_truth_atoms)
+        aug_gt_atoms = centre_random_augmentation(ground_truth_atoms, atom_mask)
 
         # Noise the ground truth atoms
         noisy_atoms = noise_positions(aug_gt_atoms, timesteps)
@@ -412,8 +413,9 @@ class DiffusionModule(torch.nn.Module):
             gamma_min: float = 1.0,
             noise_scale: float = 1.003,
             step_scale: float = 1.5,
-            use_deepspeed_evo_attention: bool = False
-    ) -> Tensor:
+            use_deepspeed_evo_attention: bool = False,
+            return_trajectory: bool = False
+    ) -> Union[Tensor, Tuple[Tensor, List[Tensor]]]:
         """Implements SampleDiffusion, Algorithm 18 in AlphaFold3 Supplement.
         Args:
             features:
@@ -477,13 +479,20 @@ class DiffusionModule(torch.nn.Module):
                 step scale. Defaults to value used in the paper.
             use_deepspeed_evo_attention:
                 Whether to use Deepspeed's Evoformer attention kernel.
+            return_trajectory:
+                Whether to return the trajectory of the sampled coordinates.
         Returns:
-            [bs, samples_per_trunk, n_atoms, 3] sampled coordinates
+            If return_trajectory is False:
+                [bs, samples_per_trunk, n_atoms, 3] sampled coordinates
+            If return_trajectory is True:
+                ([bs, samples_per_trunk, n_atoms, 3] sampled coordinates,
+                 List of [bs, samples_per_trunk, n_atoms, 3] tensors representing the trajectory)
         """
 
         # Grab data about the input
         batch_size, n_atoms, _ = features["ref_pos"].shape
         dtype, device = s_inputs.dtype, s_inputs.device
+        atom_mask = features["atom_mask"]
 
         # Create the noise schedule with float64 dtype to prevent numerical issues
         t = torch.linspace(0, 1, n_steps, device=device, dtype=torch.float64).unsqueeze(-1)  # (n_steps, 1)
@@ -494,9 +503,11 @@ class DiffusionModule(torch.nn.Module):
         # Sample random noise as the initial structure
         x_l = noise_schedule[0] * Vec3Array.randn((batch_size, samples_per_trunk, n_atoms), device)  # float32
 
+        trajectory = [] if return_trajectory else None
+
         for i in range(1, n_steps):
             # Centre random augmentation
-            x_l = centre_random_augmentation(x_l)
+            x_l = centre_random_augmentation(x_l, atom_mask)
 
             c_step = noise_schedule[i]
             prev_step = noise_schedule[i - 1]
@@ -530,4 +541,12 @@ class DiffusionModule(torch.nn.Module):
             dt = c_step - t_hat
             x_l = x_noisy + step_scale * dt * delta
 
-        return x_l.to_tensor().to(dtype)  # revert to model dtype
+            if return_trajectory:
+                trajectory.append(x_l.to_tensor().to(dtype))
+
+        final_coords = x_l.to_tensor().to(dtype)  # revert to model dtype
+
+        if return_trajectory:
+            return final_coords, trajectory
+        else:
+            return final_coords
