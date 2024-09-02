@@ -369,7 +369,8 @@ class DiffusionModule(torch.nn.Module):
         # Grab data about the inputs
         batch_size, n_atoms, _ = ground_truth_atoms.shape
         device, dtype = s_inputs.device, s_inputs.dtype
-        atom_mask = features["atom_mask"]
+        atom_mask = features["atom_mask"][..., None, :].expand(batch_size, samples_per_trunk, n_atoms)
+        atom_mask = atom_mask.reshape(batch_size * samples_per_trunk, n_atoms)
 
         # Create samples_per_trunk noisy versions of the ground truth atoms
         timesteps = sample_noise_level((batch_size, samples_per_trunk, 1), device=device, dtype=dtype)
@@ -485,7 +486,8 @@ class DiffusionModule(torch.nn.Module):
         # Grab data about the input
         batch_size, n_atoms, _ = features["ref_pos"].shape
         dtype, device = s_inputs.dtype, s_inputs.device
-        atom_mask = features["atom_mask"]
+        atom_mask = features["atom_mask"][..., None, :].expand(batch_size, samples_per_trunk, n_atoms)
+        atom_mask = atom_mask.reshape(batch_size * samples_per_trunk, n_atoms)
 
         # Create the noise schedule with float64 dtype to prevent numerical issues
         t = torch.linspace(0, 1, n_steps, device=device, dtype=torch.float64).unsqueeze(-1)  # (n_steps, 1)
