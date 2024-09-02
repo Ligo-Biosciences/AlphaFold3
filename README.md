@@ -2,7 +2,9 @@
 # AlphaFold3 Open-Source Implementation
 
 ## Introduction
-This is Ligo's open-source implementation of AlphaFold3, an ongoing research project aimed at advancing open-source biomolecular structure prediction. This repository is in its early stages and is intended to accelerate progress towards a faithful, fully open-source implementation of AlphaFold3. 
+This is Ligo's open-source implementation of AlphaFold3, an ongoing research project aimed at advancing open-source biomolecular structure prediction. This release implements the full AlphaFold3 model along with the training code. We are releasing the single chain prediction capability first and we will release ligand, multimer, and nucleic acid prediction capabilities once they are trained. [Sign up for beta testing here](https://form.fillout.com/t/ct1BWM5QWqus). 
+
+This repository is intended to accelerate progress towards a faithful, fully open-source implementation of AlphaFold3. 
 
 ## Demo Video
 
@@ -26,7 +28,7 @@ This project would not have been possible without the contributions of the follo
 
 This is an active research project in its early phases. We are working to prepare a stable release for the community. While we are excited about the potential of this work, we want to emphasize that this is not yet a production-ready tool.
 We trained a version of AlphaFold3 on single-chain proteins to test the implementation, we are building the next release to include full ligand and nucleic acid support. 
-We are accepting a small number of beta testers to help us test the implementation and provide feedback. If you are interested in beta testing, please [join our waitlist](https://foil-barometer-dc9.notion.site/Ligo-Biosciences-Technical-Waitlist-63a62e2b0f4a4b8dbaa31ce51b572d09).
+We are accepting a small number of beta testers to help us test the implementation and provide feedback. If you are interested in beta testing, please [join our waitlist](https://form.fillout.com/t/ct1BWM5QWqus).
 
 
 ## Discrepancies from AlphaFold3 Pseudocode
@@ -54,7 +56,7 @@ Despite these optimizations, our profiling experiments show that over 60% of the
 ## Getting Started
 
 We do not yet provide sampling code since the ligand-protein and nucleic acid prediction capabilities are still under development. The checkpoint weights can be loaded with PyTorch Lightning's checkpoint loading for experimentation and model surgery. The current model only predicts single-chain proteins, which is the same functionality as the original AlphaFold2. The model components are written to be reusable and modular so that researchers can easily incorporate them into their own projects.
-For beta testing of ligand-protein and nucleic acid prediction: [Join our Waitlist](https://foil-barometer-dc9.notion.site/Ligo-Biosciences-Technical-Waitlist-63a62e2b0f4a4b8dbaa31ce51b572d09)
+For beta testing of ligand-protein and nucleic acid prediction: [Join our Waitlist](https://form.fillout.com/t/ct1BWM5QWqus)
 
 
 ## Usage
