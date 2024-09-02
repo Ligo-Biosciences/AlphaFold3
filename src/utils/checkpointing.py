@@ -14,7 +14,7 @@ BLOCK_ARG = Any
 BLOCK_ARGS = Tuple[BLOCK_ARG, ...]  # List[BLOCK_ARGS]
 
 def get_checkpoint_fn():
-    return deepspeed.checkpointing.checkpoint  # torch.utils.checkpoint.checkpoint
+    return torch.utils.checkpoint.checkpoint  # deepspeed.checkpointing.checkpoint
 
 def checkpoint_blocks(
     blocks: List[Callable],

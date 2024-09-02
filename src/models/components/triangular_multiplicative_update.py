@@ -22,7 +22,6 @@ import torch.nn as nn
 from torch.nn import LayerNorm
 from src.models.components.primitives import Linear
 from src.utils.chunk_utils import chunk_layer
-from src.utils.precision_utils import is_fp16_enabled
 from src.utils.tensor_utils import add, permute_final_dims
 
 
@@ -433,19 +432,7 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
         b = b * self.sigmoid(self.linear_b_g(z))
         b = b * self.linear_b_p(z)
 
-        # Prevents overflow of torch.matmul in combine projections in
-        # reduced-precision modes
-        a_std = a.std()
-        b_std = b.std()
-        if is_fp16_enabled() and a_std != 0. and b_std != 0.:
-            a = a / a.std()
-            b = b / b.std()
-
-        if is_fp16_enabled():
-            with torch.cuda.amp.autocast(enabled=False):
-                x = self._combine_projections(a.float(), b.float())
-        else:
-            x = self._combine_projections(a, b)
+        x = self._combine_projections(a, b)
 
         del a, b
         x = self.layer_norm_out(x)
@@ -581,19 +568,7 @@ class FusedTriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
         a = ab[..., :self.c_hidden]
         b = ab[..., self.c_hidden:]
 
-        # Prevents overflow of torch.matmul in combine projections in
-        # reduced-precision modes
-        a_std = a.std()
-        b_std = b.std()
-        if is_fp16_enabled() and a_std != 0. and b_std != 0.:
-            a = a / a.std()
-            b = b / b.std()
-
-        if is_fp16_enabled():
-            with torch.cuda.amp.autocast(enabled=False):
-                x = self._combine_projections(a.float(), b.float())
-        else:
-            x = self._combine_projections(a, b)
+        x = self._combine_projections(a, b)
 
         del a, b
         x = self.layer_norm_out(x)
