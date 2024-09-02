@@ -1,27 +1,39 @@
+# Copyright 2024 Ligo Biosciences Corp.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """This is a naive implementation of the atom attention components. 
  We did early experiments with a PyTorch-native implementation that is supposed to use memory more efficiently, 
  but they did not show much benefit since attention implementations in PyTorch were much slower despite 
  adding considerable clutter and complexity. We fall back to the Deepspeed4Science optimized attention kernel, which reduce 
- the memory consumption to linear anyway. 
+ the memory consumption to linear anyway. In practice, we only observe about a 20% increase in runtime. 
+ The memory usage is approximately the same. 
 
-However, this is not recommended for large scale training. 
+This is not recommended for large scale training. 
 The smart move here will be to migrate to FlexAttention once there is bias gradient support.
-
-AtomTransformer
-AtomAttentionEncoder
-AtomAttentionDecoder
 """
 import torch
 from torch import Tensor
 from torch import nn
 from torch.nn import functional as F
 from typing import Dict, NamedTuple, Optional, Tuple
-from src.models.components.primitives import AdaLN, Linear, LinearNoBias, Attention
+from src.models.components.primitives import Linear, LinearNoBias
 from src.models.components.attention_pair_bias import AttentionPairBias
 from torch.nn import LayerNorm
 from src.models.components.transition import ConditionedTransitionBlock
-from functools import lru_cache, partial
-from src.utils.checkpointing import checkpoint_blocks, get_checkpoint_fn
+from functools import lru_cache
+from src.utils.block_utils import prep_blocks, forward_with_checkpointing
+from src.utils.checkpointing import get_checkpoint_fn
 checkpoint = get_checkpoint_fn()
 
 
@@ -101,12 +113,12 @@ class AtomTransformerBlock(nn.Module):
         betas = self._prep_betas(n_atoms, atom_single.device)  # (1, n_atoms, n_atoms)
 
         # AttentionPairBias
-        b = self.attention(
+        atom_single = atom_single + self.attention(
             atom_single, atom_proj, atom_pair, mask, betas, 
             use_deepspeed_evo_attention=use_deepspeed_evo_attention
         )
         # ConditionedTransitionBlock
-        atom_single = b + self.transition(atom_single, atom_proj)
+        atom_single = atom_single + self.transition(atom_single, atom_proj)
         return atom_single, atom_proj, atom_pair
     
 
@@ -168,35 +180,6 @@ class AtomTransformer(nn.Module):
              for _ in range(no_blocks)]
         )
 
-    def _prep_blocks(
-            self,
-            atom_single: Tensor,
-            atom_proj: Tensor,
-            atom_pair: Tensor,
-            mask: Optional[Tensor] = None,
-            use_deepspeed_evo_attention: bool = True
-    ):
-        """Prepare the input tensors for each AtomTransformerBlock."""
-        blocks = [
-            partial(
-                block,
-                mask=mask,
-                use_deepspeed_evo_attention=use_deepspeed_evo_attention
-            )
-            for block in self.blocks
-        ]
-
-        # Clear CUDA's GPU memory cache between blocks
-        if self.clear_cache_between_blocks:
-            def block_with_cache_clear(block, *args, **kwargs):
-                torch.cuda.empty_cache()
-                return block(*args, **kwargs)
-
-            blocks = [partial(block_with_cache_clear, b) for b in blocks]
-
-        return blocks
-    
-
     def forward(
             self,
             atom_single: Tensor,
@@ -221,21 +204,16 @@ class AtomTransformer(nn.Module):
         # Expand atom_proj for proper broadcasting
         atom_proj = atom_proj.unsqueeze(-3)
 
-        blocks = self._prep_blocks(
-            atom_single=atom_single,
-            atom_proj=atom_proj,
-            atom_pair=atom_pair,
+        blocks = prep_blocks(
+            self.blocks,
             mask=mask,
             use_deepspeed_evo_attention=use_deepspeed_evo_attention
         )
-        blocks_per_ckpt = self.blocks_per_ckpt
-        if not torch.is_grad_enabled():
-            blocks_per_ckpt = None
 
-        atom_single, atom_proj, atom_pair = checkpoint_blocks(
+        atom_single, atom_proj, atom_pair = forward_with_checkpointing(
             blocks,
             args=(atom_single, atom_proj, atom_pair),
-            blocks_per_ckpt=blocks_per_ckpt,
+            blocks_per_ckpt=self.blocks_per_ckpt,
         )
         return atom_single
     

@@ -1,0 +1,7 @@
+# Inherit from AlphaFold3 loss configs
+defaults:
+  - alphafold3_loss
+
+# Override smooth LDDT weight
+smooth_lddt_loss:
+  weight: 0.0

@@ -65,6 +65,10 @@ def weighted_rigid_align(
     # Apply alignment
     x_aligned = R.apply_to_point(x) + mu
 
+    # Mask atoms after alignment (adding the mu back will make masked positions non-zero)
+    if mask is not None:
+        x_aligned = x_aligned * mask
+
     # Re-set the original precision
     torch.set_float32_matmul_precision(original_precision)
     return x_aligned

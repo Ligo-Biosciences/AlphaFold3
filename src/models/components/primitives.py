@@ -37,33 +37,26 @@ if ds4s_is_installed:
 
 
 def _prod(nums):
-    out = 1
-    for n in nums:
-        out = out * n
-    return out
+    return np.prod(nums)
 
 
 def _calculate_fan(linear_weight_shape, fan="fan_in"):
     fan_out, fan_in = linear_weight_shape
-
     if fan == "fan_in":
-        f = fan_in
+        return fan_in
     elif fan == "fan_out":
-        f = fan_out
+        return fan_out
     elif fan == "fan_avg":
-        f = (fan_in + fan_out) / 2
+        return (fan_in + fan_out) / 2
     else:
         raise ValueError("Invalid fan option")
-
-    return f
 
 
 def trunc_normal_init_(weights, scale=1.0, fan="fan_in"):
     shape = weights.shape
     f = _calculate_fan(shape, fan)
     scale = scale / max(1, f)
-    a = -2
-    b = 2
+    a, b = -2, 2
     std = math.sqrt(scale) / truncnorm.std(a=a, b=b, loc=0, scale=1)
     size = _prod(shape)
     samples = truncnorm.rvs(a=a, b=b, loc=0, scale=std, size=size)
@@ -95,13 +88,7 @@ def gating_init_(weights):
 
 
 def normal_init_(weights):
-    torch.nn.init.kaiming_normal_(weights, nonlinearity="linear")
-
-
-def ipa_point_weights_init_(weights):
-    with torch.no_grad():
-        softplus_inverse_1 = 0.541324854612918
-        weights.fill_(softplus_inverse_1)
+    nn.init.kaiming_normal_(weights, nonlinearity="linear")
 
 
 class Linear(nn.Linear):
@@ -191,13 +178,13 @@ class AdaLN(nn.Module):
     def __init__(self, normalized_shape):
         super(AdaLN, self).__init__()
         # Layer norms
-        self.a_layer_norm = LayerNorm(
-            normalized_shape,  # equivalent to scale=False, offset=False in Haiku
+        self.a_layer_norm = LayerNorm( # equivalent to scale=False, offset=False in Haiku
+            normalized_shape,  
             elementwise_affine=False,
             bias=False
         )
-        self.s_layer_norm = LayerNorm(
-            normalized_shape,  # equivalent to scale=True, offset=False in Haiku
+        self.s_layer_norm = LayerNorm( # equivalent to scale=True, offset=False in Haiku
+            normalized_shape,  
             elementwise_affine=True,
             bias=False
         )
@@ -379,7 +366,7 @@ class Attention(nn.Module):
 
 def safe_softmax(x, axis=-1):
     """A softmax that returns 0.0s instead of NaNs when all inputs to the softmax
-    dim are NaNs. This occurs during sequence-local atom attention if the input is also
+    dim are 0.0. This occurs during sequence-local atom attention if the input is also
     padded. This function will be made obsolete once we switch to FlexAttention
     (pending bias gradient support). """
     a = F.softmax(x, axis)
@@ -387,7 +374,6 @@ def safe_softmax(x, axis=-1):
     return a
 
 
-# @torch.compile(mode="max-autotune")
 def _attention(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, biases: List[torch.Tensor]) -> torch.Tensor:
     """A stock PyTorch implementation of the attention mechanism.
     Args:
@@ -419,8 +405,6 @@ def _attention(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, bias
 
     return a
 
-
-@torch.jit.ignore
 def _deepspeed_evo_attn(
         q: torch.Tensor,
         k: torch.Tensor,

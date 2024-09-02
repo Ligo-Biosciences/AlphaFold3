@@ -1,10 +1,24 @@
+# Copyright 2024 Ligo Biosciences Corp.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Construct an initial 1D embedding."""
 import torch
 from torch import Tensor
 from torch import nn
 from torch.nn import functional as F
 from torch.nn import LayerNorm
-from src.models.components.atom_attention_naive import AtomAttentionEncoder
+from src.models.components.atom_attention import AtomAttentionEncoder
 from typing import Dict, NamedTuple, Tuple, Optional
 from src.models.components.primitives import LinearNoBias, Linear
 from src.models.components.relative_position_encoding import RelativePositionEncoding
@@ -374,53 +388,6 @@ class TemplateEmbedder(nn.Module):
         return u
 
 
-class TemplatePairEmbedder(nn.Module):
-    def __init__(
-            self,
-            c_in: int,
-            c_out: int,
-            c_dgram: int,
-            c_aatype: int
-    ):
-        super(TemplatePairEmbedder, self).__init__()
-
-        self.dgram_linear = Linear(c_dgram, c_out, init='relu')
-
-    def forward(
-            self,
-            template_dgram: Tensor,
-            aatype_one_hot: Tensor,
-            query_embedding: Tensor,
-            pseudo_beta_mask: Tensor,
-            backbone_mask: Tensor,
-            multichain_mask_2d: Tensor,
-            unit_vector: Vec3Array,
-    ) -> Tensor:
-        # TODO: implement pair embedder
-        pass
-
-
-class TemplateEmbedderMultimer(nn.Module):
-    """Template embedder used in AF3-Multimer, will replace the TemplateEmbedder above."""
-
-    def __init__(self, config):
-        super(TemplateEmbedderMultimer, self).__init__()
-        self.config = config
-        # pair embedder
-        # template pair stack
-
-    def forward(self):
-        # TODO: integrate pair embedder with the template pair stack
-        pass
-
-
-class ProteusFeatures(NamedTuple):
-    """Structured output class for Proteus features."""
-    s_inputs: Tensor  # (bs, n_tokens, c_token)
-    s_trunk: Tensor  # (bs, n_tokens, c_token)
-    z_trunk: Tensor  # (bs, n_tokens, n_tokens, c_token)
-
-
 class ProteusFeatureEmbedder(nn.Module):
     """Convenience class for the Proteus experiment."""
 
@@ -463,7 +430,7 @@ class ProteusFeatureEmbedder(nn.Module):
         self.linear_z_row = LinearNoBias(c_token, c_trunk_pair)
         self.relative_pos_encoder = RelativePositionEncoding(c_trunk_pair)
 
-    def _forward(
+    def forward(
             self,
             features: Dict[str, torch.Tensor],
             atom_mask: torch.Tensor = None,
@@ -500,11 +467,3 @@ class ProteusFeatureEmbedder(nn.Module):
         z_trunk = z_trunk + self.relative_pos_encoder(features, token_mask)
 
         return per_token_features, s_trunk, z_trunk
-
-    def forward(
-            self,
-            features: Dict[str, torch.Tensor],
-            atom_mask: torch.Tensor = None,
-            token_mask: torch.Tensor = None,
-    ) -> Tuple[Tensor, Tensor, Tensor]:
-        return checkpoint(self._forward, features, atom_mask, token_mask)

@@ -1,6 +1,6 @@
 defaults:
   - default
 
-precision: '32-true'
+precision: 32-true
 accelerator: cpu
 devices: 1

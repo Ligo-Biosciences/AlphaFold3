@@ -1,3 +1,24 @@
+# Copyright 2024 Ligo Biosciences Corp.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""
+Implements AttentionPairBias using the Deepspeed4Science optimized attention kernel.
+
+We re-purpose the MSA row-wise attention kernel for the pair bias to support an additional batch-like dimension,
+which is useful in the Diffusion module for creating multiple copies of the same input and processing them in parallel.
+"""
+
 import torch
 from torch import nn
 from torch.nn import LayerNorm
@@ -106,6 +127,7 @@ class AttentionPairBias(nn.Module):
             new_shape = (mask.shape[:-1] + (n_seq, n_res))  # (*, N_seq, N_res)
             mask = mask.unsqueeze(-2).expand(new_shape)
             mask = mask.to(single_repr.dtype)
+            
         # [*, N_seq, 1, 1, N_res]
         mask_bias = (self.inf * (mask - 1))[..., :, None, None, :]
 

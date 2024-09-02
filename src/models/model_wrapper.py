@@ -1,11 +1,10 @@
 import hydra
 import lightning as L
-import rootutils
 import torch
 from lightning import LightningModule
 from lightning.pytorch.utilities import grad_norm
 from src.utils.tensor_utils import tensor_tree_map
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 from src.models.model import AlphaFold3
 from src.utils.loss import AlphaFold3Loss
 from src.utils.exponential_moving_average import ExponentialMovingAverage
@@ -80,7 +79,7 @@ class AlphaFoldWrapper(LightningModule):
         # For multimer, multichain permutation align the batch
 
         # Flatten the S to be incorporated into the batch dimension
-        # TODO: this is temporary, delete and replace with arbitrary batch dims handling
+        # TODO: this is temporary, will be removed once the data pipeline is better written
         outputs["augmented_gt_atoms"] = rearrange(
             outputs["augmented_gt_atoms"], 'b s n c -> (b s) n c'
         )
@@ -90,6 +89,10 @@ class AlphaFoldWrapper(LightningModule):
         outputs["timesteps"] = rearrange(
             outputs["timesteps"], 'b s o -> (b s) o'
         )
+        # Expand atom_exists to be of shape (bs * samples_per_trunk, n_atoms)
+        samples_per_trunk = outputs["timesteps"].shape[0] // batch["atom_exists"].shape[0]
+        expand_batch = lambda tensor: tensor.repeat_interleave(samples_per_trunk, dim=0)
+        batch["atom_exists"] = expand_batch(batch["atom_exists"])
 
         # Compute loss
         loss, loss_breakdown = self.loss(
@@ -125,7 +128,7 @@ class AlphaFoldWrapper(LightningModule):
     ):
         """Compute validation metrics for the model."""
         with torch.no_grad():
-            batch_size, n_tokens = batch["residue_index"].shape
+            batch_size, n_tokens = batch["token_index"].shape
             metrics = {}
 
             gt_coords = batch["all_atom_positions"]  # (bs, n_atoms, 3) gt_atoms after augmentation
@@ -261,30 +264,37 @@ def reshape_features(batch):
     This will be deleted once the data pipeline is more mature.
     """
     bs, n_res, _, n_cycle = batch["ref_mask"].shape
-    batch["all_atom_positions"] = batch["all_atom_positions"].reshape(-1, n_res * 4, 3, n_cycle)
-    batch["ref_pos"] = batch["ref_pos"].reshape(-1, n_res * 4, 3, n_cycle)
-    batch["ref_mask"] = batch["ref_mask"].reshape(-1, n_res * 4, n_cycle)
-    batch["ref_element"] = batch["ref_element"].reshape(-1, n_res * 4, 4, n_cycle)
-    batch["ref_charge"] = batch["ref_charge"].reshape(-1, n_res * 4, n_cycle)
-    batch["ref_atom_name_chars"] = batch["ref_atom_name_chars"].reshape(-1, n_res * 4, 4, n_cycle)
-    batch["ref_space_uid"] = batch["ref_space_uid"].reshape(-1, n_res * 4, n_cycle)
-    batch["atom_exists"] = batch["all_atom_mask"].reshape(-1, n_res * 4, n_cycle)
-    batch["atom_mask"] = batch["all_atom_mask"].reshape(-1, n_res * 4, n_cycle)
+    n_atoms = n_res * 4
+
+    def reshape_feature(feature, *dims):
+        return batch[feature].reshape(bs, *dims, n_cycle)
+
+    # Reshape atom-wise features
+    batch.update({
+        "all_atom_positions": reshape_feature("all_atom_positions", n_atoms, 3),
+        "ref_pos": reshape_feature("ref_pos", n_atoms, 3),
+        "ref_mask": reshape_feature("ref_mask", n_atoms),
+        "ref_element": reshape_feature("ref_element", n_atoms, 4),
+        "ref_charge": reshape_feature("ref_charge", n_atoms),
+        "ref_atom_name_chars": reshape_feature("ref_atom_name_chars", n_atoms, 4),
+        "ref_space_uid": reshape_feature("ref_space_uid", n_atoms),
+        "atom_exists": reshape_feature("all_atom_mask", n_atoms),
+        "atom_mask": reshape_feature("all_atom_mask", n_atoms),
+    })
+
+    # Rename some features
     batch["token_mask"] = batch["seq_mask"]
     batch["token_index"] = batch["residue_index"]
 
-    # TODO: One-hot encode the restypes: aatype and template_aatype
-
     # Add assembly features
-    batch["asym_id"] = torch.zeros_like(batch["seq_mask"])  # int
-    batch["entity_id"] = torch.zeros_like(batch["seq_mask"])  # int
-    batch["sym_id"] = torch.zeros_like(batch["seq_mask"])  # , dtype=torch.float32
+    for feature in ["asym_id", "entity_id", "sym_id"]:
+        batch[feature] = torch.zeros_like(batch["seq_mask"])
 
-    # Remove gt_features key, the item is usually none
-    batch.pop("gt_features")
+    # Remove gt_features key
+    batch.pop("gt_features", None)
 
     # Compute and add atom_to_token
-    atom_to_token = torch.arange(n_res).unsqueeze(-1).expand(n_res, 4).long()  # (n_res, 4)
-    atom_to_token = atom_to_token[None, ..., None].expand(bs, n_res, 4, n_cycle)  # (bs, n_res, 4, n_cycle)
-    batch["atom_to_token"] = atom_to_token.reshape(-1, n_res * 4, n_cycle).to(batch["ref_mask"].device)
+    atom_to_token = torch.arange(n_res).unsqueeze(-1).expand(n_res, 4)
+    batch["atom_to_token"] = atom_to_token[None, ..., None].expand(bs, n_res, 4, n_cycle).reshape(bs, n_atoms, n_cycle).to(batch["ref_mask"].device)
+
     return batch

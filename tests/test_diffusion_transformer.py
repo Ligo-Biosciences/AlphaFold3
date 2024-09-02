@@ -19,8 +19,8 @@ class TestDiffusionTransformer(unittest.TestCase):
         self.module = DiffusionTransformer(
             c_token=self.c_token,
             c_pair=self.c_pair,
-            num_blocks=self.num_blocks,
-            num_heads=self.num_heads,
+            no_blocks=self.num_blocks,
+            no_heads=self.num_heads,
             dropout=0.0,
             blocks_per_ckpt=1,
         )

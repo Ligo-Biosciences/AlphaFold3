@@ -1,13 +1,28 @@
+# Copyright 2024 Ligo Biosciences Corp.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Diffusion Module from AlphaFold3.
 The StructureModule of AlphaFold2 using invariant point attention was replaced with a relatively standard
 non-equivariant point-cloud diffusion model over all atoms. The denoiser is based on a modern transformer,
 but with several modifications to make it more amenable to the task. The main changes are:
- - Conditioning from the trunk in several ways: we initialise the activations for the single embedding, use
+ - Conditioning from the trunk in several ways: initialise the activations for the single embedding, use
     a variant of Adaptive Layernorm for the single conditioning and logit biasing for the pair conditioning.
  - Standard transformer tricks (e.g. SwiGLU) and methods used in AlphaFold2 (gating)
  - A two-level architecture, working first on atoms, then tokens, then atoms again.
 """
+import math
 import torch
 from torch import nn
 from torch import Tensor
@@ -15,11 +30,11 @@ from torch.nn import LayerNorm
 from typing import Dict, Tuple
 from src.models.diffusion_conditioning import DiffusionConditioning
 from src.models.diffusion_transformer import DiffusionTransformer
-from src.models.components.atom_attention_naive import AtomAttentionEncoder, AtomAttentionDecoder
+from src.models.components.atom_attention import AtomAttentionEncoder, AtomAttentionDecoder
 from src.models.components.primitives import LinearNoBias
 from src.utils.geometry.vector import Vec3Array
 from src.diffusion.augmentation import centre_random_augmentation
-from src.diffusion.sample import sample_noise_level, noise_positions
+from src.diffusion.noise import sample_noise_level, noise_positions
 
 
 class DiffusionModule(torch.nn.Module):
@@ -113,6 +128,18 @@ class DiffusionModule(torch.nn.Module):
             n_queries=atom_attention_n_queries,
             n_keys=atom_attention_n_keys
         )
+    
+    def c_skip(self, timesteps: Tensor) -> Tensor:
+        """Computes the skip connection scaling factor from Karras et al. (2022)."""
+        return self.sd_data ** 2 / (self.sd_data ** 2 + timesteps ** 2)
+    
+    def c_out(self, timesteps: Tensor) -> Tensor:
+        """Computes the output scaling factor from Karras et al. (2022)."""
+        return timesteps * self.sd_data / torch.sqrt(self.sd_data ** 2 + timesteps ** 2)
+    
+    def c_in(self, timesteps: Tensor) -> Tensor:
+        """Computes the input scaling factor from Karras et al. (2022)."""
+        return 1. / torch.sqrt(self.sd_data ** 2 + timesteps ** 2)
 
     def scale_inputs(
             self,
@@ -128,9 +155,8 @@ class DiffusionModule(torch.nn.Module):
         Returns:
             [bs, S, n_atoms, 3] rescaled noisy atom positions
         """
-        denominator = torch.sqrt(torch.add(timesteps ** 2, self.sd_data ** 2))  # (bs, S, 1)
-        rescaled_noisy = noisy_atoms / denominator.unsqueeze(-1)  # (bs, S, n_atoms, 3)
-        return rescaled_noisy
+        c_in = self.c_in(timesteps).unsqueeze(-1)  # (bs, S, 1, 1)
+        return c_in * noisy_atoms 
 
     def rescale_with_updates(
             self,
@@ -142,21 +168,17 @@ class DiffusionModule(torch.nn.Module):
         Rescales updates to positions and combines with input positions.
         Args:
             r_updates:
-                [bs, n_atoms, 3] updates to the atom positions from the network
+                [bs, S, n_atoms, 3] updates to the atom positions from the network
             noisy_atoms:
-                [bs, n_atoms, 3] noisy atom positions
+                [bs, S, n_atoms, 3] noisy atom positions
             timesteps:
                 [bs, S, 1] timestep tensor
         Return:
-            [bs, n_atoms, 3] updated atom positions
+            [bs, S, n_atoms, 3] updated atom positions
         """
-        noisy_pos_scale = torch.div(
-            self.sd_data ** 2,
-            torch.add(timesteps ** 2, self.sd_data ** 2)
-        )
-        noisy_pos_scale = noisy_pos_scale.unsqueeze(-1)  # (bs, S, 1, 1)
-        r_update_scale = torch.sqrt(noisy_pos_scale) * timesteps.unsqueeze(-1)
-        return noisy_atoms * noisy_pos_scale + r_updates * r_update_scale
+        c_skip = self.c_skip(timesteps).unsqueeze(-1)  # (bs, S, 1, 1)
+        c_out = self.c_out(timesteps).unsqueeze(-1)  # (bs, S, 1, 1)
+        return c_skip * noisy_atoms + c_out * r_updates 
 
     def forward(
             self,
@@ -199,7 +221,7 @@ class DiffusionModule(torch.nn.Module):
                     "atom_to_token" ([*, N_atoms]):
                         Token index for each atom in the flat atom representation.
                     "residue_index" ([*, N_tokens]):
-                        Residue number in the token’s original input chain.
+                        Residue number in the token's original input chain.
                     "token_index" ([*, N_tokens]):
                         Token number. Increases monotonically; does not restart at 1
                         for new chains.
@@ -212,7 +234,7 @@ class DiffusionModule(torch.nn.Module):
                         A, B and C share a sequence but D does not, their sym_ids would be [0, 1, 2, 0]
                     "token_mask" ([*, N_tokens]):
                         [*, N_tokens] binary mask for tokens, whether token is present (not padding)
-                    "all_atom_mask" ([*, N_atoms]):
+                    "atom_mask" ([*, N_atoms]):
                         binary mask for atoms, whether atom is present (will still be 1.0 if
                         atom is missing from the crystal structure, only 0.0 for padding)
             s_inputs:
@@ -316,7 +338,7 @@ class DiffusionModule(torch.nn.Module):
                     "atom_to_token" ([*, N_atoms]):
                         Token index for each atom in the flat atom representation.
                     "residue_index" ([*, N_tokens]):
-                        Residue number in the token’s original input chain.
+                        Residue number in the token's original input chain.
                     "token_index" ([*, N_tokens]):
                         Token number. Increases monotonically; does not restart at 1
                         for new chains.
@@ -347,6 +369,7 @@ class DiffusionModule(torch.nn.Module):
         # Grab data about the inputs
         batch_size, n_atoms, _ = ground_truth_atoms.shape
         device, dtype = s_inputs.device, s_inputs.dtype
+        atom_mask = features["atom_mask"][..., None, :].expand(batch_size, samples_per_trunk, n_atoms)
 
         # Create samples_per_trunk noisy versions of the ground truth atoms
         timesteps = sample_noise_level((batch_size, samples_per_trunk, 1), device=device, dtype=dtype)
@@ -355,7 +378,7 @@ class DiffusionModule(torch.nn.Module):
         )
 
         # Randomly rotate each replica of the ground truth atoms
-        aug_gt_atoms = centre_random_augmentation(ground_truth_atoms)
+        aug_gt_atoms = centre_random_augmentation(ground_truth_atoms, atom_mask)
 
         # Noise the ground truth atoms
         noisy_atoms = noise_positions(aug_gt_atoms, timesteps)
@@ -418,7 +441,7 @@ class DiffusionModule(torch.nn.Module):
                     "atom_to_token" ([*, N_atoms]):
                         Token index for each atom in the flat atom representation.
                     "residue_index" ([*, N_tokens]):
-                        Residue number in the token’s original input chain.
+                        Residue number in the token's original input chain.
                     "token_index" ([*, N_tokens]):
                         Token number. Increases monotonically; does not restart at 1
                         for new chains.
@@ -462,11 +485,12 @@ class DiffusionModule(torch.nn.Module):
         # Grab data about the input
         batch_size, n_atoms, _ = features["ref_pos"].shape
         dtype, device = s_inputs.dtype, s_inputs.device
+        atom_mask = features["atom_mask"][..., None, :].expand(batch_size, samples_per_trunk, n_atoms)
 
         # Create the noise schedule with float64 dtype to prevent numerical issues
         t = torch.linspace(0, 1, n_steps, device=device, dtype=torch.float64).unsqueeze(-1)  # (n_steps, 1)
-        s_max_root = 2.0647  # math.pow(self.s_max, 1 / self.p)  s_max==160
-        s_min_root = 0.327  # math.pow(self.s_min, 1 / self.p)  s_min==4e-4
+        s_max_root = math.pow(self.s_max, 1 / self.p)
+        s_min_root = math.pow(self.s_min, 1 / self.p)
         noise_schedule = self.sd_data * (s_max_root + t * (s_min_root - s_max_root)) ** self.p
 
         # Sample random noise as the initial structure
@@ -474,7 +498,7 @@ class DiffusionModule(torch.nn.Module):
 
         for i in range(1, n_steps):
             # Centre random augmentation
-            x_l = centre_random_augmentation(x_l)
+            x_l = centre_random_augmentation(x_l, atom_mask)
 
             c_step = noise_schedule[i]
             prev_step = noise_schedule[i - 1]

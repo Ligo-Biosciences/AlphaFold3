@@ -4,8 +4,7 @@ defaults:
 accelerator: gpu
 devices: auto
 
-precision: 32-true # 'bf16-true' # 'transformer-engine', 'transformer-engine-float16', '16-true', '16-mixed', 'bf16-true',
-# 'bf16-mixed', '32-true',
+precision: 32-true
 
 # DeepSpeedStrategy
 strategy:

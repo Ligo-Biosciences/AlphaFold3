@@ -1,6 +1,20 @@
+# Copyright 2024 Ligo Biosciences Corp.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """The MSA Module in AlphaFold3 fulfills a similar role to the Extra MSA Stack in AlphaFold2 and hence a fairly
 similar architecture to AlphaFold-Multimer in the block. It samples a new i.i.d. random subset of the MSA for each
-recycling iteration, the MSA sequences and x features then get embedded into representation m_si for each token n
+recycling iteration, the MSA sequences and input features then get embedded into representation m_si for each token n
 each sequence in the MSA.
 
 The overall structure of the block is very similar to the Pairformer Stack, where the MSA representation fulfills a
@@ -29,7 +43,8 @@ from src.models.components.dropout import DropoutRowwise
 from src.utils.tensor_utils import add, flatten_final_dims
 from functools import partial
 from typing import Dict
-from src.utils.checkpointing import checkpoint_blocks, get_checkpoint_fn
+from src.utils.block_utils import prep_blocks, forward_with_checkpointing
+from src.utils.checkpointing import get_checkpoint_fn
 checkpoint = get_checkpoint_fn()
 
 
@@ -259,6 +274,20 @@ class MSAModuleBlock(nn.Module):
                 [*, N_seq, N_res, C_m] updated MSA representation,
                 [*, N_res, N_res, C_z] updated pair representation
         """
+        # DISCREPANCY:
+        # In the Supplementary Info, the communication step is done first, followed by the MSA and the pair stack.
+        # However, since only z_ij is returned, this leaves the last block of the MSA stack idle, with no gradient updates.
+        # We swap the order to the one in the ExtraMSAStack of AlphaFold2 to ensure all blocks contribute to the structure prediction.
+
+        # MSA stack
+        m = self.msa_stack(
+            m=m,
+            z=z,
+            msa_mask=msa_mask,
+            z_mask=z_mask,
+            inplace_safe=inplace_safe
+        )
+
         # Communication
         z = add(
             z,
@@ -269,15 +298,6 @@ class MSAModuleBlock(nn.Module):
                 inplace_safe=inplace_safe,
             ),
             inplace=inplace_safe
-        )
-
-        # MSA stack
-        m = self.msa_stack(
-            m=m,
-            z=z,
-            msa_mask=msa_mask,
-            z_mask=z_mask,
-            inplace_safe=inplace_safe
         )
 
         # Pair stack
@@ -342,10 +362,6 @@ class MSAModule(nn.Module):
             clear_cache_between_blocks:
                 Whether to clear CUDA's GPU memory cache between blocks of the
                 stack. Slows down each block but can reduce fragmentation
-        
-        TODO: MSAModule blocks 3 mysteriously dies (no parameter updates)
-        - msa_module msa stack dies
-        - outer product mean is still learning
         """
         super(MSAModule, self).__init__()
         self.blocks = nn.ModuleList([
@@ -369,36 +385,6 @@ class MSAModule(nn.Module):
         self.proj_s_inputs = LinearNoBias(c_token, c_msa, init='default')
         self.blocks_per_ckpt = blocks_per_ckpt
         self.clear_cache_between_blocks = clear_cache_between_blocks
-
-    def _prep_blocks(
-            self,
-            msa_mask: Optional[Tensor] = None,
-            z_mask: Optional[Tensor] = None,
-            chunk_size: Optional[int] = None,
-            use_deepspeed_evo_attention: bool = False,
-            inplace_safe: bool = False,
-    ):
-        blocks = [
-            partial(
-                block,
-                msa_mask=msa_mask,
-                z_mask=z_mask,
-                chunk_size=chunk_size,
-                use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-                inplace_safe=inplace_safe
-            )
-            for block in self.blocks
-        ]
-
-        # Clear CUDA's GPU memory cache between blocks
-        if self.clear_cache_between_blocks:
-            def block_with_cache_clear(block, *args, **kwargs):
-                torch.cuda.empty_cache()
-                return block(*args, **kwargs)
-
-            blocks = [partial(block_with_cache_clear, b) for b in blocks]
-
-        return blocks
 
     def init_msa_repr(
             self,
@@ -457,25 +443,24 @@ class MSAModule(nn.Module):
         msa_mask = feats["msa_mask"]
 
         # Prep the blocks
-        blocks = self._prep_blocks(
+        blocks = prep_blocks(
+            self.blocks,
+            clear_cache_between_blocks=self.clear_cache_between_blocks,
             msa_mask=msa_mask,
             z_mask=z_mask,
             chunk_size=chunk_size,
             use_deepspeed_evo_attention=use_deepspeed_evo_attention,
             inplace_safe=inplace_safe
         )
-        blocks_per_ckpt = self.blocks_per_ckpt
-        if not torch.is_grad_enabled():
-            blocks_per_ckpt = None
 
         # Initialize the MSA embedding
         m = checkpoint(self.init_msa_repr, feats, s_inputs, msa_mask, inplace_safe)
 
         # Run with grad checkpointing
-        m, z = checkpoint_blocks(
+        m, z = forward_with_checkpointing(
             blocks,
             args=(m, z),
-            blocks_per_ckpt=blocks_per_ckpt,
+            blocks_per_ckpt=self.blocks_per_ckpt,
         )
         return z
 

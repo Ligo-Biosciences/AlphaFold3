@@ -1,3 +1,17 @@
+# Copyright 2024 Ligo Biosciences Corp.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Diffusion conditioning."""
 
 import torch
@@ -38,10 +52,9 @@ class DiffusionConditioning(nn.Module):
     ):
         """Initializes the diffusion conditioning module.
         Args:
-            c_token:
-                dimensions of the token representation
-            c_pair:
-                dimensions of the token pair representation
+            c_token: Dimensions of the token representation
+            c_pair: Dimensions of the token pair representation
+            sd_data: Standard deviation of the data. Defaults to 16.0.
         """
         super(DiffusionConditioning, self).__init__()
         self.c_token = c_token
@@ -67,6 +80,10 @@ class DiffusionConditioning(nn.Module):
             LinearNoBias(256, c_token)
         )
         self.single_transitions = nn.ModuleList([Transition(input_dim=c_token, n=2) for _ in range(2)])
+    
+    def c_noise(self, timesteps: Tensor) -> Tensor:
+        """Computes the noise scaling factor from Karras et al. (2022)."""
+        return torch.log(timesteps / self.sd_data) / 4.0
 
     def _forward(
             self,
@@ -80,11 +97,11 @@ class DiffusionConditioning(nn.Module):
         """Diffusion conditioning.
         Args:
             timesteps:
-                [*, S, 1] timestep tensor where S is samples per trunk
+                [*, S, 1] timestep tensor where S is the number of samples per trunk
             features:
                 input feature dictionary for the RelativePositionEncoding containing:
                     "residue_index":
-                        [*, n_tokens] Residue number in the token's original x chain.
+                        [*, n_tokens] Residue number in the token's original input chain.
                     "token_index":
                         [*, n_tokens] Token number. Increases monotonically; does not restart at 1 for new chains
                     "asym_id":
@@ -112,12 +129,7 @@ class DiffusionConditioning(nn.Module):
         # Single conditioning
         token_repr = torch.cat([s_trunk, s_inputs], dim=-1)
         token_repr = self.proj_single(token_repr)
-        fourier_repr = self.fourier_embedding(
-            torch.div(
-                torch.log(torch.div(timesteps, self.sd_data)),
-                4.0
-            )
-        )
+        fourier_repr = self.fourier_embedding(self.c_noise(timesteps))
         fourier_repr = self.proj_fourier(fourier_repr)
         token_repr = token_repr.unsqueeze(-3) + fourier_repr.unsqueeze(-2)
         for transition in self.single_transitions:
@@ -126,7 +138,7 @@ class DiffusionConditioning(nn.Module):
         # Mask outputs
         if mask is not None:
             token_repr = token_repr * mask[..., None, :, None]
-            pair_mask = (mask[:, :, None] * mask[:, None, :]).unsqueeze(-1)  # (bs, n_tokens, n_tokens, 1)
+            pair_mask = (mask[..., :, None] * mask[..., None, :]).unsqueeze(-1)  # (bs, n_tokens, n_tokens, 1)
             pair_repr = pair_repr * pair_mask
 
         return token_repr, pair_repr

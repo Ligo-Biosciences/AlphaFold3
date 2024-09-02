@@ -1,3 +1,17 @@
+# Copyright 2024 Ligo Biosciences Corp.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """AlphaFold3 model implementation."""
 import torch
 from torch import nn
@@ -145,26 +159,6 @@ class AlphaFold3(nn.Module):
         )
         return s, z
 
-    def _disable_activation_checkpointing(self):
-        # self.template_embedder.template_pair_stack.blocks_per_ckpt = None
-        self.pairformer.blocks_per_ckpt = None
-        self.msa_module.blocks_per_ckpt = None
-        self.diffusion_module.blocks_per_ckpt = None
-
-    def _enable_activation_checkpointing(self):
-        # self.template_embedder.template_pair_stack.blocks_per_ckpt = (
-        #    self.config.template.template_pair_stack.blocks_per_ckpt
-        # )
-        self.pairformer.blocks_per_ckpt = (
-            self.config.pairformer_stack.blocks_per_ckpt
-        )
-        self.msa_module.blocks_per_ckpt = (
-            self.config.msa_module.blocks_per_ckpt
-        )
-        self.diffusion_module.blocks_per_ckpt = (
-            self.config.diffusion_module.blocks_per_ckpt
-        )
-
     def run_confidence_head(
             self,
             batch: Dict[str, Tensor],
@@ -220,7 +214,7 @@ class AlphaFold3(nn.Module):
 
                 # Token-wise features
                 "residue_index" ([*, N_token]):
-                    Residue number in the token’s original input chain.
+                    Residue number in the token's original input chain.
                 "token_index" ([*, N_token]):
                     Token number. Increases monotonically; does not restart at 1 for
                     new chains.
@@ -257,7 +251,7 @@ class AlphaFold3(nn.Module):
                     Charge for each atom in the reference conformer.
                 "ref_atom_name_chars" ([*, N_atom, 4, 64]):
                     One-hot encoding of the unique atom names in the reference conformer.
-                    Each character is encoded as ord(c) − 32, and names are padded to length 4.
+                    Each character is encoded as ord(c) - 32, and names are padded to length 4.
                 "ref_space_uid" ([*, N_atom]):
                     Numerical encoding of the chain id and residue index associated with this
                     reference conformer. Each (chain id, residue index) tuple is assigned an
@@ -380,7 +374,7 @@ class AlphaFold3(nn.Module):
         # Run heads
         outputs["distogram_logits"] = self.distogram_head.forward(z)
 
-        # Run confidence head with stop-gradient  # TODO: there is a bug in the confidence head
+        # Run confidence head with stop-gradient 
         # confidences = self.run_confidence_head(
         #    batch=batch,
         #    atom_positions=sampled_positions,

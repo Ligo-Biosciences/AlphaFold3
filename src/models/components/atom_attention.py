@@ -1,3 +1,28 @@
+# Copyright 2024 Ligo Biosciences Corp.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""
+This module includes PyTorch-native implementation of the atom attention components. 
+
+We make optimizations to reduce memory usage from quadratic to linear by partitioning the atom pair representation
+into local windows, never materializing the full N_atoms x N_atoms matrix. However, our experiments showed that 
+this resulted in a small memory efficiency gain despite adding considerable clutter and complexity. We fall back 
+to the Deepspeed4Science optimized attention kernel; the relevant classes are implemented in the atom_attention_naive.py
+module.
+
+This is not recommended for large scale training. 
+"""
 import torch
 from torch import Tensor
 from torch import nn
@@ -7,10 +32,9 @@ from src.models.components.primitives import AdaLN, Linear, LinearNoBias, Attent
 from torch.nn import LayerNorm
 from src.models.components.transition import ConditionedTransitionBlock
 from einops import rearrange
-from functools import partial
-from src.utils.checkpointing import checkpoint_blocks, get_checkpoint_fn
+from src.utils.block_utils import prep_blocks, forward_with_checkpointing
+from src.utils.checkpointing import get_checkpoint_fn
 checkpoint = get_checkpoint_fn()
-from src.utils.tensor_utils import add
 
 
 def partition_tensor(
@@ -307,7 +331,7 @@ class AtomTransformerBlock(nn.Module):
             mask: Optional[Tensor] = None
     ) -> Tuple[Tensor, Tensor, Tensor]:
         atom_single = atom_single + self.atom_attention(atom_single, atom_proj, atom_pair_local, mask)
-        atom_single = add(atom_single, self.transition(atom_single, atom_proj), inplace=False)
+        atom_single = atom_single + self.transition(atom_single, atom_proj)
         return atom_single, atom_proj, atom_pair_local
 
 
@@ -369,32 +393,6 @@ class AtomTransformer(nn.Module):
              for _ in range(no_blocks)]
         )
 
-    def _prep_blocks(
-            self,
-            atom_single: Tensor,
-            atom_proj: Tensor,
-            atom_pair_local: Tensor,
-            mask: Optional[Tensor] = None,
-    ):
-        """Prepare the input tensors for each AtomTransformerBlock."""
-        blocks = [
-            partial(
-                block,
-                mask=mask,
-            )
-            for block in self.blocks
-        ]
-
-        # Clear CUDA's GPU memory cache between blocks
-        if self.clear_cache_between_blocks:
-            def block_with_cache_clear(block, *args, **kwargs):
-                torch.cuda.empty_cache()
-                return block(*args, **kwargs)
-
-            blocks = [partial(block_with_cache_clear, b) for b in blocks]
-
-        return blocks
-
     def forward(
             self,
             atom_single: Tensor,
@@ -420,20 +418,16 @@ class AtomTransformer(nn.Module):
         # Expand atom_proj for proper broadcasting
         atom_proj = atom_proj.unsqueeze(-3)
 
-        blocks = self._prep_blocks(
-            atom_single=atom_single,
-            atom_proj=atom_proj,
-            atom_pair_local=atom_pair_local,
+        blocks = prep_blocks(
+            self.blocks,
+            clear_cache_between_blocks=self.clear_cache_between_blocks,
             mask=mask,
         )
-        blocks_per_ckpt = self.blocks_per_ckpt
-        if not torch.is_grad_enabled():
-            blocks_per_ckpt = None
 
-        atom_single, atom_proj, atom_pair_local = checkpoint_blocks(
+        atom_single, atom_proj, atom_pair_local = forward_with_checkpointing(
             blocks,
             args=(atom_single, atom_proj, atom_pair_local),
-            blocks_per_ckpt=blocks_per_ckpt,
+            blocks_per_ckpt=self.blocks_per_ckpt,
         )
         return atom_single
 
@@ -558,7 +552,7 @@ class AtomAttentionEncoderOutput(NamedTuple):
     token_single: torch.Tensor  # (bs, n_tokens, c_token)
     atom_single_skip_repr: torch.Tensor  # (bs, n_atoms, c_atom)
     atom_single_skip_proj: torch.Tensor  # (bs, n_atoms, c_atom)
-    atom_pair_skip_repr: torch.Tensor  # (bs, n_atoms // n_queries, n_queries, n_keys, c_atompair)  TODO: local biases
+    atom_pair_skip_repr: torch.Tensor  # (bs, n_atoms // n_queries, n_queries, n_keys, c_atompair)
 
 
 class AtomAttentionEncoder(nn.Module):
@@ -789,6 +783,7 @@ class AtomAttentionEncoder(nn.Module):
             z_trunk: Optional[Tensor] = None,  # (bs, n_tokens, c_trunk_pair)
             noisy_pos: Optional[Tensor] = None,  # (bs, S, n_atoms, 3)
             mask: Optional[Tensor] = None,  # (bs, n_atoms)
+            use_deepspeed_evo_attention: bool = False,
     ) -> AtomAttentionEncoderOutput:
         """Forward pass for the AtomAttentionEncoder module.
         Args:
@@ -838,7 +833,7 @@ class AtomAttentionEncoder(nn.Module):
                     (denoted p_lm in AF3 Supplement)
         """
         # Initialize representations
-        atom_single, atom_single_conditioning = checkpoint(self.init_single_repr, features, s_trunk, noisy_pos)
+        atom_single, atom_single_conditioning = self.init_single_repr(features, s_trunk, noisy_pos)
         local_atom_pair = checkpoint(self.init_pair_repr, features, atom_single_conditioning, z_trunk)
 
         # Cross attention transformer
@@ -935,6 +930,7 @@ class AtomAttentionDecoder(nn.Module):
             atom_pair_skip_repr: Tensor,  # (bs, n_atoms // n_queries, n_queries, n_keys, c_atom)
             tok_idx: Tensor,  # (bs, n_atoms)
             mask: Optional[Tensor] = None,  # (bs, n_atoms)
+            use_deepspeed_evo_attention: bool = False,
     ) -> Tensor:
         """AtomAttentionDecoder. Algorithm 6 in AlphaFold3 supplement.
         Args:
