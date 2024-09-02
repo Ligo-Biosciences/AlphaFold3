@@ -43,7 +43,8 @@ from src.models.components.dropout import DropoutRowwise
 from src.utils.tensor_utils import add, flatten_final_dims
 from functools import partial
 from typing import Dict
-from src.utils.checkpointing import checkpoint_blocks, get_checkpoint_fn
+from src.utils.block_utils import prep_blocks, forward_with_checkpointing
+from src.utils.checkpointing import get_checkpoint_fn
 checkpoint = get_checkpoint_fn()
 
 
@@ -361,10 +362,6 @@ class MSAModule(nn.Module):
             clear_cache_between_blocks:
                 Whether to clear CUDA's GPU memory cache between blocks of the
                 stack. Slows down each block but can reduce fragmentation
-        
-        TODO: MSAModule blocks 3 mysteriously dies (no parameter updates)
-        - msa_module msa stack dies
-        - outer product mean is still learning
         """
         super(MSAModule, self).__init__()
         self.blocks = nn.ModuleList([
@@ -388,36 +385,6 @@ class MSAModule(nn.Module):
         self.proj_s_inputs = LinearNoBias(c_token, c_msa, init='default')
         self.blocks_per_ckpt = blocks_per_ckpt
         self.clear_cache_between_blocks = clear_cache_between_blocks
-
-    def _prep_blocks(
-            self,
-            msa_mask: Optional[Tensor] = None,
-            z_mask: Optional[Tensor] = None,
-            chunk_size: Optional[int] = None,
-            use_deepspeed_evo_attention: bool = False,
-            inplace_safe: bool = False,
-    ):
-        blocks = [
-            partial(
-                block,
-                msa_mask=msa_mask,
-                z_mask=z_mask,
-                chunk_size=chunk_size,
-                use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-                inplace_safe=inplace_safe
-            )
-            for block in self.blocks
-        ]
-
-        # Clear CUDA's GPU memory cache between blocks
-        if self.clear_cache_between_blocks:
-            def block_with_cache_clear(block, *args, **kwargs):
-                torch.cuda.empty_cache()
-                return block(*args, **kwargs)
-
-            blocks = [partial(block_with_cache_clear, b) for b in blocks]
-
-        return blocks
 
     def init_msa_repr(
             self,
@@ -476,25 +443,24 @@ class MSAModule(nn.Module):
         msa_mask = feats["msa_mask"]
 
         # Prep the blocks
-        blocks = self._prep_blocks(
+        blocks = prep_blocks(
+            self.blocks,
+            clear_cache_between_blocks=self.clear_cache_between_blocks,
             msa_mask=msa_mask,
             z_mask=z_mask,
             chunk_size=chunk_size,
             use_deepspeed_evo_attention=use_deepspeed_evo_attention,
             inplace_safe=inplace_safe
         )
-        blocks_per_ckpt = self.blocks_per_ckpt
-        if not torch.is_grad_enabled():
-            blocks_per_ckpt = None
 
         # Initialize the MSA embedding
         m = checkpoint(self.init_msa_repr, feats, s_inputs, msa_mask, inplace_safe)
 
         # Run with grad checkpointing
-        m, z = checkpoint_blocks(
+        m, z = forward_with_checkpointing(
             blocks,
             args=(m, z),
-            blocks_per_ckpt=blocks_per_ckpt,
+            blocks_per_ckpt=self.blocks_per_ckpt,
         )
         return z
 

@@ -97,7 +97,7 @@ class DiffusionConditioning(nn.Module):
         """Diffusion conditioning.
         Args:
             timesteps:
-                [*, S, 1] timestep tensor where S is samples per trunk
+                [*, S, 1] timestep tensor where S is the number of samples per trunk
             features:
                 input feature dictionary for the RelativePositionEncoding containing:
                     "residue_index":
@@ -138,7 +138,7 @@ class DiffusionConditioning(nn.Module):
         # Mask outputs
         if mask is not None:
             token_repr = token_repr * mask[..., None, :, None]
-            pair_mask = (mask[:, :, None] * mask[:, None, :]).unsqueeze(-1)  # (bs, n_tokens, n_tokens, 1)
+            pair_mask = (mask[..., :, None] * mask[..., None, :]).unsqueeze(-1)  # (bs, n_tokens, n_tokens, 1)
             pair_repr = pair_repr * pair_mask
 
         return token_repr, pair_repr

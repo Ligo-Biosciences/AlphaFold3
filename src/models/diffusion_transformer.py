@@ -13,16 +13,13 @@
 # limitations under the License.
 
 """Diffusion transformer attention module."""
-import torch
 from torch import Tensor
 import torch.nn as nn
 from src.models.components.transition import ConditionedTransitionBlock
 from src.models.components.attention_pair_bias import AttentionPairBias
 from typing import Optional
-from functools import partial
 from typing import Tuple
-from src.utils.tensor_utils import add
-from src.utils.checkpointing import checkpoint_blocks
+from src.utils.block_utils import prep_blocks, forward_with_checkpointing
 
 
 class DiffusionTransformerBlock(nn.Module):
@@ -75,6 +72,9 @@ class DiffusionTransformerBlock(nn.Module):
             Returning them here is a bit misleading. Also, saving them between blocks is unnecessary.
         """
         # DISCREPANCY: the residual connection does not exist in the original AlphaFold3 supplementary information. 
+        # The original DiT block design has the residual connections to accelerate convergence, and DeepMind does not
+        # explain why they remove them. We experimented with both and found that the residual connections give better
+        # gradient flow and convergence.
         single_repr = single_repr + self.attention_block(
             single_repr=single_repr,
             single_proj=single_proj,
@@ -82,13 +82,7 @@ class DiffusionTransformerBlock(nn.Module):
             mask=mask,
             use_deepspeed_evo_attention=use_deepspeed_evo_attention
         )
-
-        single_repr = add(
-            single_repr,
-            self.conditioned_transition_block(single_repr, single_proj),
-            inplace=False
-        )
-
+        single_repr = single_repr + self.conditioned_transition_block(single_repr, single_proj)
         return single_repr, single_proj, pair_repr
 
 
@@ -144,33 +138,6 @@ class DiffusionTransformer(nn.Module):
             for _ in range(no_blocks)
         ])
 
-    def _prep_blocks(
-            self,
-            single_repr: Tensor,
-            single_proj: Tensor,
-            pair_repr: Tensor,
-            mask: Optional[Tensor] = None,
-            use_deepspeed_evo_attention: bool = True
-    ):
-        """Prepare the blocks for the forward pass."""
-        blocks = [
-            partial(
-                block,
-                mask=mask,
-                use_deepspeed_evo_attention=use_deepspeed_evo_attention
-            )
-            for block in self.blocks
-        ]
-
-        # Clear CUDA's GPU memory cache between blocks
-        if self.clear_cache_between_blocks:
-            def block_with_cache_clear(block, *args, **kwargs):
-                torch.cuda.empty_cache()
-                return block(*args, **kwargs)
-
-            blocks = [partial(block_with_cache_clear, b) for b in blocks]
-        return blocks
-
     def forward(
             self,
             single_repr: Tensor,  # (*, S, N, c_s)
@@ -180,7 +147,7 @@ class DiffusionTransformer(nn.Module):
             use_deepspeed_evo_attention: bool = True
     ):
         """Forward pass of the DiffusionTransformer module. Algorithm 23 in AlphaFold3 supplement.
-        The DS4Science kernel for MSA row-wise attention is repurposed here for an efficient
+        The DS4Science kernel for MSA row-wise attention is re-purposed here for an efficient
         implementation of attention pair bias. The AttentionPairBias class is used in two
         main model components: the Pairformer and the Diffusion module. The main advantage of the
         kernel is in being able to accommodate a secondary batch-like dimension. In AlphaFold2, this
@@ -202,21 +169,17 @@ class DiffusionTransformer(nn.Module):
             use_deepspeed_evo_attention:
                 Whether to use deepspeed attention or not.
         """
-        blocks = self._prep_blocks(
-            single_repr=single_repr,
-            single_proj=single_proj,
-            pair_repr=pair_repr,
+        blocks = prep_blocks(
+            self.blocks,
             mask=mask,
-            use_deepspeed_evo_attention=use_deepspeed_evo_attention
+            use_deepspeed_evo_attention=use_deepspeed_evo_attention,
+            clear_cache_between_blocks=self.clear_cache_between_blocks
         )
-        blocks_per_ckpt = self.blocks_per_ckpt
-        if not torch.is_grad_enabled():
-            blocks_per_ckpt = None
 
         # Run with grad checkpointing
-        single_repr, single_proj, pair_repr = checkpoint_blocks(
+        single_repr, single_proj, pair_repr = forward_with_checkpointing(
             blocks,
             args=(single_repr, single_proj, pair_repr),
-            blocks_per_ckpt=blocks_per_ckpt,
+            blocks_per_ckpt=self.blocks_per_ckpt
         )
         return single_repr

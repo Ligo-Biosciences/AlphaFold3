@@ -31,8 +31,9 @@ from src.models.components.primitives import Linear, LinearNoBias
 from src.models.components.attention_pair_bias import AttentionPairBias
 from torch.nn import LayerNorm
 from src.models.components.transition import ConditionedTransitionBlock
-from functools import lru_cache, partial
-from src.utils.checkpointing import checkpoint_blocks, get_checkpoint_fn
+from functools import lru_cache
+from src.utils.block_utils import prep_blocks, forward_with_checkpointing
+from src.utils.checkpointing import get_checkpoint_fn
 checkpoint = get_checkpoint_fn()
 
 
@@ -179,35 +180,6 @@ class AtomTransformer(nn.Module):
              for _ in range(no_blocks)]
         )
 
-    def _prep_blocks(
-            self,
-            atom_single: Tensor,
-            atom_proj: Tensor,
-            atom_pair: Tensor,
-            mask: Optional[Tensor] = None,
-            use_deepspeed_evo_attention: bool = True
-    ):
-        """Prepare the input tensors for each AtomTransformerBlock."""
-        blocks = [
-            partial(
-                block,
-                mask=mask,
-                use_deepspeed_evo_attention=use_deepspeed_evo_attention
-            )
-            for block in self.blocks
-        ]
-
-        # Clear CUDA's GPU memory cache between blocks
-        if self.clear_cache_between_blocks:
-            def block_with_cache_clear(block, *args, **kwargs):
-                torch.cuda.empty_cache()
-                return block(*args, **kwargs)
-
-            blocks = [partial(block_with_cache_clear, b) for b in blocks]
-
-        return blocks
-    
-
     def forward(
             self,
             atom_single: Tensor,
@@ -232,21 +204,16 @@ class AtomTransformer(nn.Module):
         # Expand atom_proj for proper broadcasting
         atom_proj = atom_proj.unsqueeze(-3)
 
-        blocks = self._prep_blocks(
-            atom_single=atom_single,
-            atom_proj=atom_proj,
-            atom_pair=atom_pair,
+        blocks = prep_blocks(
+            self.blocks,
             mask=mask,
             use_deepspeed_evo_attention=use_deepspeed_evo_attention
         )
-        blocks_per_ckpt = self.blocks_per_ckpt
-        if not torch.is_grad_enabled():
-            blocks_per_ckpt = None
 
-        atom_single, atom_proj, atom_pair = checkpoint_blocks(
+        atom_single, atom_proj, atom_pair = forward_with_checkpointing(
             blocks,
             args=(atom_single, atom_proj, atom_pair),
-            blocks_per_ckpt=blocks_per_ckpt,
+            blocks_per_ckpt=self.blocks_per_ckpt,
         )
         return atom_single
     

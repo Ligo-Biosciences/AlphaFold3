@@ -41,7 +41,7 @@ from src.models.components.triangular_attention import (
 )
 from src.models.components.attention_pair_bias import AttentionPairBias
 from src.utils.tensor_utils import add
-from src.utils.checkpointing import checkpoint_blocks
+from src.utils.block_utils import prep_blocks, forward_with_checkpointing
 from src.utils.chunk_utils import ChunkSizeTuner, chunk_layer
 
 
@@ -303,38 +303,6 @@ class PairformerStack(nn.Module):
             )
             self.blocks.append(block)
 
-    def _prep_blocks(
-            self,
-            s: Tensor,  # (bs, n_tokens, c_s)
-            z: Tensor,  # (bs, n_tokens, c_z)
-            single_mask: Tensor,  # (bs, n_tokens)
-            pair_mask: Tensor,  # (bs, n_tokens, n_tokens)
-            chunk_size: Optional[int] = None,
-            use_deepspeed_evo_attention: bool = False,
-            inplace_safe: bool = False,
-    ):
-        blocks = [
-            partial(
-                block,
-                single_mask=single_mask,  # (bs, n_tokens)
-                pair_mask=pair_mask,  # (bs, n_tokens, n_tokens)
-                chunk_size=chunk_size,
-                use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-                inplace_safe=inplace_safe,
-            )
-            for block in self.blocks
-        ]
-
-        # Clear CUDA's GPU memory cache between blocks
-        if self.clear_cache_between_blocks:
-            def block_with_cache_clear(block, *args, **kwargs):
-                torch.cuda.empty_cache()
-                return block(*args, **kwargs)
-
-            blocks = [partial(block_with_cache_clear, b) for b in blocks]
-
-        return blocks
-
     def forward(
             self,
             s: Tensor,  # (bs, n_tokens, c_s)
@@ -363,9 +331,9 @@ class PairformerStack(nn.Module):
             inplace_safe:
                 Whether to use inference time inplace operations to save memory.
         """
-        blocks = self._prep_blocks(
-            s=s,  # We are very careful not to create references to these tensors in this function
-            z=z,
+        blocks = prep_blocks(
+            self.blocks,
+            clear_cache_between_blocks=self.clear_cache_between_blocks,
             single_mask=single_mask,
             pair_mask=pair_mask,
             chunk_size=chunk_size,
@@ -373,15 +341,11 @@ class PairformerStack(nn.Module):
             inplace_safe=inplace_safe,
         )
 
-        blocks_per_ckpt = self.blocks_per_ckpt
-        if not torch.is_grad_enabled():
-            blocks_per_ckpt = None
-
         s = s.unsqueeze(-3)  # Add N_seq dimension as N_seq=1
-        s, z = checkpoint_blocks(
+        s, z = forward_with_checkpointing(
             blocks,
             args=(s, z),
-            blocks_per_ckpt=blocks_per_ckpt,
+            blocks_per_ckpt=self.blocks_per_ckpt,
         )
         s = s.squeeze(-3)  # Remove singleton N_seq dimension
         return s, z

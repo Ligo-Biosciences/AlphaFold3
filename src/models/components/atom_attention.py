@@ -32,9 +32,8 @@ from src.models.components.primitives import AdaLN, Linear, LinearNoBias, Attent
 from torch.nn import LayerNorm
 from src.models.components.transition import ConditionedTransitionBlock
 from einops import rearrange
-from functools import partial
-from src.utils.tensor_utils import add
-from src.utils.checkpointing import checkpoint_blocks, get_checkpoint_fn
+from src.utils.block_utils import prep_blocks, forward_with_checkpointing
+from src.utils.checkpointing import get_checkpoint_fn
 checkpoint = get_checkpoint_fn()
 
 
@@ -394,32 +393,6 @@ class AtomTransformer(nn.Module):
              for _ in range(no_blocks)]
         )
 
-    def _prep_blocks(
-            self,
-            atom_single: Tensor,
-            atom_proj: Tensor,
-            atom_pair_local: Tensor,
-            mask: Optional[Tensor] = None,
-    ):
-        """Prepare the input tensors for each AtomTransformerBlock."""
-        blocks = [
-            partial(
-                block,
-                mask=mask,
-            )
-            for block in self.blocks
-        ]
-
-        # Clear CUDA's GPU memory cache between blocks
-        if self.clear_cache_between_blocks:
-            def block_with_cache_clear(block, *args, **kwargs):
-                torch.cuda.empty_cache()
-                return block(*args, **kwargs)
-
-            blocks = [partial(block_with_cache_clear, b) for b in blocks]
-
-        return blocks
-
     def forward(
             self,
             atom_single: Tensor,
@@ -445,20 +418,16 @@ class AtomTransformer(nn.Module):
         # Expand atom_proj for proper broadcasting
         atom_proj = atom_proj.unsqueeze(-3)
 
-        blocks = self._prep_blocks(
-            atom_single=atom_single,
-            atom_proj=atom_proj,
-            atom_pair_local=atom_pair_local,
+        blocks = prep_blocks(
+            self.blocks,
+            clear_cache_between_blocks=self.clear_cache_between_blocks,
             mask=mask,
         )
-        blocks_per_ckpt = self.blocks_per_ckpt
-        if not torch.is_grad_enabled():
-            blocks_per_ckpt = None
 
-        atom_single, atom_proj, atom_pair_local = checkpoint_blocks(
+        atom_single, atom_proj, atom_pair_local = forward_with_checkpointing(
             blocks,
             args=(atom_single, atom_proj, atom_pair_local),
-            blocks_per_ckpt=blocks_per_ckpt,
+            blocks_per_ckpt=self.blocks_per_ckpt,
         )
         return atom_single
 
