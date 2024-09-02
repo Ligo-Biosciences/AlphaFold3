@@ -374,7 +374,7 @@ class DiffusionModule(torch.nn.Module):
         # Create samples_per_trunk noisy versions of the ground truth atoms
         timesteps = sample_noise_level((batch_size, samples_per_trunk, 1), device=device, dtype=dtype)
         ground_truth_atoms = Vec3Array.from_array(  # expand to (bs, S, n_atoms, 3)
-            ground_truth_atoms.unsqueeze(-3).expand(-1, -1, samples_per_trunk, n_atoms, 3)
+            ground_truth_atoms.unsqueeze(-3).expand(ground_truth_atoms.shape[:-2] + (samples_per_trunk, n_atoms, 3))
         )
 
         # Randomly rotate each replica of the ground truth atoms
