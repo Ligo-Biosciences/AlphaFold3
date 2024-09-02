@@ -1,54 +1,6 @@
-_target_: src.models.proteus_module.ProteusLitModule
-
 defaults:
-  - optimizer: fused_adam
-  - scheduler: alphafold3_lr
-  - loss: proteus_loss
+  - proteus
 
 model:
-  _target_: src.models.proteus_module.Proteus
   diffusion_module:
-    _target_: src.models.diffusion_module.DiffusionModule
-    c_atom: 128
-    c_atompair: 16
-    c_token: 384
-    c_tokenpair: 128
-    atom_encoder_blocks: 3
-    atom_encoder_heads: 16
-    dropout: 0.0
-    atom_attention_n_queries: 32
-    atom_attention_n_keys: 128
-    atom_decoder_blocks: 3
-    atom_decoder_heads: 16
     token_transformer_blocks: 24
-    token_transformer_heads: 16
-    clear_cache_between_blocks: false
-
-  feature_embedder:
-    _target_: src.models.embedders.ProteusFeatureEmbedder
-    c_token: 384
-    c_atom: 128
-    c_atompair: 16
-    c_trunk_pair: 128
-    no_blocks: 3
-    no_heads: 4
-    dropout: 0.0
-    n_queries: 32
-    n_keys: 128
-
-# Exponential moving average decay for the model weights
-ema_decay: 0.999
-
-# compile model for faster training with pytorch 2.0
-compile: false
-
-# internal precision of float32 matrix multiplications. "high" or "medium" will utilize Tensor cores
-matmul_precision: "high"
-
-globals:
-  chunk_size: null  # 4
-  # Use DeepSpeed memory-efficient attention kernel in supported modules.
-  use_deepspeed_evo_attention: true
-  samples_per_trunk: 48  # Number of diffusion module replicas per trunk
-  rollout_samples_per_trunk: 1  # Number of mini rollouts per trunk
-  eps: 0.00000001

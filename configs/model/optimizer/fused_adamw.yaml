@@ -1,7 +1,6 @@
 # FusedAdam optimizer
 defaults:
-  - adam
+  - adamw
 
 _target_: deepspeed.ops.adam.FusedAdam
 adam_w_mode: true
-weight_decay: 1e-3

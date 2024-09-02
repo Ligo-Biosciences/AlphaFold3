@@ -9,18 +9,3 @@ precision: 'bf16-mixed' # 'bf16-true' # 'transformer-engine', 'transformer-engin
 
 # DeepSpeedStrategy
 strategy: "ddp"  # fsdp
-  # _target_: lightning.pytorch.strategies.DeepSpeedStrategy
-
-  # ZeRO optimization
-  # zero_optimization: True
-  # stage: 2
-  # offload_optimizer: False
-  # offload_optimizer_device: "cpu"
-  # contiguous_gradients: True
-
-  # Activation Checkpointing
-  # partition_activations: False
-  # cpu_checkpointing: False
-
-# Gradient accumulation
-accumulate_grad_batches: 1

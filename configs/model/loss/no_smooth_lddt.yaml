@@ -2,6 +2,6 @@
 defaults:
   - alphafold3_loss
 
-# Override specific values
+# Override smooth LDDT weight
 smooth_lddt_loss:
-  weight: 0.08
+  weight: 0.0
