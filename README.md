@@ -4,6 +4,13 @@
 ## Introduction
 This is Ligo's open-source implementation of AlphaFold3, an ongoing research project aimed at advancing open-source biomolecular structure prediction. This repository is in its early stages and is intended to accelerate progress towards a faithful, fully open-source implementation of AlphaFold3. 
 
+## Demo Video
+
+We find that the model training dynamics are quite fast. The following video is a sample from a model trained for 4,000 steps on 8 A100 GPUs for 10 hours without templates. 
+
+![AlphaFold3 Sample](media/AlphaFold3-sample-4_000-steps-training.gif)
+
+Animation credits: [Matthew Clark](https://batisio.co.uk/)
 
 ## Acknowledgments
 This project would not have been possible without the contributions of the following projects and individuals:
