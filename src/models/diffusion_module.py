@@ -369,6 +369,7 @@ class DiffusionModule(torch.nn.Module):
         # Grab data about the inputs
         batch_size, n_atoms, _ = ground_truth_atoms.shape
         device, dtype = s_inputs.device, s_inputs.dtype
+        atom_mask = features["atom_mask"]
 
         # Create samples_per_trunk noisy versions of the ground truth atoms
         timesteps = sample_noise_level((batch_size, samples_per_trunk, 1), device=device, dtype=dtype)
@@ -377,7 +378,7 @@ class DiffusionModule(torch.nn.Module):
         )
 
         # Randomly rotate each replica of the ground truth atoms
-        aug_gt_atoms = centre_random_augmentation(ground_truth_atoms)
+        aug_gt_atoms = centre_random_augmentation(ground_truth_atoms, atom_mask)
 
         # Noise the ground truth atoms
         noisy_atoms = noise_positions(aug_gt_atoms, timesteps)
@@ -484,6 +485,7 @@ class DiffusionModule(torch.nn.Module):
         # Grab data about the input
         batch_size, n_atoms, _ = features["ref_pos"].shape
         dtype, device = s_inputs.dtype, s_inputs.device
+        atom_mask = features["atom_mask"]
 
         # Create the noise schedule with float64 dtype to prevent numerical issues
         t = torch.linspace(0, 1, n_steps, device=device, dtype=torch.float64).unsqueeze(-1)  # (n_steps, 1)
@@ -496,7 +498,7 @@ class DiffusionModule(torch.nn.Module):
 
         for i in range(1, n_steps):
             # Centre random augmentation
-            x_l = centre_random_augmentation(x_l)
+            x_l = centre_random_augmentation(x_l, atom_mask)
 
             c_step = noise_schedule[i]
             prev_step = noise_schedule[i - 1]
