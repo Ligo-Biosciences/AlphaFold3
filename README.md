@@ -108,6 +108,18 @@ If you use this code in your research, please cite the following papers:
 	journal = {bioRxiv}
 }
 ```
+
+```bibtex
+@article{kozlova_2023_proteinflow,
+  author = {Kozlova, Elizaveta and Valentin, Arthur and Khadhraoui, Aous and Gutierrez, Daniel Nakhaee-Zadeh},
+  month = {09},
+  title = {ProteinFlow: a Python Library to Pre-Process Protein Structure Data for Deep Learning Applications},
+  doi = {https://doi.org/10.1101/2023.09.25.559346},
+  year = {2023},
+  journal = {bioRxiv}
+}
+```
+
 ```bibtex
 @misc{ahdritz2023openproteinset,
       title={{O}pen{P}rotein{S}et: {T}raining data for structural biology at scale}, 
