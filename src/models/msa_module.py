@@ -84,7 +84,7 @@ class MSAPairWeightedAveraging(nn.Module):
         )
 
         # Output projection
-        self.output_proj = LinearNoBias(no_heads * c_hidden, c_msa, init='default')  # final
+        self.output_proj = LinearNoBias(no_heads * c_hidden, c_msa, init='final')
 
         self.softmax = nn.Softmax(dim=-2)
 
