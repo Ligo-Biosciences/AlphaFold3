@@ -157,4 +157,4 @@ If you use this code in your research, please cite the following papers:
 
 ## License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache License 2.0 - see the [LICENSE](https://github.com/Ligo-Biosciences/AlphaFold3/blob/main/LICENSE.txt) file for details.
