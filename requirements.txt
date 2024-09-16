@@ -11,6 +11,7 @@ torchmetrics~=1.4.1
 # --------- kernels --------- #
 deepspeed~=0.14.4  # works in Colab
 einops~=0.8.0
+triton~=3.0.0
 # flash-attn~=2.6.3
 
 # --------- hydra --------- #
@@ -30,6 +31,7 @@ rootutils~=1.0.7
 pre-commit      # hooks for applying linters on commit
 rich~=13.7.0
 pytest~=8.0.0
+matplotlib
 tree~=0.2.4
 dm-tree~=0.1.8
 # sh            # for running bash commands in some tests (linux/macos only)
