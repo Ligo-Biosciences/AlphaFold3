@@ -58,7 +58,7 @@ Despite these optimisations, our profiling experiments show that over 60% of the
 
 [@alexzhang13](https://github.com/alexzhang13) implemented a custom MSA pair weighted averaging kernel in Triton that is fast and memory-efficient. 
 
-- We had observed that one of the key memory bottlnecks is the MSA pair weighted averaging operation. The AlphaFold3 paper states that this operation replaces the MSARowAttentionWithPairBias operation with a "cheaper" pair weighted averaging, but implementing this naively in PyTorch results in 4x increase in memory usage compared to the Deepspeed4Science MSARowAttentionWithPairBias kernel. We hypothesized that this was due to the memory efficiency gains from the tiling and recomputation tricks in FlashAttention, which is also incorporated into the Deepspeed4Science MSARowAttentionWithPairBias kernel. 
+- We had observed that one of the key memory bottlenecks is the MSA pair weighted averaging operation. The AlphaFold3 paper states that this operation replaces the MSARowAttentionWithPairBias operation with a "cheaper" pair weighted averaging, but implementing this naively in PyTorch results in 4x increase in memory usage compared to the Deepspeed4Science MSARowAttentionWithPairBias kernel. We hypothesized that this was due to the memory efficiency gains from the tiling and recomputation tricks in FlashAttention, which is also incorporated into the Deepspeed4Science MSARowAttentionWithPairBias kernel. 
 - A naive implementation of the pair weighted averaging allocates a (*, N_seq, N_res, N_res, heads, c_hidden) intermediate tensor, which is too large to fit in GPU memory for even moderately long sequences. 
 - Alex's kernel allows scaling the network to thousands of tokens on a single GPU!
 
