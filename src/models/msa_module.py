@@ -128,6 +128,8 @@ class MSAPairWeightedAveraging(nn.Module):
                 [*, N_seq, N_res] MSA mask
             z_mask:
                 [*, N_res, N_res] pair mask
+            use_triton_kernel: 
+                bool whether to use Triton version of kernel
         Returns:
             [*, N_seq, N_res, C_m] updated MSA representation
         """
