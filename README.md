@@ -23,6 +23,8 @@ This project would not have been possible without the contributions of the follo
 
 - The ProteinFlow library (https://github.com/adaptyvbio/ProteinFlow), especially the architect of ProteinFlow, Liza Kozlova ([@elkoz](https://github.com/elkoz)), who has been an absolute hero throughout this process. We trained most of our prototype models on ProteinFlow, since it provides a clean and well-documented data pipeline for working with protein data. We have partnered with AdaptyvBio to build the data pipeline of AlphaFold3 based on ProteinFlow that includes full ligand and nucleic acid support. [@elkoz](https://github.com/elkoz) and [@igor-krawczuk](https://github.com/igor-krawczuk) are building the next release of ProteinFlow to include full support for these data modalities.
 
+- [@alexzhang13](https://github.com/alexzhang13) for his custom MSA pair weighted averaging kernel in Triton, which is over 10x more memory efficient than the PyTorch implementation for longer sequences. This removes a critical scaling bottleneck for training on larger sequences. A huge thank you to Alex for his contributions to this project!
+
 
 ## Project Status
 
@@ -52,6 +54,20 @@ A significant focus of this implementation has been on optimising the model comp
 
 - We observed that a naive implementation of the Diffusion Module in PyTorch frequently ran out of memory since the Diffusion Module is replicated 48 times per batch. To solve this issue, we re-purpose the MSARowAttentionWithPairBias kernel from Deepspeed4Science to implement a memory-efficient version of the Diffusion Module, treating the batch replicas with different noise levels as an additional batch dimension. For the AtomAttentionEncoder and AtomAttentionDecoder modules, we experimented with a custom PyTorch-native implementation to reduce the memory footprint from quadratic to linear, but the benefits were not that significant compared to a naive re-purposing of the AttentionPairBias kernel. We include both implementations in the repository, but use the naive implementation for the sake of reducing clutter.
 Despite these optimisations, our profiling experiments show that over 60% of the model's operations are memory-bound. We are working on a far more efficient and scalable implementation using the ideas of [ScaleFold](https://paperswithcode.com/paper/scalefold-reducing-alphafold-initial-training), which will allow us to reach the training scale of the original AlphaFold3. 
+### MSA Pair Averaging Efficiency
+
+[@alexzhang13](https://github.com/alexzhang13) implemented a custom MSA pair weighted averaging kernel in Triton that is fast and memory-efficient. 
+
+- We had observed that one of the key memory bottlnecks is the MSA pair weighted averaging operation. The AlphaFold3 paper states that this operation replaces the MSARowAttentionWithPairBias operation with a "cheaper" pair weighted averaging, but implementing this naively in PyTorch results in 4x increase in memory usage compared to the Deepspeed4Science MSARowAttentionWithPairBias kernel. We hypothesized that this was due to the memory efficiency gains from the tiling and recomputation tricks in FlashAttention, which is also incorporated into the Deepspeed4Science MSARowAttentionWithPairBias kernel. 
+- A naive implementation of the pair weighted averaging allocates a (*, N_seq, N_res, N_res, heads, c_hidden) intermediate tensor, which is too large to fit in GPU memory for even moderately long sequences. 
+- Alex's kernel allows scaling the network to thousands of tokens on a single GPU!
+
+#### PyTorch vs. Triton Kernel Memory Usage
+![MSA Triton Kernel Memory](media/MSA-Triton-Kernel-Memory.png)
+
+#### PyTorch vs. Triton Kernel Runtime
+![MSA Triton Kernel Runtime](media/MSA-Triton-Kernel-Runtime.jpg)
+
 
 
 ## Getting Started

@@ -33,6 +33,7 @@ possible about the proteins or nucleic acids as it forms the backbone for the re
 import torch
 from torch import Tensor
 from torch import nn
+from torch.nn import functional as F
 from typing import Optional
 from torch.nn import LayerNorm
 from src.models.components.primitives import LinearNoBias
@@ -65,7 +66,6 @@ class MSAWeightedAveragingNaive(nn.Module):
         weights = weights.unsqueeze(-4).unsqueeze(-1)  # (*, 1, res, res, heads, 1)
         o = F.sigmoid(g) * torch.sum(v * weights, dim=-3)  # (*, seq, res, heads, c_hidden)
         o = flatten_final_dims(o, 2)
-        
         return o
 
 
@@ -193,7 +193,8 @@ class MSAStack(nn.Module):
             z: Tensor,
             msa_mask: Optional[Tensor] = None,
             z_mask: Optional[Tensor] = None,
-            inplace_safe: bool = False
+            inplace_safe: bool = False,
+            use_triton_kernel: bool = False,
     ) -> Tensor:
         """
         Args:
@@ -217,7 +218,8 @@ class MSAStack(nn.Module):
                     m=m,
                     z=z,
                     msa_mask=msa_mask,
-                    z_mask=z_mask
+                    z_mask=z_mask,
+                    use_triton_kernel=use_triton_kernel
                 )
             ),
             inplace=inplace_safe
@@ -275,6 +277,7 @@ class MSAModuleBlock(nn.Module):
             z_mask: Tensor,
             chunk_size: Optional[int] = None,
             use_deepspeed_evo_attention: bool = False,
+            use_triton_kernel: bool = False,
             inplace_safe: bool = False,
     ):
         """
@@ -309,7 +312,8 @@ class MSAModuleBlock(nn.Module):
             z=z,
             msa_mask=msa_mask,
             z_mask=z_mask,
-            inplace_safe=inplace_safe
+            inplace_safe=inplace_safe,
+            use_triton_kernel=use_triton_kernel
         )
 
         # Communication
@@ -440,6 +444,7 @@ class MSAModule(nn.Module):
             z_mask: Optional[Tensor] = None,
             chunk_size: Optional[int] = None,
             use_deepspeed_evo_attention: bool = False,
+            use_triton_kernel: bool = False,
             inplace_safe: bool = False,
     ) -> Tensor:
         """
@@ -460,6 +465,8 @@ class MSAModule(nn.Module):
                 chunk size
             use_deepspeed_evo_attention:
                 whether to use Deepspeed's optimized kernels for attention
+            use_triton_kernel:
+                whether to use the Triton kernel for the pair weighted averaging
             inplace_safe:
                 whether to perform ops inplace
         """
@@ -474,7 +481,8 @@ class MSAModule(nn.Module):
             z_mask=z_mask,
             chunk_size=chunk_size,
             use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-            inplace_safe=inplace_safe
+            inplace_safe=inplace_safe,
+            use_triton_kernel=use_triton_kernel
         )
 
         # Initialize the MSA embedding

@@ -143,6 +143,7 @@ class AlphaFold3(nn.Module):
                     z_mask=pair_mask,
                     chunk_size=self.globals.chunk_size,
                     use_deepspeed_evo_attention=self.globals.use_deepspeed_evo_attention,
+                    use_triton_kernel=self.globals.use_triton_kernel,
                     inplace_safe=inplace_safe
                 ),
                 inplace=inplace_safe
