@@ -36,6 +36,7 @@ from torch import nn
 from typing import Optional
 from torch.nn import LayerNorm
 from src.models.components.primitives import LinearNoBias
+from src.models.components.msa_kernel import MSAWeightedAveragingFused  
 from src.models.pairformer import PairStack
 from src.models.components.outer_product_mean import OuterProductMean
 from src.models.components.transition import Transition
@@ -46,6 +47,26 @@ from typing import Dict
 from src.utils.block_utils import prep_blocks, forward_with_checkpointing
 from src.utils.checkpointing import get_checkpoint_fn
 checkpoint = get_checkpoint_fn()
+
+
+class MSAWeightedAveragingNaive(nn.Module):
+    def __init__(self, no_heads: int, c_hidden: int):
+        super(MSAWeightedAveragingNaive, self).__init__()
+        self.no_heads = no_heads
+        self.c_hidden = c_hidden
+        self.softmax = nn.Softmax(dim=-2)
+    
+    def forward(self, v, b, g, n_seq, n_res):
+        new_v_shape = (v.shape[:-4] + (n_seq, n_res, n_res, self.no_heads, self.c_hidden))
+        v = v.unsqueeze(-4).expand(new_v_shape)  # (*, seq, res, res, heads, c_hidden)
+
+        # Weighted average with gating
+        weights = self.softmax(b)
+        weights = weights.unsqueeze(-4).unsqueeze(-1)  # (*, 1, res, res, heads, 1)
+        o = F.sigmoid(g) * torch.sum(v * weights, dim=-3)  # (*, seq, res, heads, c_hidden)
+        o = flatten_final_dims(o, 2)
+        
+        return o
 
 
 class MSAPairWeightedAveraging(nn.Module):
@@ -74,7 +95,6 @@ class MSAPairWeightedAveraging(nn.Module):
         self.to_gamma = nn.Sequential(
             LinearNoBias(c_msa, c_hidden * no_heads, init='gating'),
             split_heads,  # split the heads
-            nn.Sigmoid()
         )
 
         # Pair
@@ -85,15 +105,18 @@ class MSAPairWeightedAveraging(nn.Module):
 
         # Output projection
         self.output_proj = LinearNoBias(no_heads * c_hidden, c_msa, init='final')
-
-        self.softmax = nn.Softmax(dim=-2)
+        
+        # Naive MSA
+        self.msa = MSAWeightedAveragingNaive(no_heads, c_hidden)
+        
 
     def forward(
             self,
             m: Tensor,
             z: Tensor,
             msa_mask: Optional[Tensor] = None,
-            z_mask: Optional[Tensor] = None
+            z_mask: Optional[Tensor] = None,
+            use_triton_kernel: bool = False,
     ) -> Tensor:
         """
         Args:
@@ -126,16 +149,15 @@ class MSAPairWeightedAveraging(nn.Module):
 
         if msa_mask is not None:
             v = v * msa_mask.unsqueeze(-1).unsqueeze(-1)
-        new_v_shape = (v.shape[:-4] + (n_seq, n_res, n_res, self.no_heads, self.c_hidden))
-        v = v.unsqueeze(-4).expand(new_v_shape)  # (*, seq, res, res, heads, c_hidden)
-
-        # Weighted average with gating
-        weights = self.softmax(b)
-        weights = weights.unsqueeze(-4).unsqueeze(-1)  # (*, 1, res, res, heads, 1)
-        o = g * torch.sum(v * weights, dim=-3)  # (*, seq, res, heads, c_hidden)
+            
+        if use_triton_kernel:
+            o = MSAWeightedAveragingFused(v, b, g)
+        else:
+            o = self.msa(v, b, g, n_seq, n_res)
 
         # Output projection
-        output = self.output_proj(flatten_final_dims(o, 2))  # (*, seq, res, c_hidden * heads)
+        output = self.output_proj(o)
+        
         return output
 
 
