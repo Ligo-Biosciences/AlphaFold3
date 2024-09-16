@@ -1,5 +1,5 @@
 # --------- base --------- #
-packaging~=23.2
+packaging~=24.1
 absl-py
 
 # --------- pytorch --------- #
