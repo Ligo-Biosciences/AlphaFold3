@@ -25,7 +25,7 @@ from src.common import residue_constants as rc
 from src.utils.geometry.rigid_matrix_vector import Rigid3Array
 from src.utils.geometry.rotation_matrix import Rot3Array
 from src.utils.geometry.vector import Vec3Array
-from src.utils.rigid_utils import Rigids, Rotations
+from src.utils.rigid_utils import Rigid, Rotation
 from src.utils.tensor_utils import (
     tree_map,
     tensor_tree_map,
