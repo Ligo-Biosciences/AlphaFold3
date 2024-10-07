@@ -29,7 +29,7 @@ wandb
 # --------- others --------- #
 rootutils~=1.0.7
 pre-commit      # hooks for applying linters on commit
-rich~=13.7.0
+rich~=13.9.2
 pytest~=8.0.0
 matplotlib
 tree~=0.2.4
